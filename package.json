@@ -4,12 +4,13 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview",
-    "backup": "git add . && git commit -m 'Auto backup before edit' && git push"
-  },
+  "dev": "vite",
+  "build": "tsc && vite build",
+  "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+  "preview": "vite preview",
+  "backup": "git add . && git commit -m 'Auto backup before edit' && git push",
+  "start:dev": "npm run backup && npm run dev"
+},
   "dependencies": {
     "@supabase/supabase-js": "^2.80.0",
     "lucide-react": "^0.552.0",
