@@ -6,7 +6,7 @@ import { Input } from '../../../components/ui/Input';
 
 export const Login: React.FC = () => {
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, user, loading: authLoading } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showRedirectOverlay, setShowRedirectOverlay] = useState(false);
@@ -17,6 +17,35 @@ export const Login: React.FC = () => {
     email: '',
     password: '',
   });
+
+  // Check if user is already authenticated and redirect
+  useEffect(() => {
+    const checkSession = async () => {
+      // Wait for auth to finish loading
+      if (authLoading) return;
+
+      // If user is already authenticated, redirect to dashboard
+      if (user) {
+        navigate('/dashboard', { replace: true });
+        return;
+      }
+
+      // Also check Supabase session directly as a fallback
+      try {
+        const { data: { session } } = await authService.getSession();
+        if (session?.user) {
+          navigate('/dashboard', { replace: true });
+        }
+      } catch (err) {
+        // Session check failed, user is not authenticated
+        // This is normal, just show the login form
+        console.log('No session found, showing login page');
+      }
+    };
+
+    checkSession();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, authLoading]); // navigate is stable, can be omitted
 
   // Handle overlay fade-in animation
   useEffect(() => {
@@ -86,6 +115,20 @@ export const Login: React.FC = () => {
       }
     }
   };
+
+  // Show loading state while checking authentication
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-4 pt-[96px] pb-20 relative overflow-hidden bg-[#0B0F28]">
+        <div className="absolute top-0 left-0 w-96 h-96 bg-[#6366F1]/10 rounded-full blur-3xl" />
+        <div className="absolute bottom-0 right-0 w-96 h-96 bg-[#8B5CF6]/10 rounded-full blur-3xl" />
+        <div className="relative z-10 text-center">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-[#8B5CF6] mb-4"></div>
+          <p className="text-[#E5E7EB]/70">Checking authentication...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4 pt-[96px] pb-20 relative overflow-hidden bg-[#0B0F28]">

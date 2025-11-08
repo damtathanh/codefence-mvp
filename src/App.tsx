@@ -1,6 +1,6 @@
 import React from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider, ProtectedRoute, Login, Register, ForgotPassword, ResetPassword, VerifyEmail } from "./features/auth";
+import { AuthProvider, ProtectedRoute, Login, Register, ForgotPassword, ResetPassword, VerifyEmail, AuthCallback } from "./features/auth";
 import { 
   ScrollToTop, 
   Header, 
@@ -90,6 +90,9 @@ function App() {
             <AutoLogoutWrapper />
 
         <Routes>
+          {/* Auth callback route - must be outside PublicLayout to handle redirects properly */}
+          <Route path="/auth/callback" element={<AuthCallback />} />
+
           {/* Public routes */}
           <Route path="/*" element={<PublicLayout />} />
 

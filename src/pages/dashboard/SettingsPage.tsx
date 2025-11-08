@@ -58,119 +58,180 @@ export const SettingsPage: React.FC = () => {
     }
   }, [profile, user, profileLoading]);
 
-  // Helper function to refresh session
-  const refreshSession = async (): Promise<boolean> => {
-    try {
-      const { data, error } = await supabase.auth.refreshSession();
-      if (error) {
-        console.error('Session refresh error:', error);
-        return false;
-      }
-      return !!data?.session;
-    } catch (err) {
-      console.error('Error refreshing session:', err);
+  // Safe session refresh function that checks for session before refreshing
+  const ensureValidSession = async (): Promise<boolean> => {
+    const { data, error } = await supabase.auth.getSession();
+    if (error || !data.session) {
+      console.warn('Session expired or missing');
       return false;
     }
+    return true;
   };
 
   const handleProfileUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
+    
+    // Validate user is authenticated
+    if (!user?.id) {
+      showError('User not authenticated. Please log in again.');
+      return;
+    }
 
     setSaving(true);
-    let retryCount = 0;
-    const maxRetries = 1;
 
-    const attemptUpdate = async (): Promise<void> => {
-      try {
-        // Refresh session before update
-        const sessionRefreshed = await refreshSession();
-        if (!sessionRefreshed && retryCount === 0) {
-          showInfo('Refreshing session...');
+    try {
+      // Ensure we have a valid session before making database calls
+      const hasValidSession = await ensureValidSession();
+      
+      if (!hasValidSession) {
+        // Double-check session one more time
+        const { data: sessionCheck } = await supabase.auth.getSession();
+        if (!sessionCheck?.session) {
+          showError('Session expired. Please log out and log in again.');
+          setSaving(false);
+          return;
         }
+      }
 
-      // Prepare update data - always include full_name and phone (even if empty)
+      // Verify session one more time before proceeding
+      const { data: finalSessionCheck, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !finalSessionCheck?.session) {
+        showError('Session expired. Please log out and log in again.');
+        setSaving(false);
+        return;
+      }
+
+      // Prepare update data - set to null if empty string
       const updateData: { full_name?: string | null; phone?: string | null } = {
         full_name: profileData.full_name.trim() || null,
         phone: profileData.phone.trim() || null,
       };
 
-        // Update profile using .update()
-        let { data, error } = await supabase
-          .from('users_profile')
-          .update(updateData)
-          .eq('id', user.id)
-          .select('email, full_name, phone, company_name, role')
-          .single();
+      // Try to update existing profile first
+      let { data, error } = await supabase
+        .from('users_profile')
+        .update(updateData)
+        .eq('id', user.id)
+        .select('id, email, full_name, phone, company_name, role')
+        .single();
 
-        // If update fails because record doesn't exist, create it with upsert
-        if (error && error.code === 'PGRST116') {
-          console.log('Profile not found, creating new profile...');
-          const { data: upsertData, error: upsertError } = await supabase
-            .from('users_profile')
-            .upsert({
-              id: user.id,
-              email: user.email || '',
-              ...updateData,
-            }, { onConflict: 'id' })
-            .select('email, full_name, phone, company_name, role')
-            .single();
-          
-          data = upsertData;
-          error = upsertError;
-        }
-
-        if (error) {
-          // Check if it's a JWT/authentication error
-          if (error.message.includes('JWT') || error.message.includes('expired') || error.message.includes('token') || error.message.includes('sub claim')) {
-            if (retryCount < maxRetries) {
-              retryCount++;
-              showInfo('Session expired. Refreshing and retrying...');
-              // Wait a bit before retry
-              await new Promise(resolve => setTimeout(resolve, 500));
-              // Force refresh session
-              await refreshSession();
-              return attemptUpdate();
-            } else {
-              showError('Session expired. Please log out and log back in.');
-              setSaving(false);
-              return;
-            }
-          }
-          
-          console.error('Error updating profile:', error);
-          showError(`Failed to update profile: ${error.message || 'Please try again.'}`);
+      // If profile doesn't exist (PGRST116 = no rows returned), create it
+      if (error && error.code === 'PGRST116') {
+        console.log('Profile not found, creating new profile...');
+        
+        // Ensure we still have a valid session before inserting
+        const { data: insertSessionCheck } = await supabase.auth.getSession();
+        if (!insertSessionCheck?.session) {
+          showError('Session expired during operation. Please log in again.');
           setSaving(false);
           return;
         }
 
-        if (data) {
-          // Refresh profile from hook
-          await refreshProfile();
+        // Insert new profile
+        const { data: insertData, error: insertError } = await supabase
+          .from('users_profile')
+          .insert({
+            id: user.id,
+            email: user.email || '',
+            full_name: updateData.full_name,
+            phone: updateData.phone,
+            company_name: 'CodFence',
+            role: (user.email === 'admin@codfence.com' || 
+                   user.email === 'contact@codfence.com') ? 'admin' : 'user',
+          })
+          .select('id, email, full_name, phone, company_name, role')
+          .single();
+        
+        if (insertError) {
+          console.error('Error creating profile:', insertError);
           
-          // Dispatch custom event to notify Header to refresh
-          window.dispatchEvent(new CustomEvent('profileUpdated'));
-          
-          showSuccess('Profile updated successfully!');
-          setSaving(false);
-        } else {
-          showError('Profile updated but no data returned. Please refresh the page.');
-          setSaving(false);
-        }
-      } catch (err: any) {
-        console.error('Error updating profile:', err);
-        if (retryCount < maxRetries && (err?.message?.includes('JWT') || err?.message?.includes('expired'))) {
-          retryCount++;
-          showInfo('Retrying after session refresh...');
-          await refreshSession();
-          return attemptUpdate();
-        }
-        showError('Failed to update profile. Please try again.');
-        setSaving(false);
-      }
-    };
+          // Handle RLS errors
+          if (insertError.message.includes('row-level security') || 
+              insertError.message.includes('policy') ||
+              insertError.code === '42501') {
+            showError('Permission denied. Please ensure you are logged in and try again.');
+            setSaving(false);
+            return;
+          }
 
-    await attemptUpdate();
+          // Handle auth errors
+          if (insertError.message.includes('JWT') || 
+              insertError.message.includes('expired') || 
+              insertError.message.includes('token') ||
+              insertError.message.includes('AuthSessionMissingError') ||
+              insertError.message.includes('session missing')) {
+            showError('Session expired. Please log out and log in again.');
+            setSaving(false);
+            return;
+          }
+
+          showError(`Failed to create profile: ${insertError.message}`);
+          setSaving(false);
+          return;
+        }
+        
+        data = insertData;
+        error = null;
+      }
+
+      // Handle update errors
+      if (error) {
+        console.error('Error updating profile:', error);
+        
+        // Check for RLS policy violation
+        if (error.message.includes('row-level security') || 
+            error.message.includes('policy') ||
+            error.code === '42501') {
+          showError('Permission denied. Please ensure you are logged in and try again.');
+          setSaving(false);
+          return;
+        }
+
+        // Check for authentication errors
+        if (error.message.includes('JWT') || 
+            error.message.includes('expired') || 
+            error.message.includes('token') || 
+            error.message.includes('sub claim') ||
+            error.message.includes('AuthSessionMissingError') ||
+            error.message.includes('session missing') ||
+            error.code === '401') {
+          showError('Session expired. Please log out and log in again.');
+          setSaving(false);
+          return;
+        }
+
+        showError(`Failed to update profile: ${error.message || 'Unknown error'}`);
+        setSaving(false);
+        return;
+      }
+
+      // Success: Profile updated or created
+      if (data) {
+        // Refresh profile from hook to update UI
+        await refreshProfile();
+        
+        // Dispatch custom event to notify Header component to refresh
+        window.dispatchEvent(new CustomEvent('profileUpdated'));
+        
+        showSuccess('Profile updated successfully!');
+      } else {
+        showError('Profile update completed but no data returned.');
+      }
+    } catch (err: any) {
+      console.error('Unexpected error updating profile:', err);
+      
+      // Handle AuthSessionMissingError specifically
+      if (err?.message?.includes('AuthSessionMissingError') || 
+          err?.message?.includes('session missing')) {
+        showError('Session expired. Please log out and log in again.');
+        setSaving(false);
+        return;
+      }
+
+      showError(`Failed to update profile: ${err?.message || 'Please try again.'}`);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handlePasswordUpdate = async (e: React.FormEvent) => {
@@ -192,36 +253,32 @@ export const SettingsPage: React.FC = () => {
 
     const attemptPasswordUpdate = async (): Promise<void> => {
       try {
-        // Refresh session to prevent JWT expiry errors
-        const sessionRefreshed = await refreshSession();
+        // Ensure valid session before updating password
+        const hasValidSession = await ensureValidSession();
         
-        if (!sessionRefreshed) {
-          if (retryCount < maxRetries) {
-            retryCount++;
-            showInfo('Refreshing session...');
-            await new Promise(resolve => setTimeout(resolve, 500));
-            return attemptPasswordUpdate();
-          } else {
-            showError('Session expired. Please log out and log back in, then try again.');
-            setUpdatingPassword(false);
-            return;
+        if (!hasValidSession) {
+          // Double-check session
+          const { data: sessionData } = await supabase.auth.getSession();
+          if (!sessionData?.session) {
+            if (retryCount < maxRetries) {
+              retryCount++;
+              showInfo('No active session. Please wait...');
+              await new Promise(resolve => setTimeout(resolve, 500));
+              return attemptPasswordUpdate();
+            } else {
+              showError('Session expired. Please log out and log in again.');
+              setUpdatingPassword(false);
+              return;
+            }
           }
         }
 
-        // Verify we have a valid session
-        const { data: sessionData } = await supabase.auth.getSession();
-        if (!sessionData?.session) {
-          if (retryCount < maxRetries) {
-            retryCount++;
-            showInfo('No active session. Refreshing...');
-            await refreshSession();
-            await new Promise(resolve => setTimeout(resolve, 500));
-            return attemptPasswordUpdate();
-          } else {
-            showError('No active session found. Please log out and log back in.');
-            setUpdatingPassword(false);
-            return;
-          }
+        // Verify we have a valid session one more time
+        const { data: finalSessionData } = await supabase.auth.getSession();
+        if (!finalSessionData?.session) {
+          showError('Session expired. Please log out and log in again.');
+          setUpdatingPassword(false);
+          return;
         }
 
         // Update password with fresh session
@@ -233,18 +290,15 @@ export const SettingsPage: React.FC = () => {
           console.error('Error updating password:', error);
           
           // Check for JWT/authentication errors
-          if (error.message.includes('JWT') || error.message.includes('expired') || error.message.includes('token') || error.message.includes('sub claim')) {
-            if (retryCount < maxRetries) {
-              retryCount++;
-              showInfo('Session expired. Refreshing and retrying...');
-              await refreshSession();
-              await new Promise(resolve => setTimeout(resolve, 500));
-              return attemptPasswordUpdate();
-            } else {
-              showError('Session expired. Please log out and log back in, then try again.');
-              setUpdatingPassword(false);
-              return;
-            }
+          if (error.message.includes('JWT') || 
+              error.message.includes('expired') || 
+              error.message.includes('token') || 
+              error.message.includes('sub claim') ||
+              error.message.includes('AuthSessionMissingError') ||
+              error.message.includes('session missing')) {
+            showError('Session expired. Please log out and log in again.');
+            setUpdatingPassword(false);
+            return;
           }
           
           showError(error.message || 'Failed to update password. Please try again.');
@@ -256,13 +310,15 @@ export const SettingsPage: React.FC = () => {
         }
       } catch (err: any) {
         console.error('Error updating password:', err);
-        if (retryCount < maxRetries && (err?.message?.includes('JWT') || err?.message?.includes('expired') || err?.message?.includes('sub claim'))) {
-          retryCount++;
-          showInfo('Retrying after session refresh...');
-          await refreshSession();
-          await new Promise(resolve => setTimeout(resolve, 500));
-          return attemptPasswordUpdate();
+        
+        // Handle AuthSessionMissingError
+        if (err?.message?.includes('AuthSessionMissingError') || 
+            err?.message?.includes('session missing')) {
+          showError('Session expired. Please log out and log in again.');
+          setUpdatingPassword(false);
+          return;
         }
+
         showError('Failed to update password. Please try again.');
         setUpdatingPassword(false);
       }

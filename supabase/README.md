@@ -4,7 +4,23 @@ This directory contains SQL migration files for setting up and managing the CodF
 
 ## Migration Files
 
-### `004_fix_profile_loading.sql` ⭐ **LATEST - RUN THIS**
+### `005_fix_profile_update_rls.sql` ⭐ **LATEST - RUN THIS**
+Fixes RLS policy violations when updating user profiles. This migration creates clean, non-recursive RLS policies that allow users to update their own profiles.
+
+**What it does:**
+- Fixes "new row violates row-level security policy" errors
+- Creates clean RLS policies for SELECT, UPDATE, and INSERT
+- Ensures users can update their own profile (full_name, phone)
+- Allows users to create their own profile if it doesn't exist
+- Admins can view all profiles (non-recursive check)
+- Properly handles `auth.uid() = id` checks for security
+
+**Run this migration if:**
+- Seeing "row-level security policy" errors when updating profile
+- Profile update fails with permission denied errors
+- Need to fix RLS policies for users_profile table
+
+### `004_fix_profile_loading.sql`
 Fixes "Failed to load profile" errors and ensures authenticated users can read & update their profiles.
 
 **What it does:**
@@ -90,9 +106,10 @@ psql -h your-db-host -U postgres -d postgres -f supabase/migrations/000_initial_
 
 **Recommended:** Run migrations in order:
 1. `002_unified_users_profile.sql` ⭐ (creates unified structure)
-2. `004_fix_profile_loading.sql` ⭐ **RUN THIS** (fixes profile loading and RLS issues)
+2. `004_fix_profile_loading.sql` (fixes profile loading and RLS issues)
+3. `005_fix_profile_update_rls.sql` ⭐ **RUN THIS** (fixes profile update RLS policy violations)
 
-**Note:** If you've already run `003_fix_rls_and_triggers.sql`, you can still run `004` - it will cleanly reset everything.
+**Note:** Migration `005` is the latest and fixes the RLS policy issue that prevents profile updates. It can be run after any of the previous migrations to fix the update permission issue.
 
 **Note:** Migration `002_unified_users_profile.sql` is standalone and includes everything you need. It will:
 - Drop the old `user_roles` table (if it exists)

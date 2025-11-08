@@ -1,4 +1,5 @@
 // src/features/auth/hooks/useAuth.tsx
+import { supabase } from '../../../lib/supabaseClient';
 import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
 import type { User, AuthError } from '@supabase/supabase-js';
 import { authService } from '../services/authService';
@@ -25,14 +26,42 @@ interface AuthProviderProps {
 const saveUserToStorage = (user: User | null, token?: string) => {
   if (user) {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        id: user.id,
-        email: user.email,
-        name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
-        avatar: user.user_metadata?.avatar_url || null,
-      }));
+      // ✅ 1. Save custom app-level auth info
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          id: user.id,
+          email: user.email,
+          name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
+          avatar: user.user_metadata?.avatar_url || null,
+        })
+      );
+
+      // ✅ 2. Save CodFence token (legacy)
       if (token) {
         localStorage.setItem(STORAGE_TOKEN_KEY, token);
+      }
+
+      // ✅ 3. Also sync Supabase SDK session key
+      if (token) {
+        const projectRef = 'jetpllxiqbtigpxqnphm'; // change if Supabase project ref changes
+        const sbKey = `sb-${projectRef}-auth-token`;
+
+        // store in Supabase SDK format so supabase.auth.getSession() works
+        localStorage.setItem(
+          sbKey,
+          JSON.stringify({
+            currentSession: {
+              access_token: token,
+              token_type: 'bearer',
+              user: {
+                id: user.id,
+                email: user.email,
+              },
+            },
+            expiresAt: Math.floor(Date.now() / 1000) + 3600, // 1h
+          })
+        );
       }
     } catch (error) {
       console.error('Error saving user to localStorage:', error);
@@ -65,12 +94,21 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         const restoreResult = await authService.restoreSession();
         
         if (restoreResult.data?.session?.user && isMounted) {
-          setUser(restoreResult.data.session.user);
-          saveUserToStorage(restoreResult.data.session.user, restoreResult.data.session.access_token);
+          const restoredSession = restoreResult.data.session;
+        
+          setUser(restoredSession.user);
+          saveUserToStorage(restoredSession.user, restoredSession.access_token);
           lastSessionCheck = Date.now();
+        
+          // ✅ Sync Supabase global session
+          await supabase.auth.setSession({
+            access_token: restoredSession.access_token,
+            refresh_token: restoredSession.refresh_token,
+          });
+        
           setLoading(false);
           return;
-        }
+        }        
         
         // Step 2: Get current session from Supabase
         const { data: { session } } = await authService.getSession();
@@ -218,54 +256,102 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const login = async (email: string, password: string): Promise<{ error: AuthError | null }> => {
     try {
-      // Mark that we're logging in
       justLoggedInRef.current = true;
-      
+  
       const result = await authService.login(email, password);
       if (!result.error) {
-        // Wait a moment for session to be established
         await new Promise(resolve => setTimeout(resolve, 100));
-        
-        // Get the session after successful login
         const { data: { session }, error: sessionError } = await authService.getSession();
-        
-        if (sessionError) {
-          console.error('Error getting session after login:', sessionError);
-          // Don't return error - the auth state change listener will handle it
-        }
-        
+  
+        if (sessionError) console.error('Error getting session after login:', sessionError);
+  
         if (session?.user) {
           setUser(session.user);
-          // Save to localStorage
           saveUserToStorage(session.user, session.access_token);
-          // Reset flag after successful login (increased timeout)
+  
+          try {
+            await supabase.auth.setSession({
+              access_token: session.access_token,
+              refresh_token: session.refresh_token || 'mhldnxu5lbqd',
+            });
+            console.log('✅ Supabase SDK session restored manually');
+  
+            // ✅ Sync into the key that Supabase actually reads
+            const projectRef = 'jetpllxiqbtigpxqnphm';
+            const sbKey = `sb-${projectRef}-auth-token`;
+            localStorage.setItem(
+              sbKey,
+              JSON.stringify({
+                currentSession: session,
+                expiresAt: session.expires_at,
+              })
+            );
+          } catch (err) {
+            console.error('❌ Failed to set Supabase session manually:', err);
+          }
+  
           setTimeout(() => {
             justLoggedInRef.current = false;
           }, 5000);
         } else {
-          // Session might not be ready yet, wait a bit more and retry
+          // Retry if session not ready
           await new Promise(resolve => setTimeout(resolve, 300));
           const { data: { session: retrySession } } = await authService.getSession();
+  
           if (retrySession?.user) {
             setUser(retrySession.user);
             saveUserToStorage(retrySession.user, retrySession.access_token);
+  
+            try {
+              await supabase.auth.setSession({
+                access_token: retrySession.access_token,
+                refresh_token: retrySession.refresh_token || 'mhldnxu5lbqd',
+              });
+              console.log('✅ Supabase SDK session restored (retry)');
+  
+              const projectRef = 'jetpllxiqbtigpxqnphm';
+              const sbKey = `sb-${projectRef}-auth-token`;
+              localStorage.setItem(
+                sbKey,
+                JSON.stringify({
+                  currentSession: retrySession,
+                  expiresAt: retrySession.expires_at,
+                })
+              );
+            } catch (err) {
+              console.error('❌ Retry failed to set Supabase session:', err);
+            }
+  
             setTimeout(() => {
               justLoggedInRef.current = false;
             }, 5000);
           } else {
-            // Try to restore from localStorage as last resort
+            // Restore from localStorage as last resort
             const restoreResult = await authService.restoreSession();
             if (restoreResult.data?.session?.user) {
-              setUser(restoreResult.data.session.user);
-              saveUserToStorage(restoreResult.data.session.user, restoreResult.data.session.access_token);
-              setTimeout(() => {
-                justLoggedInRef.current = false;
-              }, 5000);
+              const s = restoreResult.data.session;
+              setUser(s.user);
+              saveUserToStorage(s.user, s.access_token);
+  
+              await supabase.auth.setSession({
+                access_token: s.access_token,
+                refresh_token: s.refresh_token || 'mhldnxu5lbqd',
+              });
+              console.log('✅ Supabase SDK session restored (from localStorage)');
+  
+              const projectRef = 'jetpllxiqbtigpxqnphm';
+              const sbKey = `sb-${projectRef}-auth-token`;
+              localStorage.setItem(
+                sbKey,
+                JSON.stringify({
+                  currentSession: s,
+                  expiresAt: s.expires_at,
+                })
+              );
             }
           }
         }
       } else {
-        // Login failed, reset flag
         justLoggedInRef.current = false;
       }
       return result;
@@ -274,7 +360,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       return { error: error as AuthError };
     }
   };
-
+  
+  
   const signup = async (email: string, password: string): Promise<{ data: { user: User | null } | null; error: AuthError | null }> => {
     try {
       const result = await authService.signup(email, password);
@@ -283,9 +370,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         const { data: { session } } = await authService.getSession();
         if (session?.user) {
           setUser(session.user);
-          // Save to localStorage
           saveUserToStorage(session.user, session.access_token);
-        }
+        
+          // ✅ Sync Supabase global session
+          await supabase.auth.setSession({
+            access_token: session.access_token,
+            refresh_token: session.refresh_token,
+          });
+        } 
       }
       return result;
     } catch (error) {

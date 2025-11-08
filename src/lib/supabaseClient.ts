@@ -1,19 +1,19 @@
 // src/lib/supabaseClient.ts
-import { createClient } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-const supabaseKey = import.meta.env.VITE_SUPABASE_KEY as string;
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_KEY as string
 
-if (!supabaseUrl || !supabaseKey) {
-  throw new Error('Missing Supabase environment variables.');
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error('Missing Supabase environment variables.')
 }
 
-// Create Supabase client with localStorage for session persistence
-export const supabase = createClient(supabaseUrl, supabaseKey, {
+// ✅ Create Supabase client with full session persistence and auto-refresh
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    storage: typeof window !== 'undefined' ? window.localStorage : undefined,
-    autoRefreshToken: true,
-    persistSession: true,
+    autoRefreshToken: true,  // refresh token automatically
+    persistSession: true,    // keep session after reload
     detectSessionInUrl: true,
+    storage: localStorage,   // 👈 MUST be direct reference, not conditional
   },
-});
+})

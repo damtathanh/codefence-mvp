@@ -14,6 +14,7 @@ export { Register } from './pages/Register';
 export { ForgotPassword } from './pages/ForgotPassword';
 export { ResetPassword } from './pages/ResetPassword';
 export { VerifyEmail } from './pages/VerifyEmail';
+export { AuthCallback } from './pages/AuthCallback';
 
 // Services
 export { authService } from './services/authService';
