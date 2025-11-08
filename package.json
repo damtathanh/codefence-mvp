@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "printf '\\033[33m🚀 Starting Vite dev server...\\033[0m\\n' && vite",
-    "dev:open": "printf '\\033[33m🚀 Starting Vite dev server...\\033[0m\\n' && node scripts/open-browser.cjs & vite",
+    "dev:open": "printf '\\033[33m🚀 Starting Vite dev server...\\033[0m\\n' && node scripts/dev-server.cjs",
     "build": "tsc && vite build",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
