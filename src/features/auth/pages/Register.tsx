@@ -76,23 +76,28 @@ export const Register: React.FC = () => {
     }
 
     if (!error && data?.user?.identities?.length && data.user.identities.length > 0) {
-      // Insert user profile into profiles table
+      // Insert user profile into users_profile table
+      // Note: The trigger will also create a profile, but we can manually insert to ensure all fields are set
       try {
         const { error: profileError } = await supabase
-          .from('profiles')
-          .insert({
+          .from('users_profile')
+          .upsert({
             id: data.user.id,
-            full_name: formData.fullName.trim(),
+            display_name: formData.fullName.trim(),
+            full_name: formData.fullName.trim(), // Also set full_name for compatibility
             phone: formData.phone.trim(),
-            company: formData.company.trim(),
-          });
+            company_name: formData.company.trim(),
+            company: formData.company.trim(), // Also set company for compatibility
+          }, { onConflict: 'id' });
 
         if (profileError) {
           console.error('Error creating profile:', profileError);
           // Still show success for auth, but log profile error
+          // The trigger should have created the profile automatically
         }
       } catch (err) {
         console.error('Error creating profile:', err);
+        // The trigger should have created the profile automatically
       }
 
       setSuccess(true);

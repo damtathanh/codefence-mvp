@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { authService } from '../services/authService';
 import { Input } from '../../../components/ui/Input';
 
 export const Login: React.FC = () => {
@@ -8,17 +9,30 @@ export const Login: React.FC = () => {
   const { login } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
+  const [showRedirectOverlay, setShowRedirectOverlay] = useState(false);
+  const [overlayVisible, setOverlayVisible] = useState(false);
+  const [redirectMessage, setRedirectMessage] = useState('');
+  const [isAdmin, setIsAdmin] = useState(false);
   const [credentials, setCredentials] = useState({
     email: '',
     password: '',
   });
 
+  // Handle overlay fade-in animation
+  useEffect(() => {
+    if (showRedirectOverlay) {
+      // Small delay to trigger fade-in animation
+      setTimeout(() => setOverlayVisible(true), 10);
+    } else {
+      setOverlayVisible(false);
+    }
+  }, [showRedirectOverlay]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
-    setSuccess(false);
+    setShowRedirectOverlay(false);
 
     const { error } = await login(credentials.email, credentials.password);
 
@@ -28,13 +42,49 @@ export const Login: React.FC = () => {
       } else {
         setError(error.message);
       }
+      setLoading(false);
     } else {
-      setSuccess(true);
-      // Don't navigate - just show success message
       // AuthProvider will update user context automatically
-    }
+      
+      // Get the authenticated user's email from the session
+      try {
+        const { data: { session } } = await authService.getSession();
+        const userEmail = session?.user?.email;
+        const admin = userEmail === 'admin@codfence.com';
+        setIsAdmin(admin);
 
-    setLoading(false);
+        // Show overlay with connecting message
+        setRedirectMessage('🔐 Connecting to CodFence...');
+        setOverlayVisible(false);
+        setShowRedirectOverlay(true);
+        setLoading(false);
+
+        // After 500ms, change to redirect message
+        setTimeout(() => {
+          setRedirectMessage('Redirecting to homepage...');
+        }, 500);
+
+        // Redirect after 1 second total - all users go to home page
+        setTimeout(() => {
+          navigate('/');
+        }, 1000);
+      } catch (err) {
+        console.error('Error getting user session:', err);
+        // Fallback: show overlay and redirect to home
+        setRedirectMessage('🔐 Connecting to CodFence...');
+        setOverlayVisible(false);
+        setShowRedirectOverlay(true);
+        setLoading(false);
+        
+        setTimeout(() => {
+          setRedirectMessage('Redirecting to homepage...');
+        }, 500);
+        
+        setTimeout(() => {
+          navigate('/');
+        }, 1000);
+      }
+    }
   };
 
   return (
@@ -104,12 +154,6 @@ export const Login: React.FC = () => {
             {error && (
               <p className="text-red-400 text-center mt-4 text-sm">{error}</p>
             )}
-
-            {success && (
-              <p className="text-green-400 text-center mt-4 text-sm">
-                ✅ Logged in successfully!
-              </p>
-            )}
           </form>
 
           <div className="mt-8 text-center">
@@ -129,6 +173,25 @@ export const Login: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Redirect Overlay */}
+      {showRedirectOverlay && (
+        <div className={`fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-md z-50 transition-opacity duration-700 ease-in-out ${overlayVisible ? 'opacity-100' : 'opacity-0'}`}>
+          <div className={`bg-gradient-to-br from-[#12163A] to-[#181C3B] p-8 rounded-2xl shadow-2xl text-center text-white border border-white/10 max-w-md mx-4 transform transition-all duration-500 ease-out ${overlayVisible ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0'}`}>
+            <div className="mb-4">
+              <div className="w-16 h-16 mx-auto mb-4 border-4 border-[#8B5CF6]/30 border-t-[#8B5CF6] rounded-full animate-spin"></div>
+            </div>
+            <p className="text-xl font-semibold text-[#E5E7EB] transition-all duration-500 ease-in-out">
+              {redirectMessage}
+            </p>
+            <div className="mt-4 flex justify-center space-x-1.5">
+              <div className="w-2 h-2 bg-[#8B5CF6] rounded-full animate-bounce"></div>
+              <div className="w-2 h-2 bg-[#8B5CF6] rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+              <div className="w-2 h-2 bg-[#8B5CF6] rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

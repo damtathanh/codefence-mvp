@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Menu, X, User, Settings, LayoutDashboard, LogOut, ChevronDown } from "lucide-react";
 import { useAuth } from "../features/auth";
@@ -21,35 +21,48 @@ export const Header: React.FC = () => {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [userProfile, setUserProfile] = useState<{ full_name: string | null } | null>(null);
 
-  // Fetch user profile from profiles table
-  useEffect(() => {
-    const fetchUserProfile = async () => {
-      if (user?.id) {
-        try {
-          const { data, error } = await supabase
-            .from('profiles')
-            .select('full_name')
-            .eq('id', user.id)
-            .single();
+  // Fetch user profile from users_profile table
+  const fetchUserProfile = useCallback(async () => {
+    if (user?.id) {
+      try {
+        const { data, error } = await supabase
+          .from('users_profile')
+          .select('display_name, full_name')
+          .eq('id', user.id)
+          .single();
 
-          if (!error && data) {
-            setUserProfile(data);
-          }
-        } catch (error) {
-          console.error('Error fetching user profile:', error);
+        if (!error && data) {
+          // Use display_name or full_name for compatibility
+          setUserProfile({ full_name: data.display_name || data.full_name });
         }
-      } else {
-        setUserProfile(null);
+      } catch (error) {
+        console.error('Error fetching user profile:', error);
       }
+    } else {
+      setUserProfile(null);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    fetchUserProfile();
+  }, [fetchUserProfile]);
+
+  // Listen for profile update events from Settings page
+  useEffect(() => {
+    const handleProfileUpdate = () => {
+      fetchUserProfile();
     };
 
-    fetchUserProfile();
-  }, [user]);
+    window.addEventListener('profileUpdated', handleProfileUpdate);
+    return () => {
+      window.removeEventListener('profileUpdated', handleProfileUpdate);
+    };
+  }, [fetchUserProfile]);
 
   const handleLogout = async () => {
     try {
       await logout();
-      navigate('/');
+      navigate('/login');
       setMobileMenuOpen(false);
       setDropdownOpen(false);
     } catch (error) {
@@ -99,10 +112,11 @@ export const Header: React.FC = () => {
 
   const handleManageDashboard = () => {
     setDropdownOpen(false);
+    // Navigate based on role - requirements specify /admin/dashboard and /user/dashboard
     if (isAdmin()) {
       navigate('/admin/dashboard');
     } else {
-      navigate('/dashboard');
+      navigate('/user/dashboard');
     }
   };
 

@@ -1,10 +1,11 @@
 import React from "react";
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, ProtectedRoute, Login, Register, ForgotPassword, ResetPassword, VerifyEmail } from "./features/auth";
 import { ScrollToTop } from "./components/ScrollToTop";
 import { Header } from "./components/Header";
 import { Footer } from "./components/Footer";
 import { ScrollToSectionHandler } from "./components/ScrollToSectionHandler";
+import { AutoLogoutWrapper } from "./components/AutoLogoutWrapper";
 import { DashboardLayout } from "./components/dashboard/DashboardLayout";
 import { convertHashToQueryRedirect } from "./utils/hashToQueryRedirect";
 import { useRole } from "./hooks/useRole";
@@ -80,6 +81,7 @@ function App() {
       <Router>
         <ScrollToTop />
         <ScrollToSectionHandler />
+        <AutoLogoutWrapper />
 
         <Routes>
           {/* Public routes */}
@@ -102,8 +104,37 @@ function App() {
             <Route path="history" element={<HistoryPage />} />
             <Route path="message" element={<MessagePage />} />
             <Route path="settings" element={<SettingsPage />} />
-            
           </Route>
+
+          {/* Admin dashboard route - redirects to /dashboard (role-based rendering handles the rest) */}
+          <Route
+            path="/admin/dashboard"
+            element={
+              <ProtectedRoute>
+                <Navigate to="/dashboard" replace />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* User dashboard route - redirects to /dashboard (role-based rendering handles the rest) */}
+          <Route
+            path="/user/dashboard"
+            element={
+              <ProtectedRoute>
+                <Navigate to="/dashboard" replace />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Settings route - accessible from header dropdown */}
+          <Route
+            path="/settings"
+            element={
+              <ProtectedRoute>
+                <Navigate to="/dashboard/settings" replace />
+              </ProtectedRoute>
+            }
+          />
         </Routes>
       </Router>
     </AuthProvider>

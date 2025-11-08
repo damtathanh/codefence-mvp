@@ -5,18 +5,27 @@ import { Button } from '../../components/ui/Button';
 import { User, Lock, Shield, Moon, Sun, Monitor } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient';
 import { useAuth } from '../../features/auth';
-import type { UserProfile } from '../../types/supabase';
+
+interface ProfileData {
+  display_name: string | null;
+  full_name?: string | null; // For backward compatibility
+  phone?: string | null;
+  company_name: string | null;
+  company?: string | null; // For backward compatibility
+}
 
 export const SettingsPage: React.FC = () => {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'profile' | 'password' | 'security' | 'theme'>('profile');
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [profileData, setProfileData] = useState({
     display_name: '',
+    phone: '',
     company_name: '',
     email: user?.email || '',
   });
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [profile, setProfile] = useState<ProfileData | null>(null);
   const [passwordData, setPasswordData] = useState({
     current: '',
     new: '',
@@ -25,7 +34,7 @@ export const SettingsPage: React.FC = () => {
   const [twoFAEnabled, setTwoFAEnabled] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('dark');
 
-  // Save theme to localStorage and Supabase, and apply it
+  // Save theme to localStorage and apply it
   const handleThemeChange = async (newTheme: 'light' | 'dark' | 'system') => {
     setTheme(newTheme);
     localStorage.setItem('codfence-theme', newTheme);
@@ -37,24 +46,9 @@ export const SettingsPage: React.FC = () => {
     } else {
       document.documentElement.setAttribute('data-theme', newTheme);
     }
-
-    // Save to Supabase
-    if (user) {
-      try {
-        const { error } = await supabase
-          .from('users_profile')
-          .upsert({
-            id: user.id,
-            theme: newTheme,
-          }, { onConflict: 'id' });
-        if (error) console.error('Error saving theme:', error);
-      } catch (err) {
-        console.error('Error saving theme:', err);
-      }
-    }
   };
 
-  // Load user profile from Supabase
+  // Load user profile from Supabase users_profile table
   useEffect(() => {
     if (!user) return;
     const loadProfile = async () => {
@@ -62,7 +56,7 @@ export const SettingsPage: React.FC = () => {
         setLoading(true);
         const { data, error } = await supabase
           .from('users_profile')
-          .select('*')
+          .select('display_name, full_name, phone, company_name, company')
           .eq('id', user.id)
           .single();
 
@@ -70,22 +64,24 @@ export const SettingsPage: React.FC = () => {
           console.error('Error loading profile:', error);
         } else if (data) {
           setProfile(data);
+          // Use display_name or full_name (for backward compatibility)
+          const displayName = data.display_name || data.full_name || '';
+          // Use company_name or company (for backward compatibility)
+          const companyName = data.company_name || data.company || '';
           setProfileData({
-            display_name: data.display_name || '',
-            company_name: data.company_name || '',
+            display_name: displayName,
+            phone: data.phone || '',
+            company_name: companyName,
             email: user.email || '',
           });
-          if (data.theme) {
-            setTheme(data.theme);
-            // Apply theme without saving (already in DB)
-            localStorage.setItem('codfence-theme', data.theme);
-            if (data.theme === 'system') {
-              const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-              document.documentElement.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
-            } else {
-              document.documentElement.setAttribute('data-theme', data.theme);
-            }
-          }
+        } else {
+          // No profile found, initialize with empty values
+          setProfileData({
+            display_name: '',
+            phone: '',
+            company_name: '',
+            email: user.email || '',
+          });
         }
       } catch (err) {
         console.error('Error loading profile:', err);
@@ -99,10 +95,17 @@ export const SettingsPage: React.FC = () => {
   // Load theme from localStorage on mount (fallback)
   useEffect(() => {
     const savedTheme = localStorage.getItem('codfence-theme') as 'light' | 'dark' | 'system' | null;
-    if (savedTheme && !profile?.theme) {
+    if (savedTheme) {
       setTheme(savedTheme);
+      // Apply theme
+      if (savedTheme === 'system') {
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
+      } else {
+        document.documentElement.setAttribute('data-theme', savedTheme);
+      }
     }
-  }, [profile]);
+  }, []);
 
   // Listen for system theme changes
   useEffect(() => {
@@ -120,31 +123,51 @@ export const SettingsPage: React.FC = () => {
     e.preventDefault();
     if (!user) return;
 
+    setSaving(true);
     try {
       const { error } = await supabase
         .from('users_profile')
         .upsert({
           id: user.id,
-          display_name: profileData.display_name,
-          company_name: profileData.company_name,
+          display_name: profileData.display_name.trim(),
+          full_name: profileData.display_name.trim(), // Also update full_name for compatibility
+          phone: profileData.phone.trim(),
+          // company_name is not updated (read-only)
+          company_name: profile?.company_name || profile?.company || profileData.company_name,
+          company: profile?.company_name || profile?.company || profileData.company_name, // Also update company for compatibility
         }, { onConflict: 'id' });
 
       if (error) {
         console.error('Error updating profile:', error);
         alert('Failed to update profile. Please try again.');
+        setSaving(false);
       } else {
-        alert('Profile updated successfully!');
         // Reload profile
         const { data } = await supabase
           .from('users_profile')
-          .select('*')
+          .select('display_name, full_name, phone, company_name, company')
           .eq('id', user.id)
           .single();
-        if (data) setProfile(data);
+        
+        if (data) {
+          setProfile(data);
+          const companyName = data.company_name || data.company || '';
+          setProfileData({
+            ...profileData,
+            company_name: companyName,
+          });
+        }
+        
+        // Dispatch custom event to notify Header to refresh
+        window.dispatchEvent(new CustomEvent('profileUpdated'));
+        
+        alert('Profile updated successfully!');
+        setSaving(false);
       }
     } catch (err) {
       console.error('Error updating profile:', err);
       alert('Failed to update profile. Please try again.');
+      setSaving(false);
     }
   };
 
@@ -222,26 +245,48 @@ export const SettingsPage: React.FC = () => {
                 <CardTitle>Update Profile</CardTitle>
               </CardHeader>
               <CardContent>
-                <form onSubmit={handleProfileUpdate} className="space-y-4">
-                  <Input
-                    label="Display Name"
-                    value={profileData.display_name}
-                    onChange={(e) => setProfileData({ ...profileData, display_name: e.target.value })}
-                  />
-                  <Input
-                    label="Company Name"
-                    value={profileData.company_name}
-                    onChange={(e) => setProfileData({ ...profileData, company_name: e.target.value })}
-                  />
-                  <Input
-                    label="Email"
-                    type="email"
-                    value={profileData.email}
-                    disabled
-                    className="opacity-60"
-                  />
-                  <Button type="submit">Update Profile</Button>
-                </form>
+                {loading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#8B5CF6]"></div>
+                  </div>
+                ) : (
+                  <form onSubmit={handleProfileUpdate} className="space-y-4">
+                    <Input
+                      label="Full Name"
+                      type="text"
+                      value={profileData.display_name}
+                      onChange={(e) => setProfileData({ ...profileData, display_name: e.target.value })}
+                      placeholder="Enter your full name"
+                      required
+                    />
+                    <Input
+                      label="Phone Number"
+                      type="tel"
+                      value={profileData.phone}
+                      onChange={(e) => setProfileData({ ...profileData, phone: e.target.value })}
+                      placeholder="Enter your phone number"
+                    />
+                    <Input
+                      label="Company Name"
+                      type="text"
+                      value={profileData.company_name}
+                      disabled
+                      className="opacity-60 cursor-not-allowed"
+                      placeholder="Company name (read-only)"
+                    />
+                    <Input
+                      label="Email"
+                      type="email"
+                      value={profileData.email}
+                      disabled
+                      className="opacity-60 cursor-not-allowed"
+                      placeholder="Email (read-only)"
+                    />
+                    <Button type="submit" disabled={saving}>
+                      {saving ? 'Saving...' : 'Save Changes'}
+                    </Button>
+                  </form>
+                )}
               </CardContent>
             </Card>
           )}
