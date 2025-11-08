@@ -5,18 +5,20 @@
 -- triggers don't cause conflicts with profile updates
 -- =====================================================
 
--- Step 1: Disable all triggers temporarily to avoid recursive loops
-ALTER TABLE public.users_profile DISABLE TRIGGER ALL;
-
--- Step 2: Drop existing policies that may be recursive
+-- Step 1: Drop existing policies that may be recursive
+-- Note: We removed the "DISABLE TRIGGER ALL" command because:
+-- 1. System triggers (RI_ConstraintTrigger) cannot be disabled (permission denied)
+-- 2. The trigger on_auth_user_created is on auth.users, not users_profile
+-- 3. We're dropping and recreating the trigger on auth.users anyway (Step 5-7)
+-- 4. No custom triggers exist on users_profile that need disabling
 DROP POLICY IF EXISTS "Users can update their own profile" ON public.users_profile;
 DROP POLICY IF EXISTS "Users can view their own profile" ON public.users_profile;
 DROP POLICY IF EXISTS "Admins can view all profiles" ON public.users_profile;
 
--- Step 3: Enable Row Level Security cleanly
+-- Step 2: Enable Row Level Security cleanly
 ALTER TABLE public.users_profile ENABLE ROW LEVEL SECURITY;
 
--- Step 4: Recreate safe policies (no recursion)
+-- Step 3: Recreate safe policies (no recursion)
 -- Users can view their own profile
 CREATE POLICY "Users can view own profile"
   ON public.users_profile
@@ -51,14 +53,14 @@ CREATE POLICY "Admins can view all profiles"
     )
   );
 
--- Step 5: Ensure authenticated users have necessary permissions
+-- Step 4: Ensure authenticated users have necessary permissions
 GRANT SELECT, INSERT, UPDATE ON public.users_profile TO authenticated;
 
--- Step 6: Drop and recreate the trigger to ensure it's clean
+-- Step 5: Drop and recreate the trigger to ensure it's clean
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 DROP FUNCTION IF EXISTS public.handle_new_user();
 
--- Step 7: Recreate a clean trigger function that matches the unified schema
+-- Step 6: Recreate a clean trigger function that matches the unified schema
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger AS $$
 BEGIN
@@ -86,14 +88,13 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Step 8: Recreate the trigger (only fires on INSERT, not UPDATE)
+-- Step 7: Recreate the trigger (only fires on INSERT, not UPDATE)
+-- Note: This trigger is on auth.users, not users_profile
+-- We drop it first (Step 5) and recreate it here, so no need to disable/enable
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW
   EXECUTE FUNCTION public.handle_new_user();
-
--- Step 9: Re-enable triggers on users_profile
-ALTER TABLE public.users_profile ENABLE TRIGGER ALL;
 
 -- ✅ Done.
 -- The migration:
