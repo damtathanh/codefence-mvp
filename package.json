@@ -5,12 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "printf '\\033[33m🚀 Starting Vite dev server...\\033[0m\\n' && vite",
+    "dev:open": "printf '\\033[33m🚀 Starting Vite dev server...\\033[0m\\n' && node scripts/open-browser.cjs & vite",
     "build": "tsc && vite build",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
     "backup": "printf '\\033[36m🔄 Backing up project to Git...\\033[0m\\n' && git add . && (git diff --staged --quiet && printf '\\033[33m⚠️  No changes to commit\\033[0m\\n' || (git commit -m \"Auto backup before dev - $(date '+%Y-%m-%d %H:%M:%S')\" && printf '\\033[36m   → Changes committed\\033[0m\\n')) && (git push --set-upstream origin main 2>/dev/null || git push origin main 2>/dev/null || printf '\\033[33m⚠️  Git push skipped (no remote or already up to date)\\033[0m\\n') && printf '\\033[32m✅ Backup complete!\\033[0m\\n'",
-    "supabase:sync": "printf '\\033[35m🟣 Syncing Supabase schema...\\033[0m\\n' && printf '\\033[36m   → Logging in to Supabase...\\033[0m\\n' && npx supabase login && printf '\\033[36m   → Linking project...\\033[0m\\n' && npx supabase link --project-ref jetpllxiqbtigpxqnphm && printf '\\033[36m   → Pushing migrations...\\033[0m\\n' && npx supabase db push && printf '\\033[32m✅ Supabase sync complete!\\033[0m\\n'",
-    "start:dev": "printf '\\033[1m\\033[34m╔════════════════════════════════════════╗\\033[0m\\n' && printf '\\033[1m\\033[34m║   🚀 Starting CodFence Dev Environment  ║\\033[0m\\n' && printf '\\033[1m\\033[34m╚════════════════════════════════════════╝\\033[0m\\n' && printf '\\n' && npm run backup && printf '\\n' && npm run supabase:sync && printf '\\n' && printf '\\033[1m\\033[32m✅ All setup complete! Starting dev server...\\033[0m\\n' && printf '\\n' && npm run dev"
+    "supabase:sync": "printf '\\033[35m🟣 Syncing Supabase schema...\\033[0m\\n' && printf '\\033[36m   → Linking project (using cached auth)...\\033[0m\\n' && (npx supabase link --project-ref jetpllxiqbtigpxqnphm 2>/dev/null || printf '\\033[33m⚠️  Project already linked or link failed\\033[0m\\n') && printf '\\033[36m   → Pushing migrations...\\033[0m\\n' && npx supabase db push --non-interactive && printf '\\033[32m✅ Supabase sync complete!\\033[0m\\n'",
+    "start:dev": "printf '\\033[1m\\033[34m╔════════════════════════════════════════╗\\033[0m\\n' && printf '\\033[1m\\033[34m║   🚀 Starting CodFence Dev Environment  ║\\033[0m\\n' && printf '\\033[1m\\033[34m╚════════════════════════════════════════╝\\033[0m\\n' && printf '\\n' && npm run backup && printf '\\n' && npm run supabase:sync && printf '\\n' && printf '\\033[1m\\033[32m✅ All setup complete! Starting dev server...\\033[0m\\n' && printf '\\n' && npm run dev:open"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.80.0",
