@@ -23,16 +23,16 @@ export function useRole() {
         setLoading(true);
         setError(null);
 
-        // ✅ sửa lại user_id thay vì id
+        // Fetch role from unified users_profile table
         const { data, error: fetchError } = await supabase
-          .from('user_roles')
+          .from('users_profile')
           .select('role')
-          .eq('user_id', user.id)
+          .eq('id', user.id)
           .single();
 
         if (fetchError) {
           if (fetchError.code === 'PGRST116') {
-            console.log('No role found for user, defaulting to "user"');
+            console.log('No profile found for user, defaulting to "user"');
             setRole('user');
           } else {
             console.error('Error fetching user role:', fetchError);

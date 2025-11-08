@@ -10,11 +10,22 @@ import { useAuth } from '../features/auth';
  * so it can access navigation and auth context
  */
 export const AutoLogoutWrapper: React.FC = () => {
-  const { isAuthenticated } = useAuth();
-  const { role, loading } = useRole();
+  const { isAuthenticated, user, loading: authLoading } = useAuth();
+  const { role, loading: roleLoading } = useRole();
 
-  // Only enable auto-logout for authenticated users
-  useAutoLogout((role || 'user') as 'admin' | 'user', isAuthenticated && !loading && role !== null);
+  // Only enable auto-logout when:
+  // 1. User is authenticated (has user object)
+  // 2. Auth is not loading
+  // 3. Role is loaded (or default to 'user' if still loading but user exists)
+  const shouldEnableAutoLogout = isAuthenticated && 
+                                  user !== null && 
+                                  !authLoading && 
+                                  (!roleLoading || role !== null);
+
+  // Use 'user' as default role if role is still loading but user is authenticated
+  const userRole = (role || 'user') as 'admin' | 'user';
+
+  useAutoLogout(userRole, shouldEnableAutoLogout);
 
   // This component doesn't render anything
   return null;

@@ -2,7 +2,8 @@ import React, { useEffect, useState, useCallback } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Menu, X, User, Settings, LayoutDashboard, LogOut, ChevronDown } from "lucide-react";
 import { useAuth } from "../features/auth";
-import { supabase } from "../lib/supabaseClient";
+import { useUserProfile } from "../hooks/useUserProfile";
+import { useRole } from "../hooks/useRole";
 
 const navigationItems = [
   { label: "About Us", href: "#about" },
@@ -16,48 +17,23 @@ export const Header: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { isAuthenticated, user, logout } = useAuth();
+  const { profile, loading: profileLoading, refreshProfile } = useUserProfile();
+  const { role } = useRole();
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [userProfile, setUserProfile] = useState<{ full_name: string | null } | null>(null);
-
-  // Fetch user profile from users_profile table
-  const fetchUserProfile = useCallback(async () => {
-    if (user?.id) {
-      try {
-        const { data, error } = await supabase
-          .from('users_profile')
-          .select('display_name, full_name')
-          .eq('id', user.id)
-          .single();
-
-        if (!error && data) {
-          // Use display_name or full_name for compatibility
-          setUserProfile({ full_name: data.display_name || data.full_name });
-        }
-      } catch (error) {
-        console.error('Error fetching user profile:', error);
-      }
-    } else {
-      setUserProfile(null);
-    }
-  }, [user]);
-
-  useEffect(() => {
-    fetchUserProfile();
-  }, [fetchUserProfile]);
 
   // Listen for profile update events from Settings page
   useEffect(() => {
     const handleProfileUpdate = () => {
-      fetchUserProfile();
+      refreshProfile();
     };
 
     window.addEventListener('profileUpdated', handleProfileUpdate);
     return () => {
       window.removeEventListener('profileUpdated', handleProfileUpdate);
     };
-  }, [fetchUserProfile]);
+  }, [refreshProfile]);
 
   const handleLogout = async () => {
     try {
@@ -70,24 +46,22 @@ export const Header: React.FC = () => {
     }
   };
 
-  const isAdmin = () => {
-    return user?.email?.includes('@codfence.com') || false;
-  };
-
   const getUserDisplayName = () => {
-    // If admin, show "Admin"
-    if (isAdmin()) {
-      return 'Admin';
+    // Prioritize full_name from users_profile table
+    if (profile?.full_name) {
+      return profile.full_name;
     }
-    // Prioritize full_name from profiles table
-    if (userProfile?.full_name) {
-      return userProfile.full_name;
+    // Fallback to email from auth user
+    if (user?.email) {
+      return user.email;
     }
-    if (!user?.email) return 'User';
-    return user.email;
+    return 'User';
   };
 
   const getUserAvatar = () => {
+    if (profile?.avatar_url) {
+      return profile.avatar_url;
+    }
     if (user?.user_metadata?.avatar_url) {
       return user.user_metadata.avatar_url;
     }
@@ -96,9 +70,8 @@ export const Header: React.FC = () => {
 
   const getUserInitials = () => {
     const displayName = getUserDisplayName();
-    if (displayName === 'Admin') return 'A';
-    if (userProfile?.full_name) {
-      const names = userProfile.full_name.trim().split(' ');
+    if (profile?.full_name) {
+      const names = profile.full_name.trim().split(' ');
       if (names.length >= 2) {
         return (names[0][0] + names[names.length - 1][0]).toUpperCase();
       }
@@ -111,13 +84,13 @@ export const Header: React.FC = () => {
   };
 
   const handleManageDashboard = () => {
-    setDropdownOpen(false);
-    // Navigate based on role - requirements specify /admin/dashboard and /user/dashboard
-    if (isAdmin()) {
+    if (role === 'admin') {
       navigate('/admin/dashboard');
     } else {
       navigate('/user/dashboard');
     }
+    setDropdownOpen(false);
+    setMobileMenuOpen(false);
   };
 
   useEffect(() => {

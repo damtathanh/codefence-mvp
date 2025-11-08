@@ -4,27 +4,59 @@ This directory contains SQL migration files for setting up and managing the CodF
 
 ## Migration Files
 
-### `000_initial_user_setup.sql`
-The initial migration file that creates the core user tables and auto-sync triggers. This matches the exact specification provided.
+### `004_fix_profile_loading.sql` ⭐ **LATEST - RUN THIS**
+Fixes "Failed to load profile" errors and ensures authenticated users can read & update their profiles.
+
+**What it does:**
+- Fixes profile loading issues in Settings page
+- Resets RLS policies cleanly
+- Ensures authenticated users can read/update their own profiles
+- Auto-creates missing profiles for existing users
+- Prevents trigger recursion issues
+- Uses proper unified schema
+
+**Run this migration if:**
+- Seeing "Failed to load profile" errors
+- Profile updates are failing
+- Settings page can't load user data
+- Existing users don't have profiles
+
+### `003_fix_rls_and_triggers.sql`
+Fixes RLS policies and triggers to prevent recursive loops and ensure profile updates work correctly.
+
+**Note:** Migration `004_fix_profile_loading.sql` includes all fixes from this migration, so you can run `004` directly.
+
+### `002_unified_users_profile.sql` ⭐ **CURRENT**
+The unified migration that creates a single `users_profile` table with role included.
 
 **Tables Created:**
-- `user_roles` - Stores user roles (admin, user)
-- `users_profile` - Stores user profile information
+- `users_profile` - Unified table storing user profile information AND role
 
 **Features:**
-- Automatic role assignment based on email (admin@codfence.com or contact@codfence.com = admin)
+- Automatic role assignment based on email (contact@codfence.com or admin@codfence.com = admin)
 - Automatic profile creation when a new user signs up
 - Trigger-based synchronization with `auth.users`
-
-### `001_create_user_tables.sql`
-An enhanced version of the migration with additional features:
-
-**Additional Features:**
-- Support for both `display_name`/`full_name` and `company_name`/`company` columns (backward compatibility)
-- `phone` column support
 - Row Level Security (RLS) policies
-- `updated_at` timestamp triggers
 - Indexes for performance
+- Role stored directly in `users_profile` table (no separate `user_roles` table)
+
+**Schema:**
+```sql
+- id (uuid, primary key, references auth.users)
+- email (text, unique, not null)
+- full_name (text)
+- phone (text)
+- company_name (text, default 'CodFence')
+- avatar_url (text)
+- role (text, check: 'admin' or 'user', default 'user')
+- created_at (timestamp)
+```
+
+### `000_initial_user_setup.sql` (DEPRECATED)
+⚠️ **This migration is deprecated.** Please use `002_unified_users_profile.sql` instead.
+
+### `001_create_user_tables.sql` (DEPRECATED)
+⚠️ **This migration is deprecated.** Please use `002_unified_users_profile.sql` instead.
 
 ## How to Run Migrations
 
@@ -56,11 +88,16 @@ psql -h your-db-host -U postgres -d postgres -f supabase/migrations/000_initial_
 
 ## Migration Order
 
-Run migrations in this order:
-1. `000_initial_user_setup.sql` (basic setup)
-2. `001_create_user_tables.sql` (enhanced features, optional)
+**Recommended:** Run migrations in order:
+1. `002_unified_users_profile.sql` ⭐ (creates unified structure)
+2. `004_fix_profile_loading.sql` ⭐ **RUN THIS** (fixes profile loading and RLS issues)
 
-**Note:** The enhanced migration (`001_create_user_tables.sql`) includes dropping and recreating tables, so it can be used as a standalone migration if you want all features at once.
+**Note:** If you've already run `003_fix_rls_and_triggers.sql`, you can still run `004` - it will cleanly reset everything.
+
+**Note:** Migration `002_unified_users_profile.sql` is standalone and includes everything you need. It will:
+- Drop the old `user_roles` table (if it exists)
+- Create the new unified `users_profile` table with role included
+- Set up automatic triggers for user synchronization
 
 ## What Happens After Migration
 
@@ -68,9 +105,9 @@ Once the migration is applied:
 
 1. **New User Signup:**
    - When a user signs up through Supabase Auth, the trigger automatically:
-     - Creates a record in `user_roles` table
      - Creates a record in `users_profile` table
-     - Assigns role based on email (admin@codfence.com or contact@codfence.com = admin)
+     - Assigns role based on email (contact@codfence.com or admin@codfence.com = admin, all others = user)
+     - Extracts full_name from user metadata
 
 2. **Existing Users:**
    - If you have existing users, you may need to manually create their profile records
@@ -78,22 +115,24 @@ Once the migration is applied:
 
 ```sql
 -- Backfill existing users (run after migration)
-INSERT INTO public.user_roles (user_id, role)
+INSERT INTO public.users_profile (id, email, full_name, role)
 SELECT 
   id,
+  email,
+  coalesce(
+    raw_user_meta_data->>'full_name',
+    raw_user_meta_data->>'fullName',
+    raw_user_meta_data->>'display_name',
+    split_part(email, '@', 1)
+  ) as full_name,
   CASE 
     WHEN email = 'admin@codfence.com' OR email = 'contact@codfence.com' THEN 'admin'
     ELSE 'user'
   END as role
 FROM auth.users
-ON CONFLICT (user_id) DO NOTHING;
-
-INSERT INTO public.users_profile (id, display_name)
-SELECT 
-  id,
-  coalesce(raw_user_meta_data->>'full_name', split_part(email, '@', 1)) as display_name
-FROM auth.users
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT (id) DO UPDATE SET
+  email = excluded.email,
+  role = excluded.role;
 ```
 
 ## Troubleshooting
@@ -114,21 +153,15 @@ Check that:
 
 ## Schema Reference
 
-### user_roles Table
-- `user_id` (uuid, primary key) - References auth.users(id)
-- `role` (text) - Either 'admin' or 'user'
-- `created_at` (timestamp) - When the role was assigned
-
-### users_profile Table
-- `id` (uuid, primary key) - References auth.users(id)
-- `display_name` (text) - User's display name
-- `full_name` (text, optional) - Full name (for compatibility)
-- `phone` (text, optional) - Phone number
+### users_profile Table (Unified)
+- `id` (uuid, primary key) - References auth.users(id), on delete cascade
+- `email` (text, unique, not null) - User's email address
+- `full_name` (text) - User's full name
+- `phone` (text) - Phone number
 - `company_name` (text) - Company name (default: 'CodFence')
-- `company` (text, optional) - Company (for compatibility)
-- `avatar_url` (text, optional) - Avatar image URL
+- `avatar_url` (text) - Avatar image URL
+- `role` (text) - Either 'admin' or 'user' (default: 'user', check constraint)
 - `created_at` (timestamp) - When the profile was created
-- `updated_at` (timestamp, optional) - When the profile was last updated
 
 ## Security
 

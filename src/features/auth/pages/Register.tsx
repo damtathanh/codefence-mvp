@@ -4,8 +4,9 @@ import { useAuth } from '../hooks/useAuth';
 import { Input } from '../../../components/ui/Input';
 import { supabase } from '../../../lib/supabaseClient';
 
-// SQL to create profiles table if it doesn't exist:
-// create table profiles (id uuid primary key references auth.users, full_name text, phone text, company text, created_at timestamp default now());
+// Note: The users_profile table is automatically created by the migration.
+// The trigger handle_new_user() automatically creates a profile when a user signs up.
+// See supabase/migrations/002_unified_users_profile.sql for the schema.
 
 export const Register: React.FC = () => {
   const navigate = useNavigate();
@@ -83,11 +84,11 @@ export const Register: React.FC = () => {
           .from('users_profile')
           .upsert({
             id: data.user.id,
-            display_name: formData.fullName.trim(),
-            full_name: formData.fullName.trim(), // Also set full_name for compatibility
+            email: data.user.email || formData.email.trim(),
+            full_name: formData.fullName.trim(),
             phone: formData.phone.trim(),
             company_name: formData.company.trim(),
-            company: formData.company.trim(), // Also set company for compatibility
+            // Note: role is automatically set by the trigger based on email
           }, { onConflict: 'id' });
 
         if (profileError) {

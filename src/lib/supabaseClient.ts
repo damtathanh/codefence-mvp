@@ -8,4 +8,12 @@ if (!supabaseUrl || !supabaseKey) {
   throw new Error('Missing Supabase environment variables.');
 }
 
-export const supabase = createClient(supabaseUrl, supabaseKey);
+// Create Supabase client with localStorage for session persistence
+export const supabase = createClient(supabaseUrl, supabaseKey, {
+  auth: {
+    storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: true,
+  },
+});

@@ -1,14 +1,16 @@
 import React from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, ProtectedRoute, Login, Register, ForgotPassword, ResetPassword, VerifyEmail } from "./features/auth";
-import { ScrollToTop } from "./components/ScrollToTop";
-import { Header } from "./components/Header";
-import { Footer } from "./components/Footer";
-import { ScrollToSectionHandler } from "./components/ScrollToSectionHandler";
-import { AutoLogoutWrapper } from "./components/AutoLogoutWrapper";
-import { DashboardLayout } from "./components/dashboard/DashboardLayout";
+import { 
+  ScrollToTop, 
+  Header, 
+  Footer, 
+  ScrollToSectionHandler, 
+  AutoLogoutWrapper,
+  DashboardLayout 
+} from "./components";
 import { convertHashToQueryRedirect } from "./utils/hashToQueryRedirect";
-import { useRole } from "./hooks/useRole";
+import { useRole } from "./hooks";
 import { Home } from "./pages/Home";
 import { Analytics } from "./pages/Analytics";
 import { NotFound } from "./pages/NotFound";
@@ -21,6 +23,8 @@ import { HistoryPage } from "./pages/dashboard/HistoryPage";
 import { MessagePage } from "./pages/dashboard/MessagePage";
 import { SettingsPage } from "./pages/dashboard/SettingsPage";
 import { AdminDashboard } from "./pages/admin/AdminDashboard";
+import { ToastProvider } from "./components/ui";
+import { ThemeProvider } from "./context/ThemeContext";
 
 // Layout wrapper for public routes
 const PublicLayout = () => {
@@ -77,11 +81,13 @@ function App() {
   }, []);
 
   return (
-    <AuthProvider>
-      <Router>
-        <ScrollToTop />
-        <ScrollToSectionHandler />
-        <AutoLogoutWrapper />
+    <ThemeProvider>
+      <ToastProvider>
+        <AuthProvider>
+          <Router>
+            <ScrollToTop />
+            <ScrollToSectionHandler />
+            <AutoLogoutWrapper />
 
         <Routes>
           {/* Public routes */}
@@ -136,8 +142,10 @@ function App() {
             }
           />
         </Routes>
-      </Router>
-    </AuthProvider>
+          </Router>
+        </AuthProvider>
+      </ToastProvider>
+    </ThemeProvider>
   );
 }
 

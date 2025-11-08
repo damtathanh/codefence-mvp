@@ -1,8 +1,9 @@
 -- =====================================================
--- Migration: Create User Tables and Auto-Sync Triggers
+-- Migration: Create User Tables and Auto-Sync Triggers (DEPRECATED)
 -- =====================================================
--- This migration creates user_roles and users_profile tables
--- and sets up automatic synchronization with auth.users
+-- NOTE: This migration is deprecated.
+-- Please use migration 002_unified_users_profile.sql which creates
+-- a unified users_profile table with role included (no separate user_roles table).
 -- =====================================================
 
 -- 1️⃣ Drop existing tables (optional if already exist)

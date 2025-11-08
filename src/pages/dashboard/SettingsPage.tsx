@@ -5,195 +5,275 @@ import { Button } from '../../components/ui/Button';
 import { User, Lock, Shield, Moon, Sun, Monitor } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient';
 import { useAuth } from '../../features/auth';
+import { useToast } from '../../components/ui/Toast';
+import { useTheme } from '../../context/ThemeContext';
+import { useUserProfile } from '../../hooks/useUserProfile';
 
 interface ProfileData {
-  display_name: string | null;
-  full_name?: string | null; // For backward compatibility
-  phone?: string | null;
+  email: string | null;
+  full_name: string | null;
+  phone: string | null;
   company_name: string | null;
-  company?: string | null; // For backward compatibility
+  role?: string | null;
 }
 
 export const SettingsPage: React.FC = () => {
   const { user } = useAuth();
+  const { profile, loading: profileLoading, refreshProfile } = useUserProfile();
+  const { showSuccess, showError, showInfo } = useToast();
+  const { theme, setTheme: setThemeContext } = useTheme();
   const [activeTab, setActiveTab] = useState<'profile' | 'password' | 'security' | 'theme'>('profile');
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [profileData, setProfileData] = useState({
-    display_name: '',
+    full_name: '',
     phone: '',
     company_name: '',
     email: user?.email || '',
   });
-  const [profile, setProfile] = useState<ProfileData | null>(null);
   const [passwordData, setPasswordData] = useState({
     current: '',
     new: '',
     confirm: '',
   });
   const [twoFAEnabled, setTwoFAEnabled] = useState(false);
-  const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('dark');
+  const [updatingPassword, setUpdatingPassword] = useState(false);
 
-  // Save theme to localStorage and apply it
-  const handleThemeChange = async (newTheme: 'light' | 'dark' | 'system') => {
-    setTheme(newTheme);
-    localStorage.setItem('codfence-theme', newTheme);
-    
-    // Apply theme to document
-    if (newTheme === 'system') {
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      document.documentElement.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
-    } else {
-      document.documentElement.setAttribute('data-theme', newTheme);
+  // Update profileData when profile loads
+  useEffect(() => {
+    if (profile) {
+      setProfileData({
+        full_name: profile.full_name || '',
+        phone: profile.phone || '',
+        company_name: profile.company_name || '',
+        email: profile.email || user?.email || '',
+      });
+    } else if (user && !profileLoading) {
+      // Profile doesn't exist yet, initialize with user data
+      setProfileData({
+        full_name: '',
+        phone: '',
+        company_name: '',
+        email: user.email || '',
+      });
+    }
+  }, [profile, user, profileLoading]);
+
+  // Helper function to refresh session
+  const refreshSession = async (): Promise<boolean> => {
+    try {
+      const { data, error } = await supabase.auth.refreshSession();
+      if (error) {
+        console.error('Session refresh error:', error);
+        return false;
+      }
+      return !!data?.session;
+    } catch (err) {
+      console.error('Error refreshing session:', err);
+      return false;
     }
   };
-
-  // Load user profile from Supabase users_profile table
-  useEffect(() => {
-    if (!user) return;
-    const loadProfile = async () => {
-      try {
-        setLoading(true);
-        const { data, error } = await supabase
-          .from('users_profile')
-          .select('display_name, full_name, phone, company_name, company')
-          .eq('id', user.id)
-          .single();
-
-        if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
-          console.error('Error loading profile:', error);
-        } else if (data) {
-          setProfile(data);
-          // Use display_name or full_name (for backward compatibility)
-          const displayName = data.display_name || data.full_name || '';
-          // Use company_name or company (for backward compatibility)
-          const companyName = data.company_name || data.company || '';
-          setProfileData({
-            display_name: displayName,
-            phone: data.phone || '',
-            company_name: companyName,
-            email: user.email || '',
-          });
-        } else {
-          // No profile found, initialize with empty values
-          setProfileData({
-            display_name: '',
-            phone: '',
-            company_name: '',
-            email: user.email || '',
-          });
-        }
-      } catch (err) {
-        console.error('Error loading profile:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadProfile();
-  }, [user]);
-
-  // Load theme from localStorage on mount (fallback)
-  useEffect(() => {
-    const savedTheme = localStorage.getItem('codfence-theme') as 'light' | 'dark' | 'system' | null;
-    if (savedTheme) {
-      setTheme(savedTheme);
-      // Apply theme
-      if (savedTheme === 'system') {
-        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        document.documentElement.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
-      } else {
-        document.documentElement.setAttribute('data-theme', savedTheme);
-      }
-    }
-  }, []);
-
-  // Listen for system theme changes
-  useEffect(() => {
-    if (theme === 'system') {
-      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-      const handleChange = (e: MediaQueryListEvent) => {
-        document.documentElement.setAttribute('data-theme', e.matches ? 'dark' : 'light');
-      };
-      mediaQuery.addEventListener('change', handleChange);
-      return () => mediaQuery.removeEventListener('change', handleChange);
-    }
-  }, [theme]);
 
   const handleProfileUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
 
     setSaving(true);
-    try {
-      const { error } = await supabase
-        .from('users_profile')
-        .upsert({
-          id: user.id,
-          display_name: profileData.display_name.trim(),
-          full_name: profileData.display_name.trim(), // Also update full_name for compatibility
-          phone: profileData.phone.trim(),
-          // company_name is not updated (read-only)
-          company_name: profile?.company_name || profile?.company || profileData.company_name,
-          company: profile?.company_name || profile?.company || profileData.company_name, // Also update company for compatibility
-        }, { onConflict: 'id' });
+    let retryCount = 0;
+    const maxRetries = 1;
 
-      if (error) {
-        console.error('Error updating profile:', error);
-        alert('Failed to update profile. Please try again.');
-        setSaving(false);
-      } else {
-        // Reload profile
-        const { data } = await supabase
-          .from('users_profile')
-          .select('display_name, full_name, phone, company_name, company')
-          .eq('id', user.id)
-          .single();
-        
-        if (data) {
-          setProfile(data);
-          const companyName = data.company_name || data.company || '';
-          setProfileData({
-            ...profileData,
-            company_name: companyName,
-          });
+    const attemptUpdate = async (): Promise<void> => {
+      try {
+        // Refresh session before update
+        const sessionRefreshed = await refreshSession();
+        if (!sessionRefreshed && retryCount === 0) {
+          showInfo('Refreshing session...');
         }
-        
-        // Dispatch custom event to notify Header to refresh
-        window.dispatchEvent(new CustomEvent('profileUpdated'));
-        
-        alert('Profile updated successfully!');
+
+      // Prepare update data - always include full_name and phone (even if empty)
+      const updateData: { full_name?: string | null; phone?: string | null } = {
+        full_name: profileData.full_name.trim() || null,
+        phone: profileData.phone.trim() || null,
+      };
+
+        // Update profile using .update()
+        let { data, error } = await supabase
+          .from('users_profile')
+          .update(updateData)
+          .eq('id', user.id)
+          .select('email, full_name, phone, company_name, role')
+          .single();
+
+        // If update fails because record doesn't exist, create it with upsert
+        if (error && error.code === 'PGRST116') {
+          console.log('Profile not found, creating new profile...');
+          const { data: upsertData, error: upsertError } = await supabase
+            .from('users_profile')
+            .upsert({
+              id: user.id,
+              email: user.email || '',
+              ...updateData,
+            }, { onConflict: 'id' })
+            .select('email, full_name, phone, company_name, role')
+            .single();
+          
+          data = upsertData;
+          error = upsertError;
+        }
+
+        if (error) {
+          // Check if it's a JWT/authentication error
+          if (error.message.includes('JWT') || error.message.includes('expired') || error.message.includes('token') || error.message.includes('sub claim')) {
+            if (retryCount < maxRetries) {
+              retryCount++;
+              showInfo('Session expired. Refreshing and retrying...');
+              // Wait a bit before retry
+              await new Promise(resolve => setTimeout(resolve, 500));
+              // Force refresh session
+              await refreshSession();
+              return attemptUpdate();
+            } else {
+              showError('Session expired. Please log out and log back in.');
+              setSaving(false);
+              return;
+            }
+          }
+          
+          console.error('Error updating profile:', error);
+          showError(`Failed to update profile: ${error.message || 'Please try again.'}`);
+          setSaving(false);
+          return;
+        }
+
+        if (data) {
+          // Refresh profile from hook
+          await refreshProfile();
+          
+          // Dispatch custom event to notify Header to refresh
+          window.dispatchEvent(new CustomEvent('profileUpdated'));
+          
+          showSuccess('Profile updated successfully!');
+          setSaving(false);
+        } else {
+          showError('Profile updated but no data returned. Please refresh the page.');
+          setSaving(false);
+        }
+      } catch (err: any) {
+        console.error('Error updating profile:', err);
+        if (retryCount < maxRetries && (err?.message?.includes('JWT') || err?.message?.includes('expired'))) {
+          retryCount++;
+          showInfo('Retrying after session refresh...');
+          await refreshSession();
+          return attemptUpdate();
+        }
+        showError('Failed to update profile. Please try again.');
         setSaving(false);
       }
-    } catch (err) {
-      console.error('Error updating profile:', err);
-      alert('Failed to update profile. Please try again.');
-      setSaving(false);
-    }
+    };
+
+    await attemptUpdate();
   };
 
   const handlePasswordUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
+    
     if (passwordData.new !== passwordData.confirm) {
-      alert('New passwords do not match!');
+      showError('New passwords do not match!');
       return;
     }
 
-    try {
-      const { error } = await supabase.auth.updateUser({
-        password: passwordData.new,
-      });
-
-      if (error) {
-        console.error('Error updating password:', error);
-        alert(error.message || 'Failed to update password. Please try again.');
-      } else {
-        alert('Password updated successfully!');
-        setPasswordData({ current: '', new: '', confirm: '' });
-      }
-    } catch (err) {
-      console.error('Error updating password:', err);
-      alert('Failed to update password. Please try again.');
+    if (passwordData.new.length < 6) {
+      showError('Password must be at least 6 characters long.');
+      return;
     }
+
+    setUpdatingPassword(true);
+    let retryCount = 0;
+    const maxRetries = 1;
+
+    const attemptPasswordUpdate = async (): Promise<void> => {
+      try {
+        // Refresh session to prevent JWT expiry errors
+        const sessionRefreshed = await refreshSession();
+        
+        if (!sessionRefreshed) {
+          if (retryCount < maxRetries) {
+            retryCount++;
+            showInfo('Refreshing session...');
+            await new Promise(resolve => setTimeout(resolve, 500));
+            return attemptPasswordUpdate();
+          } else {
+            showError('Session expired. Please log out and log back in, then try again.');
+            setUpdatingPassword(false);
+            return;
+          }
+        }
+
+        // Verify we have a valid session
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (!sessionData?.session) {
+          if (retryCount < maxRetries) {
+            retryCount++;
+            showInfo('No active session. Refreshing...');
+            await refreshSession();
+            await new Promise(resolve => setTimeout(resolve, 500));
+            return attemptPasswordUpdate();
+          } else {
+            showError('No active session found. Please log out and log back in.');
+            setUpdatingPassword(false);
+            return;
+          }
+        }
+
+        // Update password with fresh session
+        const { error } = await supabase.auth.updateUser({
+          password: passwordData.new,
+        });
+
+        if (error) {
+          console.error('Error updating password:', error);
+          
+          // Check for JWT/authentication errors
+          if (error.message.includes('JWT') || error.message.includes('expired') || error.message.includes('token') || error.message.includes('sub claim')) {
+            if (retryCount < maxRetries) {
+              retryCount++;
+              showInfo('Session expired. Refreshing and retrying...');
+              await refreshSession();
+              await new Promise(resolve => setTimeout(resolve, 500));
+              return attemptPasswordUpdate();
+            } else {
+              showError('Session expired. Please log out and log back in, then try again.');
+              setUpdatingPassword(false);
+              return;
+            }
+          }
+          
+          showError(error.message || 'Failed to update password. Please try again.');
+          setUpdatingPassword(false);
+        } else {
+          showSuccess('Password updated successfully!');
+          setPasswordData({ current: '', new: '', confirm: '' });
+          setUpdatingPassword(false);
+        }
+      } catch (err: any) {
+        console.error('Error updating password:', err);
+        if (retryCount < maxRetries && (err?.message?.includes('JWT') || err?.message?.includes('expired') || err?.message?.includes('sub claim'))) {
+          retryCount++;
+          showInfo('Retrying after session refresh...');
+          await refreshSession();
+          await new Promise(resolve => setTimeout(resolve, 500));
+          return attemptPasswordUpdate();
+        }
+        showError('Failed to update password. Please try again.');
+        setUpdatingPassword(false);
+      }
+    };
+
+    await attemptPasswordUpdate();
+  };
+
+  const handleThemeChange = (newTheme: 'light' | 'dark' | 'system') => {
+    setThemeContext(newTheme);
+    showSuccess(`Theme changed to ${newTheme}`);
   };
 
   const tabs = [
@@ -245,17 +325,18 @@ export const SettingsPage: React.FC = () => {
                 <CardTitle>Update Profile</CardTitle>
               </CardHeader>
               <CardContent>
-                {loading ? (
+                {profileLoading ? (
                   <div className="flex items-center justify-center py-8">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#8B5CF6]"></div>
+                    <span className="ml-3 text-[#E5E7EB]/70">Loading profile...</span>
                   </div>
                 ) : (
                   <form onSubmit={handleProfileUpdate} className="space-y-4">
                     <Input
                       label="Full Name"
                       type="text"
-                      value={profileData.display_name}
-                      onChange={(e) => setProfileData({ ...profileData, display_name: e.target.value })}
+                      value={profileData.full_name}
+                      onChange={(e) => setProfileData({ ...profileData, full_name: e.target.value })}
                       placeholder="Enter your full name"
                       required
                     />
@@ -317,7 +398,9 @@ export const SettingsPage: React.FC = () => {
                     value={passwordData.confirm}
                     onChange={(e) => setPasswordData({ ...passwordData, confirm: e.target.value })}
                   />
-                  <Button type="submit">Update Password</Button>
+                  <Button type="submit" disabled={updatingPassword}>
+                    {updatingPassword ? 'Updating...' : 'Update Password'}
+                  </Button>
                 </form>
               </CardContent>
             </Card>
@@ -459,7 +542,7 @@ export const SettingsPage: React.FC = () => {
                         <p className="text-sm text-[#E5E7EB]/70">
                           {theme === 'light' && 'Light theme is selected'}
                           {theme === 'dark' && 'Dark theme is selected'}
-                          {theme === 'system' && `System theme is selected (${window.matchMedia('(prefers-color-scheme: dark)').matches ? 'Dark' : 'Light'})`}
+                          {theme === 'system' && `System theme is selected (${typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'Dark' : 'Light'})`}
                         </p>
                       </div>
                       <div className={`p-2 rounded-lg ${
@@ -482,4 +565,3 @@ export const SettingsPage: React.FC = () => {
     </div>
   );
 };
-
