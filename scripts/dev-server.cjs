@@ -46,7 +46,7 @@ if (vite.stdout) {
     const text = chunk.toString();
     process.stdout.write(text);
 
-    // Try to extract URL from Vite output (e.g., "Local: http://localhost:5173/")
+    // Extract URL from Vite output (e.g., "Local: http://localhost:5173/")
     const urlMatch = text.match(/Local:\s*(https?:\/\/[^\s]+)/i);
     if (urlMatch && urlMatch[1] && !browserOpened) {
       openBrowser(urlMatch[1]);
@@ -68,9 +68,30 @@ if (vite.stderr) {
   });
 }
 
+// Handle process errors
+vite.on('error', (error) => {
+  console.error(`❌ Failed to start Vite: ${error.message}`);
+  process.exit(1);
+});
+
+vite.on('close', (code) => {
+  if (code !== null && code !== 0) {
+    console.error(`❌ Vite server exited with code ${code}`);
+  }
+  process.exit(code || 0);
+});
+
 // Cleanup when exiting
 process.on('exit', () => {
   if (vite && !vite.killed) vite.kill('SIGTERM');
 });
-process.on('SIGINT', () => process.exit());
-process.on('SIGTERM', () => process.exit());
+
+process.on('SIGINT', () => {
+  if (vite && !vite.killed) vite.kill('SIGINT');
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  if (vite && !vite.killed) vite.kill('SIGTERM');
+  process.exit(0);
+});
