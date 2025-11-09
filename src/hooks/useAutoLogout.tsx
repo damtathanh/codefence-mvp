@@ -80,16 +80,18 @@ export function useAutoLogout(role: UserRole, enabled: boolean = true) {
       // Sign out from Supabase
       await supabase.auth.signOut();
       
-      // Clear localStorage
+      // Clear auth-related localStorage items
       try {
-        localStorage.clear();
+        localStorage.removeItem('supabase_session');
+        localStorage.removeItem('codfence_auth_user');
+        localStorage.removeItem('codfence_auth_token');
       } catch (error) {
         console.error('Error clearing localStorage:', error);
       }
       
-      // Clear sessionStorage
+      // Clear sessionStorage (marks session as ended)
       try {
-        sessionStorage.clear();
+        sessionStorage.removeItem('codfence_session_start');
       } catch (error) {
         console.error('Error clearing sessionStorage:', error);
       }

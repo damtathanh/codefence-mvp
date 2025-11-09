@@ -3,49 +3,79 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { authService } from '../services/authService';
 import { Input } from '../../../components/ui/Input';
+import { useUserProfile } from '../../../hooks/useUserProfile';
 
 export const Login: React.FC = () => {
   const navigate = useNavigate();
   const { login, user, loading: authLoading } = useAuth();
+  const { refreshProfile } = useUserProfile(); // Refresh profile after login
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showRedirectOverlay, setShowRedirectOverlay] = useState(false);
   const [overlayVisible, setOverlayVisible] = useState(false);
   const [redirectMessage, setRedirectMessage] = useState('');
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [isRedirecting, setIsRedirecting] = useState(false);
+  const justLoggedInRef = React.useRef(false);
   const [credentials, setCredentials] = useState({
     email: '',
     password: '',
   });
 
-  // Check if user is already authenticated and redirect
-  useEffect(() => {
-    const checkSession = async () => {
-      // Wait for auth to finish loading
-      if (authLoading) return;
+  // Check for error message from navigation state (e.g., from ProtectedRoute)
+  React.useEffect(() => {
+    const locationState = (window.history.state as any)?.usr;
+    if (locationState?.error) {
+      setError(locationState.error);
+    }
+  }, []);
 
-      // If user is already authenticated, redirect to dashboard
-      if (user) {
-        navigate('/dashboard', { replace: true });
+  // Monitor user state - redirect when user becomes available
+  // This handles both initial load (user already logged in) and after login
+  useEffect(() => {
+    // Don't run if we're currently processing a login (handled by handleSubmit)
+    if (justLoggedInRef.current) return;
+    
+    // Wait for auth to finish loading
+    if (authLoading) return;
+
+    // If user is already authenticated, redirect to dashboard
+    if (user && !isRedirecting) {
+      setIsRedirecting(true);
+      navigate('/dashboard', { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, authLoading, isRedirecting]); // navigate is stable
+
+  // Handle redirect after login - watch for user state change
+  useEffect(() => {
+    // Only run if we just logged in and user becomes available
+    if (justLoggedInRef.current && user && !isRedirecting) {
+      // ✅ Check if email is verified
+      if (!user.email_confirmed_at) {
+        justLoggedInRef.current = false;
+        setIsRedirecting(false);
+        setError('Email not verified. Please check your inbox and verify your email before logging in.');
+        setLoading(false);
         return;
       }
 
-      // Also check Supabase session directly as a fallback
-      try {
-        const { data: { session } } = await authService.getSession();
-        if (session?.user) {
-          navigate('/dashboard', { replace: true });
-        }
-      } catch (err) {
-        // Session check failed, user is not authenticated
-        // This is normal, just show the login form
-        console.log('No session found, showing login page');
-      }
-    };
-
-    checkSession();
+      setIsRedirecting(true);
+      
+      // Refresh profile to ensure full_name and role are loaded
+      refreshProfile().catch(err => {
+        console.error('Error refreshing profile after login:', err);
+      });
+      
+      // User is now available and verified, redirect to dashboard
+      // Role-based routing will be handled by DashboardRouter
+      navigate('/dashboard', { replace: true });
+      // Clear the flag after redirect
+      setTimeout(() => {
+        justLoggedInRef.current = false;
+      }, 2000);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, authLoading]); // navigate is stable, can be omitted
+  }, [user, isRedirecting]); // navigate is stable
 
   // Handle overlay fade-in animation
   useEffect(() => {
@@ -62,57 +92,59 @@ export const Login: React.FC = () => {
     setLoading(true);
     setError(null);
     setShowRedirectOverlay(false);
+    justLoggedInRef.current = true;
+    setIsRedirecting(true);
 
-    const { error } = await login(credentials.email, credentials.password);
+    try {
+      const { error: loginError } = await login(credentials.email, credentials.password);
 
-    if (error) {
-      if (error.message === 'Invalid login credentials') {
-        setError('Incorrect email or password. Please try again.');
-      } else {
-        setError(error.message);
+      if (loginError) {
+        justLoggedInRef.current = false;
+        setIsRedirecting(false);
+        
+        // Handle specific error cases
+        if (loginError.message === 'Invalid login credentials') {
+          setError('Incorrect email or password. Please try again.');
+        } else if (loginError.name === 'EmailNotVerified' || loginError.message.includes('email not verified') || loginError.message.includes('Email not verified')) {
+          setError('Email not verified. Please check your inbox and click the verification link to verify your email before logging in.');
+        } else {
+          setError(loginError.message);
+        }
+        setLoading(false);
+        return;
       }
+
+      // Login succeeded - AuthContext will update via auth state change listener
+      // Show overlay and wait for user state to be set (handled by useEffect above)
+      setRedirectMessage('🔐 Connecting to CodFence...');
+      setOverlayVisible(false);
+      setShowRedirectOverlay(true);
       setLoading(false);
-    } else {
-      // AuthProvider will update user context automatically
-      
-      // Get the authenticated user's email from the session
-      try {
-        const { data: { session } } = await authService.getSession();
-        const userEmail = session?.user?.email;
-        const admin = userEmail === 'admin@codfence.com';
-        setIsAdmin(admin);
 
-        // Show overlay with connecting message
-        setRedirectMessage('🔐 Connecting to CodFence...');
-        setOverlayVisible(false);
-        setShowRedirectOverlay(true);
-        setLoading(false);
+      // Update message after a short delay
+      setTimeout(() => {
+        setRedirectMessage('Redirecting to dashboard...');
+      }, 500);
 
-        // After 500ms, change to redirect message
-        setTimeout(() => {
-          setRedirectMessage('Redirecting to homepage...');
-        }, 500);
-
-        // Redirect after 1 second total - all users go to home page
-        setTimeout(() => {
-          navigate('/');
-        }, 1000);
-      } catch (err) {
-        console.error('Error getting user session:', err);
-        // Fallback: show overlay and redirect to home
-        setRedirectMessage('🔐 Connecting to CodFence...');
-        setOverlayVisible(false);
-        setShowRedirectOverlay(true);
-        setLoading(false);
-        
-        setTimeout(() => {
-          setRedirectMessage('Redirecting to homepage...');
-        }, 500);
-        
-        setTimeout(() => {
-          navigate('/');
-        }, 1000);
-      }
+      // The redirect will happen automatically when user state updates
+      // (handled by the useEffect that watches for user changes)
+      // If user doesn't become available within 3 seconds, show error
+      setTimeout(() => {
+        if (!user && justLoggedInRef.current) {
+          // User still not available after 3 seconds
+          justLoggedInRef.current = false;
+          setIsRedirecting(false);
+          setShowRedirectOverlay(false);
+          setLoading(false);
+          setError('Login successful, but session is taking longer than expected. Please refresh the page.');
+        }
+      }, 3000);
+    } catch (err) {
+      console.error('Login error:', err);
+      justLoggedInRef.current = false;
+      setIsRedirecting(false);
+      setLoading(false);
+      setError('An error occurred during login. Please try again.');
     }
   };
 

@@ -3,19 +3,35 @@ import { useNavigate } from 'react-router-dom';
 import { authService } from '../services/authService';
 import { supabase } from '../../../lib/supabaseClient';
 import { convertHashToQueryRedirect } from '../../../utils/hashToQueryRedirect';
+import { useAuth } from '../hooks/useAuth';
 
 export const VerifyEmail: React.FC = () => {
   const navigate = useNavigate();
+  const { user, loading: authLoading } = useAuth();
   const [loading, setLoading] = useState(true);
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [verified, setVerified] = useState(false);
+
+  // Priority 1: If user is already authenticated via AuthContext, redirect immediately
+  useEffect(() => {
+    if (authLoading) return; // Wait for auth to finish loading
+
+    if (user) {
+      // User is already authenticated, redirect to dashboard immediately
+      navigate('/dashboard', { replace: true });
+      return;
+    }
+  }, [user, authLoading, navigate]);
 
   useEffect(() => {
     if (convertHashToQueryRedirect()) return;
   }, []);
 
   useEffect(() => {
+    // Don't run verification if user is already authenticated
+    if (user || authLoading) return;
+
     /**
      * Fetch user role and redirect to appropriate dashboard
      */
@@ -77,6 +93,15 @@ export const VerifyEmail: React.FC = () => {
 
     const handleEmailVerification = async () => {
       try {
+        // First, check if we already have a valid session (user might be logged in)
+        const { data: { session: existingSession } } = await authService.getSession();
+        
+        if (existingSession?.user) {
+          // User already has a valid session, redirect immediately
+          await redirectToDashboard(existingSession.user.id);
+          return;
+        }
+
         const searchParams = window.location.search;
         const hashParams = window.location.hash.substring(1);
         const queryString = hashParams || searchParams;
@@ -86,11 +111,11 @@ export const VerifyEmail: React.FC = () => {
         const accessToken = params.get('access_token');
         const refreshToken = params.get('refresh_token');
 
-        if (type === 'signup' && accessToken) {
+        if (type === 'signup' && accessToken && refreshToken) {
           // Set session with tokens from verification link
           const { error: sessionError } = await authService.setSession({
             access_token: accessToken,
-            refresh_token: refreshToken || accessToken,
+            refresh_token: refreshToken,
           });
 
           if (sessionError) {
@@ -99,42 +124,52 @@ export const VerifyEmail: React.FC = () => {
             return;
           }
 
-          // Session set successfully, now fetch user and redirect
-          setVerified(true);
-          setLoading(false);
-          setVerifying(true);
+          // Wait a moment for session to be established
+          await new Promise(resolve => setTimeout(resolve, 500));
 
-          // Try to get user and redirect
+          // Session set successfully, now fetch user and redirect
           const userFound = await getUserWithRetry();
           
-          if (!userFound) {
-            setError('Session not available. Please try logging in manually.');
-            setVerifying(false);
+          if (userFound) {
+            setVerified(true);
+            setLoading(false);
+            // getUserWithRetry already redirects, so we're done
+          } else {
+            // Only show error if we truly couldn't establish a session
+            // Check one more time if session exists now
+            const { data: { session: finalCheck } } = await authService.getSession();
+            if (finalCheck?.user) {
+              await redirectToDashboard(finalCheck.user.id);
+            } else {
+              setError('Session not available. Please try logging in manually.');
+              setVerifying(false);
+              setLoading(false);
+            }
           }
         } else {
-          // Try to get existing session
+          // No verification tokens in URL, but check if session exists
+          // This handles cases where user visits /verify-email directly
           const { data: { session } } = await authService.getSession();
           
           if (session && session.user) {
+            // User has a valid session, redirect to dashboard
+            await redirectToDashboard(session.user.id);
+            return;
+          }
+
+          // No session found and no tokens - check if we can get user
+          const userFound = await getUserWithRetry();
+          
+          if (userFound) {
             setVerified(true);
             setLoading(false);
-            setVerifying(true);
-            
-            // Redirect to dashboard based on role
-            const userFound = await getUserWithRetry();
-            
-            if (!userFound) {
-              setError('Unable to verify session. Please try logging in manually.');
-              setVerifying(false);
-            }
           } else {
-            // No session found, try to get user directly
-            setVerifying(true);
-            const userFound = await getUserWithRetry();
-            
-            if (userFound) {
-              setVerified(true);
-              setLoading(false);
+            // Only show error if there's truly no session
+            // Give it one more chance - maybe AuthContext is still loading
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            const { data: { session: lastCheck } } = await authService.getSession();
+            if (lastCheck?.user) {
+              await redirectToDashboard(lastCheck.user.id);
             } else {
               setError('Invalid or expired verification link. Please try logging in.');
               setLoading(false);
@@ -144,15 +179,47 @@ export const VerifyEmail: React.FC = () => {
         }
       } catch (err) {
         console.error('Error verifying email:', err);
+        // Before showing error, check one last time if session exists
+        try {
+          const { data: { session: errorCheck } } = await authService.getSession();
+          if (errorCheck?.user) {
+            navigate('/dashboard', { replace: true });
+            return;
+          }
+        } catch (checkError) {
+          console.error('Error checking session:', checkError);
+        }
         setError('Invalid or expired verification link.');
         setLoading(false);
         setVerifying(false);
       }
     };
 
-    handleEmailVerification();
+    // Only run if user is not already authenticated
+    if (!user && !authLoading) {
+      handleEmailVerification();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Only run once on mount
+  }, [user, authLoading]); // Re-run if user/authLoading changes
+
+  // Show loading while auth is initializing
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-4 pt-[96px] pb-20 relative overflow-hidden bg-[#0B0F28]">
+        <div className="absolute top-0 left-0 w-96 h-96 bg-[#6366F1]/10 rounded-full blur-3xl" />
+        <div className="absolute bottom-0 right-0 w-96 h-96 bg-[#8B5CF6]/10 rounded-full blur-3xl" />
+        <div className="relative z-10 text-center">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-[#8B5CF6] mb-4"></div>
+          <p className="text-[#E5E7EB]/70">Checking authentication...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // If user is authenticated, show nothing (redirect will happen)
+  if (user) {
+    return null;
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4 pt-[96px] pb-20 relative overflow-hidden bg-[#0B0F28]">

@@ -11,6 +11,7 @@ import { supabase } from '../../../lib/supabaseClient';
 export const Register: React.FC = () => {
   const navigate = useNavigate();
   const { signup } = useAuth();
+  // We'll use supabase directly for signup with metadata
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -62,7 +63,22 @@ export const Register: React.FC = () => {
       return;
     }
 
-    const { data, error } = await signup(formData.email, formData.password);
+    // Sign up with user metadata including full_name, phone, and company_name
+    // Call signup through useAuth (which uses authService) with metadata
+    // ✅ Ensure all metadata keys match what the trigger expects
+    const { data, error } = await signup(
+      formData.email.trim(),
+      formData.password,
+      {
+        // Primary keys (used by trigger)
+        full_name: formData.fullName.trim(),
+        phone: formData.phone.trim(),
+        company_name: formData.company.trim(),
+        // Compatibility keys (fallback)
+        fullName: formData.fullName.trim(),
+        company: formData.company.trim(),
+      }
+    );
 
     if (data?.user?.identities?.length === 0) {
       setError('This email is already registered.');
@@ -77,28 +93,117 @@ export const Register: React.FC = () => {
     }
 
     if (!error && data?.user?.identities?.length && data.user.identities.length > 0) {
-      // Insert user profile into users_profile table
-      // Note: The trigger will also create a profile, but we can manually insert to ensure all fields are set
+      // Ensure profile is created/updated in users_profile table
+      // The trigger will create it automatically, but we also upsert to ensure all fields are set correctly
       try {
-        const { error: profileError } = await supabase
+        // Determine role based on email domain
+        const userEmail = data.user.email || formData.email.trim();
+        const isAdminEmail = userEmail.toLowerCase().endsWith('@codfence.com');
+        const userRole = isAdminEmail ? 'admin' : 'user';
+
+        // Wait a moment for the trigger to run, then upsert to ensure all fields are set
+        // This handles race conditions and ensures phone/company_name are saved
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // ✅ Prepare profile data with correct field names matching table schema
+        const profileData = {
+          id: data.user.id,
+          email: userEmail,
+          full_name: formData.fullName.trim(),  // ✅ Table uses full_name (not fullname)
+          phone: formData.phone.trim(),         // ✅ Table uses phone (not phoneNumber)
+          company_name: formData.company.trim(), // ✅ Table uses company_name (from user input, not hardcoded)
+          role: userRole,                       // ✅ Explicitly set role based on domain
+        };
+
+        console.log('📝 Inserting profile with data:', profileData);
+
+        const { error: profileError, data: insertedProfile } = await supabase
           .from('users_profile')
-          .upsert({
-            id: data.user.id,
-            email: data.user.email || formData.email.trim(),
-            full_name: formData.fullName.trim(),
-            phone: formData.phone.trim(),
-            company_name: formData.company.trim(),
-            // Note: role is automatically set by the trigger based on email
-          }, { onConflict: 'id' });
+          .upsert(profileData, { 
+            onConflict: 'id',
+            ignoreDuplicates: false
+          })
+          .select();
 
         if (profileError) {
-          console.error('Error creating profile:', profileError);
-          // Still show success for auth, but log profile error
-          // The trigger should have created the profile automatically
+          console.error('❌ Error creating/updating profile:', profileError);
+          console.error('Error details:', {
+            message: profileError.message,
+            code: profileError.code,
+            details: profileError.details,
+            hint: profileError.hint,
+          });
+          
+          // If upsert failed, try to fetch the profile created by trigger
+          // and update it with the missing fields
+          const { data: existingProfile, error: fetchError } = await supabase
+            .from('users_profile')
+            .select('*')
+            .eq('id', data.user.id)
+            .single();
+
+          if (fetchError) {
+            console.error('❌ Error fetching existing profile:', fetchError);
+          }
+
+          if (existingProfile) {
+            console.log('📋 Existing profile found:', existingProfile);
+            
+            // Profile exists but might be missing fields - update it
+            const updateData: any = {};
+            
+            // ✅ Always update with user input (don't check if null, just update)
+            if (formData.phone.trim()) {
+              updateData.phone = formData.phone.trim();
+            }
+            if (formData.company.trim()) {
+              updateData.company_name = formData.company.trim(); // ✅ Use user input, not hardcoded
+            }
+            if (formData.fullName.trim()) {
+              updateData.full_name = formData.fullName.trim();
+            }
+            // Ensure role is correct
+            updateData.role = userRole;
+
+            console.log('📝 Updating profile with:', updateData);
+
+            if (Object.keys(updateData).length > 0) {
+              const { error: updateError, data: updatedData } = await supabase
+                .from('users_profile')
+                .update(updateData)
+                .eq('id', data.user.id)
+                .select();
+
+              if (updateError) {
+                console.error('❌ Error updating profile fields:', updateError);
+                console.error('Update error details:', {
+                  message: updateError.message,
+                  code: updateError.code,
+                  details: updateError.details,
+                  hint: updateError.hint,
+                });
+              } else {
+                console.log('✅ Profile updated successfully:', updatedData);
+              }
+            }
+          } else {
+            console.warn('⚠️ No existing profile found to update');
+          }
+        } else {
+          console.log('✅ Profile created/updated successfully:', insertedProfile);
+          console.log('📊 Profile data:', {
+            id: data.user.id,
+            full_name: formData.fullName.trim(),
+            email: userEmail,
+            phone: formData.phone.trim(),
+            company_name: formData.company.trim(), // ✅ User input, not hardcoded
+            role: userRole,
+          });
         }
       } catch (err) {
-        console.error('Error creating profile:', err);
+        console.error('Error creating/updating profile:', err);
         // The trigger should have created the profile automatically
+        // Even if this fails, the user can still verify their email and log in
       }
 
       setSuccess(true);

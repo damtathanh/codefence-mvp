@@ -23,12 +23,17 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   }
 
   // If no user after loading, redirect to login
-  // Don't redirect immediately - AuthProvider handles session restoration
   if (!user) {
     return <Navigate to="/login" replace />;
   }
 
-  // User is authenticated, render children
+  // ✅ Check if email is verified
+  if (!user.email_confirmed_at) {
+    // Email not verified - redirect to login with message
+    return <Navigate to="/login" replace state={{ error: 'Please verify your email before accessing the dashboard. Check your inbox for the verification link.' }} />;
+  }
+
+  // User is authenticated and verified, render children
   return <>{children}</>;
 };
 

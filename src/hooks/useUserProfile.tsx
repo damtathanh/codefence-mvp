@@ -112,42 +112,100 @@ export const useUserProfile = () => {
     if (!user?.id || !user?.email) return;
 
     try {
+      // Extract full_name from various possible metadata fields
+      const fullName = user.user_metadata?.full_name || 
+                      user.user_metadata?.fullName ||
+                      user.user_metadata?.display_name ||
+                      user.user_metadata?.name ||
+                      null;
+      
+      // Determine role based on email domain
+      const isAdminEmail = user.email.toLowerCase().endsWith('@codfence.com');
+      const userRole = isAdminEmail ? 'admin' : 'user';
+
+      // Use upsert instead of insert to handle cases where profile might already exist
       const { data, error: createError } = await supabase
         .from('users_profile')
-        .insert({
+        .upsert({
           id: user.id,
           email: user.email,
-          full_name: user.user_metadata?.full_name || 
-                    user.user_metadata?.fullName ||
-                    user.user_metadata?.display_name ||
-                    null,
+          full_name: fullName,
           phone: user.user_metadata?.phone || null,
           company_name: user.user_metadata?.company_name || 
                        user.user_metadata?.company || 
                        'CodFence',
-          role: (user.email === 'admin@codfence.com' || 
-                 user.email === 'contact@codfence.com') ? 'admin' : 'user',
+          role: userRole, // ✅ Ensure role is set correctly based on domain
+        }, {
+          onConflict: 'id',
+          // Update all fields when profile already exists
+          ignoreDuplicates: false
         })
         .select()
         .single();
 
       if (createError) {
         // If it's a conflict error, the profile might have been created by trigger
-        if (createError.code === '23505') {
-          console.log('Profile already exists (created by trigger), fetching...');
+        if (createError.code === '23505' || createError.code === 'PGRST116') {
+          console.log('Profile might already exist, fetching...');
           // Fetch the profile that was created by trigger
-          const { data: fetchedData } = await supabase
+          const { data: fetchedData, error: fetchError } = await supabase
             .from('users_profile')
             .select('*')
             .eq('id', user.id)
             .single();
           
-          if (fetchedData) {
-            setProfile(fetchedData);
-            return;
+          if (fetchedData && !fetchError) {
+            // Profile exists - check if it needs updating
+            const needsUpdate = 
+              (!fetchedData.full_name && fullName) ||
+              (!fetchedData.phone && user.user_metadata?.phone) ||
+              (!fetchedData.company_name && (user.user_metadata?.company_name || user.user_metadata?.company)) ||
+              (fetchedData.role !== userRole);
+
+            if (needsUpdate) {
+              // Update profile with missing fields
+              const updateData: any = {};
+              if (!fetchedData.full_name && fullName) {
+                updateData.full_name = fullName;
+              }
+              if (!fetchedData.phone && user.user_metadata?.phone) {
+                updateData.phone = user.user_metadata.phone;
+              }
+              if (!fetchedData.company_name && (user.user_metadata?.company_name || user.user_metadata?.company)) {
+                updateData.company_name = user.user_metadata?.company_name || user.user_metadata?.company;
+              }
+              // Always ensure role is correct
+              if (fetchedData.role !== userRole) {
+                updateData.role = userRole;
+              }
+
+              const { error: updateError } = await supabase
+                .from('users_profile')
+                .update(updateData)
+                .eq('id', user.id);
+
+              if (!updateError) {
+                // Fetch updated profile
+                const { data: updatedData } = await supabase
+                  .from('users_profile')
+                  .select('*')
+                  .eq('id', user.id)
+                  .single();
+                
+                if (updatedData) {
+                  setProfile(updatedData);
+                  setError(null);
+                  return;
+                }
+              }
+            } else {
+              setProfile(fetchedData);
+              setError(null);
+              return;
+            }
           }
         }
-        console.error('Error creating profile:', createError);
+        console.error('Error creating/updating profile:', createError);
         setError(createError.message);
         return;
       }

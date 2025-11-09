@@ -1,6 +1,6 @@
 import React from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider, ProtectedRoute, Login, Register, ForgotPassword, ResetPassword, VerifyEmail, AuthCallback } from "./features/auth";
+import { AuthProvider, ProtectedRoute, Login, Register, ForgotPassword, ResetPassword, VerifyEmail, AuthCallback, useAuth } from "./features/auth";
 import { 
   ScrollToTop, 
   Header, 
@@ -51,6 +51,7 @@ const PublicLayout = () => {
 // Dashboard Router component that handles role-based routing
 const DashboardRouter: React.FC = () => {
   const { role, loading } = useRole();
+  const { user } = useAuth();
 
   // Show loading screen while fetching role
   if (loading) {
@@ -64,12 +65,17 @@ const DashboardRouter: React.FC = () => {
     );
   }
 
+  // ✅ Check email verification
+  if (user && !user.email_confirmed_at) {
+    return <Navigate to="/login" replace state={{ error: 'Please verify your email before accessing the dashboard.' }} />;
+  }
+
   // If role is admin, render AdminDashboard
   if (role === 'admin') {
     return <AdminDashboard />;
   }
 
-  // Otherwise, render regular DashboardLayout
+  // Otherwise, render regular DashboardLayout (for user role)
   return <DashboardLayout />;
 };
 

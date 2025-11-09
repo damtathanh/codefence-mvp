@@ -20,7 +20,7 @@ create table public.users_profile (
   email text unique not null,
   full_name text,
   phone text,
-  company_name text default 'CodFence',
+  company_name text,  -- ✅ Removed default 'CodFence' - use user input
   avatar_url text,
   role text check (role in ('admin', 'user')) default 'user',
   created_at timestamp with time zone default now()
@@ -34,14 +34,21 @@ create index idx_users_profile_role on public.users_profile(role);
 create or replace function public.handle_new_user()
 returns trigger as $$
 begin
-  -- Insert into users_profile with role assignment
-  insert into public.users_profile (id, email, role, full_name)
+  -- Insert into users_profile with ALL fields from metadata
+  -- Role assignment: ANY email ending with @codfence.com = admin, all others = user
+  insert into public.users_profile (
+    id, 
+    email, 
+    role, 
+    full_name,
+    phone,
+    company_name
+  )
   values (
     new.id,
     new.email,
     case
-      when new.email = 'contact@codfence.com' then 'admin'
-      when new.email = 'admin@codfence.com' then 'admin'  -- Also support admin@codfence.com
+      when new.email like '%@codfence.com' then 'admin'  -- Domain-based: any @codfence.com email = admin
       else 'user'
     end,
     coalesce(
@@ -49,11 +56,41 @@ begin
       new.raw_user_meta_data->>'fullName',
       new.raw_user_meta_data->>'display_name',
       split_part(new.email, '@', 1)  -- Fallback to email prefix
+    ),
+    coalesce(
+      new.raw_user_meta_data->>'phone',
+      null
+    ),
+    coalesce(
+      new.raw_user_meta_data->>'company_name',
+      new.raw_user_meta_data->>'company',
+      null  -- ✅ Use null instead of hardcoded 'CodFence'
     )
   )
   on conflict (id) do update set
     email = excluded.email,
-    role = excluded.role;
+    role = case
+      when excluded.email like '%@codfence.com' then 'admin'  -- Update role based on domain
+      else 'user'
+    end,
+    full_name = coalesce(
+      excluded.full_name, 
+      public.users_profile.full_name,
+      new.raw_user_meta_data->>'full_name',
+      new.raw_user_meta_data->>'fullName'
+    ),
+    phone = coalesce(
+      excluded.phone,
+      public.users_profile.phone,
+      new.raw_user_meta_data->>'phone'
+    ),
+    company_name = coalesce(
+      excluded.company_name,
+      public.users_profile.company_name,
+      new.raw_user_meta_data->>'company_name',
+      new.raw_user_meta_data->>'company',
+      null  -- ✅ Use null instead of hardcoded 'CodFence'
+    );
 
   return new;
 end;
@@ -82,7 +119,7 @@ for update
 using (auth.uid() = id)
 with check (auth.uid() = id);
 
--- Admins can view all profiles
+-- Admins can view all profiles (domain-based role check)
 create policy "Admins can view all profiles"
 on public.users_profile
 for select
@@ -93,10 +130,17 @@ using (
   )
 );
 
+-- Users can insert their own profile
+create policy "Users can insert their own profile"
+on public.users_profile
+for insert
+with check (auth.uid() = id);
+
 -- ✅ Done.
 -- Now when a new user signs up through Supabase Auth:
 --  - their record will be automatically inserted into users_profile
---  - contact@codfence.com and admin@codfence.com will be assigned as admin
+--  - ANY email ending with @codfence.com will be assigned as admin
 --  - all other users will get role 'user'
+--  - All fields (full_name, phone, company_name, role) are synced from metadata
 --  - The role is stored directly in users_profile table (no separate user_roles table)
 

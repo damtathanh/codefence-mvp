@@ -40,7 +40,7 @@ export const Footer: React.FC = () => {
 
             {/* LinkedIn */}
             <a
-              href="https://linkedin.com"
+              href="https://www.linkedin.com/company/codfence"
               target="_blank"
               rel="noopener noreferrer"
               className="p-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 hover:border-[#6366F1] transition group"

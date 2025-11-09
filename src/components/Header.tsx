@@ -47,14 +47,32 @@ export const Header: React.FC = () => {
   };
 
   const getUserDisplayName = () => {
-    // Prioritize full_name from users_profile table
-    if (profile?.full_name) {
-      return profile.full_name;
+    // Priority 1: full_name from users_profile table (most reliable)
+    if (profile?.full_name && profile.full_name.trim()) {
+      return profile.full_name.trim();
     }
-    // Fallback to email from auth user
+    
+    // Priority 2: full_name from user metadata (for backward compatibility)
+    if (user?.user_metadata?.full_name && user.user_metadata.full_name.trim()) {
+      return user.user_metadata.full_name.trim();
+    }
+    
+    // Priority 3: fullName from user metadata (alternative format)
+    if (user?.user_metadata?.fullName && user.user_metadata.fullName.trim()) {
+      return user.user_metadata.fullName.trim();
+    }
+    
+    // Priority 4: display_name from user metadata
+    if (user?.user_metadata?.display_name && user.user_metadata.display_name.trim()) {
+      return user.user_metadata.display_name.trim();
+    }
+    
+    // Priority 5: Fallback to email from auth user
     if (user?.email) {
       return user.email;
     }
+    
+    // Priority 6: Fallback to "User" if nothing is available
     return 'User';
   };
 
@@ -70,16 +88,37 @@ export const Header: React.FC = () => {
 
   const getUserInitials = () => {
     const displayName = getUserDisplayName();
-    if (profile?.full_name) {
-      const names = profile.full_name.trim().split(' ');
+    
+    // If we have a full name (from profile or metadata), use it for initials
+    if (profile?.full_name && profile.full_name.trim()) {
+      const names = profile.full_name.trim().split(' ').filter(n => n.length > 0);
       if (names.length >= 2) {
         return (names[0][0] + names[names.length - 1][0]).toUpperCase();
       }
-      return names[0][0]?.toUpperCase() || 'U';
+      if (names.length === 1) {
+        return names[0][0]?.toUpperCase() || 'U';
+      }
     }
+    
+    // Check user metadata for full name
+    if (user?.user_metadata?.full_name || user?.user_metadata?.fullName) {
+      const fullName = (user.user_metadata.full_name || user.user_metadata.fullName || '').trim();
+      if (fullName) {
+        const names = fullName.split(' ').filter(n => n.length > 0);
+        if (names.length >= 2) {
+          return (names[0][0] + names[names.length - 1][0]).toUpperCase();
+        }
+        if (names.length === 1) {
+          return names[0][0]?.toUpperCase() || 'U';
+        }
+      }
+    }
+    
+    // Fallback to email first letter
     if (user?.email) {
       return user.email[0].toUpperCase();
     }
+    
     return 'U';
   };
 
@@ -181,6 +220,7 @@ export const Header: React.FC = () => {
               <button
                 onClick={() => setDropdownOpen(!dropdownOpen)}
                 className="flex items-center gap-3 hover:opacity-90 transition-opacity"
+                disabled={profileLoading}
               >
                 {getUserAvatar() ? (
                   <img
@@ -194,7 +234,11 @@ export const Header: React.FC = () => {
                   </div>
                 )}
                 <span className="text-white/90 font-medium hover:text-white transition-colors">
-                  {getUserDisplayName()}
+                  {profileLoading ? (
+                    <span className="inline-block w-20 h-4 bg-white/10 rounded animate-pulse" />
+                  ) : (
+                    getUserDisplayName()
+                  )}
                 </span>
                 <ChevronDown className={`w-4 h-4 text-white/70 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
               </button>
@@ -291,7 +335,11 @@ export const Header: React.FC = () => {
                     </div>
                   )}
                   <span className="text-white/90 font-medium">
-                    {getUserDisplayName()}
+                    {profileLoading ? (
+                      <span className="inline-block w-20 h-4 bg-white/10 rounded animate-pulse" />
+                    ) : (
+                      getUserDisplayName()
+                    )}
                   </span>
                 </div>
                 <button

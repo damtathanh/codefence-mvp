@@ -12,7 +12,7 @@ export interface AuthContextType {
   loading: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<{ error: AuthError | null }>;
-  signup: (email: string, password: string) => Promise<{ data: { user: User | null } | null; error: AuthError | null }>;
+  signup: (email: string, password: string, metadata?: Record<string, any>) => Promise<{ data: { user: User | null } | null; error: AuthError | null }>;
   logout: () => Promise<void>;
 }
 
@@ -90,12 +90,35 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     const initializeAuth = async () => {
       try {
-        // Step 1: Try to restore session from localStorage first
+        // Step 1: Check if this is a new session (browser was closed)
+        const sessionStart = sessionStorage.getItem('codfence_session_start');
+        if (!sessionStart) {
+          // New session - don't restore from localStorage
+          if (isMounted) {
+            setUser(null);
+            setLoading(false);
+          }
+          return;
+        }
+
+        // Step 2: Try to restore session
         const restoreResult = await authService.restoreSession();
         
         if (restoreResult.data?.session?.user && isMounted) {
           const restoredSession = restoreResult.data.session;
         
+          // ✅ Check if email is verified
+          if (!restoredSession.user.email_confirmed_at) {
+            // Email not verified - don't restore session
+            await supabase.auth.signOut();
+            sessionStorage.removeItem('codfence_session_start');
+            if (isMounted) {
+              setUser(null);
+              setLoading(false);
+            }
+            return;
+          }
+
           setUser(restoredSession.user);
           saveUserToStorage(restoredSession.user, restoredSession.access_token);
           lastSessionCheck = Date.now();
@@ -172,16 +195,36 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       // Handle different auth events
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
         if (session?.user) {
+          // ✅ Check if email is verified
+          if (!session.user.email_confirmed_at) {
+            // Email not verified - sign out
+            console.log('Email not verified, signing out');
+            await supabase.auth.signOut();
+            setUser(null);
+            clearStorage();
+            sessionStorage.removeItem('codfence_session_start');
+            return;
+          }
+
+          // Mark session as started
+          try {
+            sessionStorage.setItem('codfence_session_start', Date.now().toString());
+          } catch (e) {
+            console.error('Error saving session start:', e);
+          }
+
+          // ✅ Check if this is a login event (not just a refresh)
+          if (event === 'SIGNED_IN' && !justLoggedInRef.current) {
+            justLoggedInRef.current = true;
+            // Reset flag after a delay
+            setTimeout(() => {
+              justLoggedInRef.current = false;
+            }, 5000);
+          }
+
           setUser(session.user);
           saveUserToStorage(session.user, session.access_token);
           lastSessionCheck = Date.now();
-          // If this is a SIGNED_IN event, mark that we just logged in
-          if (event === 'SIGNED_IN') {
-            justLoggedInRef.current = true;
-            setTimeout(() => {
-              justLoggedInRef.current = false;
-            }, 5000); // Increased to 5 seconds to prevent false logouts
-          }
           setLoading(false);
         } else {
           // Session might not be ready yet, wait and check again
@@ -189,6 +232,23 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             if (!isMounted) return;
             const { data: { session: retrySession } } = await authService.getSession();
             if (retrySession?.user) {
+              // ✅ Check if email is verified
+              if (!retrySession.user.email_confirmed_at) {
+                await supabase.auth.signOut();
+                setUser(null);
+                clearStorage();
+                sessionStorage.removeItem('codfence_session_start');
+                setLoading(false);
+                return;
+              }
+
+              // Mark session as started
+              try {
+                sessionStorage.setItem('codfence_session_start', Date.now().toString());
+              } catch (e) {
+                console.error('Error saving session start:', e);
+              }
+
               setUser(retrySession.user);
               saveUserToStorage(retrySession.user, retrySession.access_token);
               if (event === 'SIGNED_IN') {
@@ -220,6 +280,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             console.error('Error clearing supabase_session:', e);
           }
           setUser(null);
+          sessionStorage.removeItem('codfence_session_start');
         }
         setLoading(false);
       } else if (session?.user) {
@@ -362,9 +423,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
   
   
-  const signup = async (email: string, password: string): Promise<{ data: { user: User | null } | null; error: AuthError | null }> => {
+  const signup = async (email: string, password: string, metadata?: Record<string, any>): Promise<{ data: { user: User | null } | null; error: AuthError | null }> => {
     try {
-      const result = await authService.signup(email, password);
+      const result = await authService.signup(email, password, metadata);
       if (result.data?.user && !result.error) {
         // Get the session after successful signup
         const { data: { session } } = await authService.getSession();
