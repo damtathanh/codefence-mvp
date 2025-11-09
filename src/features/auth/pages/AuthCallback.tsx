@@ -2,76 +2,50 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../../lib/supabaseClient';
 import { useAuth } from '../hooks/useAuth';
-import { useUserProfile } from '../../../hooks/useUserProfile';
 
 export const AuthCallback: React.FC = () => {
   const navigate = useNavigate();
-  const { user, loading: authLoading } = useAuth();
-  const { refreshProfile } = useUserProfile(); // Refresh profile after session is set
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const hasRedirectedRef = React.useRef(false);
-
-  // Priority 1: If user is already authenticated via AuthContext, redirect immediately
-  useEffect(() => {
-    if (user && !hasRedirectedRef.current) {
-      // ✅ Check if email is verified
-      if (!user.email_confirmed_at) {
-        setError('Email not verified. Please check your inbox and verify your email.');
-        setLoading(false);
-        return;
-      }
-
-      // User is already authenticated and verified, refresh profile and redirect to dashboard
-      hasRedirectedRef.current = true;
-      
-      // Mark session as started
-      try {
-        sessionStorage.setItem('codfence_session_start', Date.now().toString());
-      } catch (e) {
-        console.error('Error saving session start:', e);
-      }
-      
-      // Refresh profile to ensure full_name is loaded
-      refreshProfile().catch(err => {
-        console.error('Error refreshing profile after auth callback:', err);
-      });
-      
-      window.history.replaceState({}, document.title, '/auth/callback');
-      navigate('/dashboard', { replace: true });
-    }
-  }, [user, navigate, refreshProfile]);
 
   useEffect(() => {
-    // Don't run callback handling if user is already authenticated or if we've already redirected
-    if (user || hasRedirectedRef.current || authLoading) return;
-
     const handleAuthCallback = async () => {
       try {
-        // First, check if we already have a valid session (might be from AuthContext)
-        const { data: { session: existingSession } } = await supabase.auth.getSession();
-        
-        if (existingSession?.user && !hasRedirectedRef.current) {
-          // User already has a valid session, wait for AuthContext to update
-          // Give it a moment for the auth state change listener to fire
-          await new Promise(resolve => setTimeout(resolve, 500));
-          
-          // Check again if user is now in AuthContext
-          if (!hasRedirectedRef.current) {
-            hasRedirectedRef.current = true;
-            window.history.replaceState({}, document.title, '/auth/callback');
-            navigate('/dashboard', { replace: true });
-          }
+        // Wait a moment for Supabase to process URL hash/query params
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // Check if we have a valid session
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+        if (sessionError) {
+          console.error('Session error:', sessionError);
+          setError('Failed to verify session. Please try logging in again.');
+          setLoading(false);
           return;
         }
 
-        // Extract tokens from URL (Supabase redirects with tokens in hash or query params)
+        if (session?.user) {
+          // Check if email is verified
+          if (!session.user.email_confirmed_at) {
+            setError('Email not verified. Please check your inbox and verify your email.');
+            setLoading(false);
+            return;
+          }
+
+          // Valid session found - redirect to dashboard
+          // The AuthProvider will handle updating the user state
+          window.history.replaceState({}, document.title, '/auth/callback');
+          navigate('/dashboard', { replace: true });
+          return;
+        }
+
+        // No session found - check URL for tokens
         const urlParams = new URLSearchParams(window.location.search);
         const hashParams = new URLSearchParams(window.location.hash.substring(1));
         
         const accessToken = urlParams.get('access_token') || hashParams.get('access_token');
         const refreshToken = urlParams.get('refresh_token') || hashParams.get('refresh_token');
-        const type = urlParams.get('type') || hashParams.get('type');
         const errorParam = urlParams.get('error') || hashParams.get('error');
         const errorDescription = urlParams.get('error_description') || hashParams.get('error_description');
 
@@ -83,7 +57,7 @@ export const AuthCallback: React.FC = () => {
           return;
         }
 
-        // If we have tokens in URL, set the session explicitly
+        // If we have tokens, set the session
         if (accessToken && refreshToken) {
           const { data: sessionData, error: setSessionError } = await supabase.auth.setSession({
             access_token: accessToken,
@@ -91,161 +65,46 @@ export const AuthCallback: React.FC = () => {
           });
 
           if (setSessionError) {
-            console.error('Error setting session from URL:', setSessionError);
-            // Before showing error, wait a moment and check if session was set anyway
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            const { data: { session: retrySession } } = await supabase.auth.getSession();
-            if (retrySession?.user) {
-              window.history.replaceState({}, document.title, '/auth/callback');
-              navigate('/dashboard', { replace: true });
-              return;
-            }
-            setError('Failed to restore session from verification link.');
+            console.error('Error setting session:', setSessionError);
+            setError('Failed to restore session. Please try logging in again.');
             setLoading(false);
             return;
           }
 
-          // Session was set successfully
-          if (sessionData?.session?.user && !hasRedirectedRef.current) {
-            // ✅ Check if email is verified
+          if (sessionData?.session?.user) {
+            // Check if email is verified
             if (!sessionData.session.user.email_confirmed_at) {
               setError('Email not verified. Please check your inbox and verify your email.');
               setLoading(false);
               return;
             }
 
-            // Mark session as started
-            try {
-              sessionStorage.setItem('codfence_session_start', Date.now().toString());
-            } catch (e) {
-              console.error('Error saving session start:', e);
-            }
-
-            // Wait for AuthContext to update via auth state change listener
-            // Poll for user to be set in AuthContext (max 2 seconds)
-            let attempts = 0;
-            const maxAttempts = 20;
-            
-            while (attempts < maxAttempts && !hasRedirectedRef.current) {
-              attempts++;
-              
-              // Check if user is now in AuthContext
-              const { data: { session: checkSession } } = await supabase.auth.getSession();
-              if (checkSession?.user) {
-                // Wait a bit more for AuthContext to update
-                await new Promise(resolve => setTimeout(resolve, 300));
-                break;
-              }
-              
-              await new Promise(resolve => setTimeout(resolve, 100));
-            }
-
-            // Determine redirect destination based on type
-            let redirectTo = '/dashboard';
-
-            if (type === 'recovery') {
-              redirectTo = '/reset-password';
-            } else if (type === 'signup' || type === 'invite') {
-              redirectTo = '/dashboard';
-            }
-
-            // Clear URL params before redirecting
-            if (!hasRedirectedRef.current) {
-              hasRedirectedRef.current = true;
-              
-              // Refresh profile to ensure full_name is loaded
-              refreshProfile().catch(err => {
-                console.error('Error refreshing profile after session set:', err);
-              });
-              
-              window.history.replaceState({}, document.title, '/auth/callback');
-              navigate(redirectTo, { replace: true });
-            }
-            return;
-          }
-        }
-
-        // If no tokens in URL, check if we already have a session
-        // This handles cases where Supabase automatically processed the URL
-        // Give it more time for AuthContext to update
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-
-        if (sessionError) {
-          console.error('Error getting session:', sessionError);
-          // Before showing error, check if AuthContext has user now
-          // The error might be because session is being processed
-          await new Promise(resolve => setTimeout(resolve, 500));
-          const { data: { session: finalCheck } } = await supabase.auth.getSession();
-          if (finalCheck?.user) {
+            // Session set successfully - redirect
             window.history.replaceState({}, document.title, '/auth/callback');
             navigate('/dashboard', { replace: true });
             return;
           }
-          setError('Session not available. Please try logging in manually.');
-          setLoading(false);
-          return;
         }
 
-        if (session?.user && !hasRedirectedRef.current) {
-          // Session exists, wait for AuthContext to update, then redirect
-          await new Promise(resolve => setTimeout(resolve, 500));
-          if (!hasRedirectedRef.current) {
-            hasRedirectedRef.current = true;
-            window.history.replaceState({}, document.title, '/auth/callback');
-            navigate('/dashboard', { replace: true });
-          }
-          return;
-        }
-
-        // No session found and no tokens in URL
-        // Before showing error, give AuthContext one more chance to load
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        const { data: { session: lastAttempt } } = await supabase.auth.getSession();
-        if (lastAttempt?.user && !hasRedirectedRef.current) {
-          hasRedirectedRef.current = true;
-          window.history.replaceState({}, document.title, '/auth/callback');
-          navigate('/dashboard', { replace: true });
-          return;
-        }
-
-        // Only show error if we truly have no session and haven't redirected
-        if (!hasRedirectedRef.current) {
-          setError('Session not available. Please try logging in manually.');
-          setLoading(false);
-        }
+        // No session and no tokens - redirect to login
+        setError('No valid session found. Please try logging in again.');
+        setLoading(false);
       } catch (err: any) {
         console.error('Error handling auth callback:', err);
-        // Before showing error, check one last time if session exists
-        try {
-          await new Promise(resolve => setTimeout(resolve, 500));
-          const { data: { session: errorCheck } } = await supabase.auth.getSession();
-          if (errorCheck?.user && !hasRedirectedRef.current) {
-            hasRedirectedRef.current = true;
-            window.history.replaceState({}, document.title, '/auth/callback');
-            navigate('/dashboard', { replace: true });
-            return;
-          }
-        } catch (checkError) {
-          console.error('Error checking session:', checkError);
-        }
-        
-        // Only show error if we haven't redirected
-        if (!hasRedirectedRef.current) {
-          setError('Failed to verify your email. Please try logging in manually.');
-          setLoading(false);
-        }
+        setError('An unexpected error occurred. Please try logging in again.');
+        setLoading(false);
       }
     };
 
-    handleAuthCallback();
-  }, [user, authLoading, navigate]);
+    // If user is already authenticated via AuthProvider, redirect immediately
+    if (user?.email_confirmed_at) {
+      navigate('/dashboard', { replace: true });
+      return;
+    }
 
-  // If user is authenticated, show nothing (redirect will happen)
-  if (user) {
-    return null;
-  }
+    // Otherwise, handle the callback
+    handleAuthCallback();
+  }, [user, navigate]);
 
   if (error) {
     return (
@@ -308,4 +167,3 @@ export const AuthCallback: React.FC = () => {
     </div>
   );
 };
-

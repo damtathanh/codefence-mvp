@@ -1,4 +1,3 @@
-// src/features/auth/components/ProtectedRoute.tsx
 import React, { ReactNode } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
@@ -10,7 +9,7 @@ interface ProtectedRouteProps {
 export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   const { user, loading } = useAuth();
 
-  // Show loading state while checking session
+  // While loading auth state, show spinner
   if (loading) {
     return (
       <div className="min-h-screen bg-[#0B0F28] flex items-center justify-center">
@@ -22,18 +21,16 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
     );
   }
 
-  // If no user after loading, redirect to login
+  // After loading: if no user -> redirect
   if (!user) {
     return <Navigate to="/login" replace />;
   }
 
-  // ✅ Check if email is verified
+  // If user exists but email not verified, force login with message
   if (!user.email_confirmed_at) {
-    // Email not verified - redirect to login with message
     return <Navigate to="/login" replace state={{ error: 'Please verify your email before accessing the dashboard. Check your inbox for the verification link.' }} />;
   }
 
-  // User is authenticated and verified, render children
+  // Auth OK
   return <>{children}</>;
 };
-

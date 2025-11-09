@@ -19,7 +19,7 @@ interface ProfileData {
 
 export const SettingsPage: React.FC = () => {
   const { user } = useAuth();
-  const { profile, loading: profileLoading, refreshProfile } = useUserProfile();
+  const { profile, loading: profileLoading, refreshProfile, updateProfile } = useUserProfile();
   const { showSuccess, showError, showInfo } = useToast();
   const { theme, setTheme: setThemeContext } = useTheme();
   const [activeTab, setActiveTab] = useState<'profile' | 'password' | 'security' | 'theme'>('profile');
@@ -91,12 +91,22 @@ export const SettingsPage: React.FC = () => {
 
   // Safe session refresh function that checks for session before refreshing
   const ensureValidSession = async (): Promise<boolean> => {
-    const { data, error } = await supabase.auth.getSession();
-    if (error || !data.session) {
-      console.warn('Session expired or missing');
+    try {
+      const { data, error } = await supabase.auth.getSession();
+      if (error || !data.session) {
+        console.warn('Session expired or missing');
+        return false;
+      }
+      // Also check if email is verified
+      if (data.session.user && !data.session.user.email_confirmed_at) {
+        console.warn('Email not verified');
+        return false;
+      }
+      return true;
+    } catch (err) {
+      console.error('Error checking session:', err);
       return false;
     }
-    return true;
   };
 
   const handleProfileUpdate = async (e: React.FormEvent) => {
@@ -133,120 +143,52 @@ export const SettingsPage: React.FC = () => {
       }
 
       // Prepare update data - set to null if empty string
-      const updateData: { full_name?: string | null; phone?: string | null } = {
-        full_name: profileData.full_name.trim() || null,
-        phone: profileData.phone.trim() || null,
+      const fullName = profileData.full_name.trim() || null;
+      const phone = profileData.phone.trim() || null;
+      const companyName = profileData.company_name?.trim() || null;
+      
+      const profileUpdateData: { full_name?: string | null; phone?: string | null; company_name?: string | null } = {
+        full_name: fullName,
+        phone: phone,
+        company_name: companyName,
       };
 
-      // Try to update existing profile first
-      let { data, error } = await supabase
-        .from('users_profile')
-        .update(updateData)
-        .eq('id', user.id)
-        .select('id, email, full_name, phone, company_name, role')
-        .single();
-
-      // If profile doesn't exist (PGRST116 = no rows returned), create it
-      if (error && error.code === 'PGRST116') {
-        console.log('Profile not found, creating new profile...');
-        
-        // Ensure we still have a valid session before inserting
-        const { data: insertSessionCheck } = await supabase.auth.getSession();
-        if (!insertSessionCheck?.session) {
-          showError('Session expired during operation. Please log in again.');
-          setSaving(false);
-          return;
-        }
-
-        // Insert new profile
-        const { data: insertData, error: insertError } = await supabase
-          .from('users_profile')
-          .insert({
-            id: user.id,
-            email: user.email || '',
-            full_name: updateData.full_name,
-            phone: updateData.phone,
-            company_name: profileData.company_name?.trim() || null,
-            role: (user.email === 'admin@codfence.com' || 
-                   user.email === 'contact@codfence.com') ? 'admin' : 'user',
-          })
-          .select('id, email, full_name, phone, company_name, role')
-          .single();
-        
-        if (insertError) {
-          console.error('Error creating profile:', insertError);
-          
-          // Handle RLS errors
-          if (insertError.message.includes('row-level security') || 
-              insertError.message.includes('policy') ||
-              insertError.code === '42501') {
-            showError('Permission denied. Please ensure you are logged in and try again.');
-            setSaving(false);
-            return;
-          }
-
-          // Handle auth errors
-          if (insertError.message.includes('JWT') || 
-              insertError.message.includes('expired') || 
-              insertError.message.includes('token') ||
-              insertError.message.includes('AuthSessionMissingError') ||
-              insertError.message.includes('session missing')) {
-            showError('Session expired. Please log out and log in again.');
-            setSaving(false);
-            return;
-          }
-
-          showError(`Failed to create profile: ${insertError.message}`);
-          setSaving(false);
-          return;
-        }
-        
-        data = insertData;
-        error = null;
-      }
-
-      // Handle update errors
-      if (error) {
-        console.error('Error updating profile:', error);
-        
-        // Check for RLS policy violation
-        if (error.message.includes('row-level security') || 
-            error.message.includes('policy') ||
-            error.code === '42501') {
-          showError('Permission denied. Please ensure you are logged in and try again.');
-          setSaving(false);
-          return;
-        }
-
-        // Check for authentication errors
-        if (error.message.includes('JWT') || 
-            error.message.includes('expired') || 
-            error.message.includes('token') || 
-            error.message.includes('sub claim') ||
-            error.message.includes('AuthSessionMissingError') ||
-            error.message.includes('session missing') ||
-            error.code === '401') {
-          showError('Session expired. Please log out and log in again.');
-          setSaving(false);
-          return;
-        }
-
-        showError(`Failed to update profile: ${error.message || 'Unknown error'}`);
+      // ✅ Use the updateProfile helper from useUserProfile hook
+      // This ensures both auth metadata and profile table stay in sync
+      const updateResult = await updateProfile(profileUpdateData);
+      
+      if (!updateResult.success) {
+        showError(updateResult.error || 'Failed to update profile');
         setSaving(false);
         return;
       }
 
-      // Success: Profile updated or created
-      if (data) {
-        // Refresh profile from hook to update UI
+      // Profile updated successfully - refresh to get latest data
+      await refreshProfile();
+      
+      // Get updated profile data for verification
+      const { data, error } = await supabase
+        .from('users_profile')
+        .select('id, email, full_name, phone, company_name, role')
+        .eq('id', user.id)
+        .single();
+
+      // Handle any errors from profile query
+      if (error) {
+        console.error('Error verifying profile update:', error);
+        // Profile was updated via updateProfile, but query failed
+        // Refresh profile hook to get latest data
         await refreshProfile();
-        
+      }
+
+      // Success: Profile updated
+      if (data || updateResult.success) {
         // Dispatch custom event to notify Header component to refresh
         window.dispatchEvent(new CustomEvent('profileUpdated'));
         
         showSuccess('Profile updated successfully!');
       } else {
-        showError('Profile update completed but no data returned.');
+        showError('Profile update completed but could not verify.');
       }
     } catch (err: any) {
       console.error('Unexpected error updating profile:', err);

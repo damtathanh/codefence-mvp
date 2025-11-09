@@ -1,68 +1,51 @@
-// src/lib/supabaseClient.ts
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_KEY as string
+// Support both VITE_SUPABASE_ANON_KEY and VITE_SUPABASE_KEY for backward compatibility
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_KEY;
 
+// Validate environment variables with helpful error messages
 if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase environment variables.')
-}
-
-// ✅ Create Supabase client with session management
-// Note: We use localStorage for Supabase (required for session management)
-// But we implement custom logic to clear auth on browser close via sessionStorage tracking
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    autoRefreshToken: true,  // refresh token automatically
-    persistSession: false,   // 👈 Don't persist session across browser closes
-    detectSessionInUrl: true,
-    // Use custom storage that checks sessionStorage for session validity
-    storage: {
-      getItem: (key: string) => {
-        // Check if this is a new session (sessionStorage cleared = browser was closed)
-        const sessionStart = sessionStorage.getItem('codfence_session_start');
-        if (!sessionStart) {
-          // New session - clear any stale auth data
-          localStorage.removeItem(key);
-          return null;
-        }
-        return localStorage.getItem(key);
-      },
-      setItem: (key: string, value: string) => {
-        // Mark session as started
-        if (!sessionStorage.getItem('codfence_session_start')) {
-          sessionStorage.setItem('codfence_session_start', Date.now().toString());
-        }
-        localStorage.setItem(key, value);
-      },
-      removeItem: (key: string) => {
-        localStorage.removeItem(key);
-      },
-    },
-  },
-})
-// Clear auth on browser close (when sessionStorage is cleared)
-// This runs on page load - if sessionStart doesn't exist, it's a new session
-if (typeof window !== 'undefined') {
-  const sessionStart = sessionStorage.getItem('codfence_session_start');
-  if (!sessionStart) {
-    // New session - mark it as started
-    sessionStorage.setItem('codfence_session_start', Date.now().toString());
-    // Clear any stale auth tokens
-    const authKeys = ['codfence_auth_user', 'codfence_auth_token', 'supabase_session'];
-    authKeys.forEach(key => {
-      try {
-        localStorage.removeItem(key);
-      } catch (e) {
-        // Ignore errors
-      }
-    });
+  const missing: string[] = [];
+  if (!supabaseUrl) missing.push('VITE_SUPABASE_URL');
+  if (!supabaseAnonKey) {
+    // Check which key is missing
+    if (!import.meta.env.VITE_SUPABASE_ANON_KEY && !import.meta.env.VITE_SUPABASE_KEY) {
+      missing.push('VITE_SUPABASE_ANON_KEY (or VITE_SUPABASE_KEY)');
+    }
   }
-
-  // Clear session on beforeunload (optional - sessionStorage clears automatically on close)
-  window.addEventListener('beforeunload', () => {
-    // sessionStorage will be cleared automatically when browser closes
-    // This is just for cleanup
-  });
+  
+  const errorMessage = `❌ Missing Supabase environment variables: ${missing.join(', ')}\n\nPlease check your .env file and ensure these variables are set:\n${missing.map(v => `  - ${v}`).join('\n')}\n\nThen restart your development server.`;
+  
+  console.error(errorMessage);
+  
+  // In development, don't throw - show error but allow app to render
+  // This prevents white screen. The ErrorBoundary will catch any runtime errors.
+  console.warn('⚠️ Supabase client will not work correctly without environment variables.');
+  console.warn('The app will render but authentication features will fail.');
 }
 
+// Create Supabase client with optimal configuration
+export const supabase = createClient(
+  supabaseUrl || 'https://placeholder.supabase.co', 
+  supabaseAnonKey || 'placeholder-key',
+  {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+      // Storage adapter defaults to localStorage (works across page reloads)
+      storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+    },
+  }
+);
+
+// Validate client initialization
+if (import.meta.env.DEV) {
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.warn('⚠️ Supabase client initialized with placeholder values.');
+    console.warn('Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY (or VITE_SUPABASE_KEY) in .env file.');
+  } else {
+    console.log('✅ Supabase client initialized successfully');
+  }
+}

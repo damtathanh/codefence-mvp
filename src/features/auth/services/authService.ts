@@ -41,10 +41,11 @@ export const authService = {
         };
       }
       
-      // Mark session as started for this browser session
+      // Session is automatically persisted by Supabase with persistSession: true
+      // Mark session start for tracking purposes only
       if (data?.session && !error) {
         try {
-          sessionStorage.setItem('codfence_session_start', Date.now().toString());
+          localStorage.setItem('codfence_session_start', Date.now().toString());
         } catch (storageError) {
           console.error('Error saving session start:', storageError);
         }
@@ -70,19 +71,13 @@ export const authService = {
         },
       });
       
-      // Store session in localStorage if available (some signups require email verification first)
+      // Session is automatically persisted by Supabase with persistSession: true
+      // Mark session start for tracking purposes only
       if (data?.session && !error) {
         try {
-          localStorage.setItem('supabase_session', JSON.stringify({
-            access_token: data.session.access_token,
-            refresh_token: data.session.refresh_token,
-            expires_at: data.session.expires_at,
-            expires_in: data.session.expires_in,
-            token_type: data.session.token_type,
-            user: data.session.user,
-          }));
+          localStorage.setItem('codfence_session_start', Date.now().toString());
         } catch (storageError) {
-          console.error('Error saving session to localStorage:', storageError);
+          console.error('Error saving session start:', storageError);
         }
       }
       
@@ -98,20 +93,19 @@ export const authService = {
   async logout(): Promise<void> {
     try {
       await supabase.auth.signOut();
-      // Clear session from localStorage
-      localStorage.removeItem('supabase_session');
-      // Clear sessionStorage to mark session as ended
-      sessionStorage.removeItem('codfence_session_start');
-      // Clear other auth-related storage
+      // Supabase automatically clears its session storage
+      // Clear app-specific storage
+      localStorage.removeItem('codfence_session_start');
       localStorage.removeItem('codfence_auth_user');
       localStorage.removeItem('codfence_auth_token');
+      localStorage.removeItem('codfence_last_path');
     } catch (error) {
       console.error('Error logging out:', error);
-      // Clear session from localStorage even if logout fails
-      localStorage.removeItem('supabase_session');
-      sessionStorage.removeItem('codfence_session_start');
+      // Clear storage even if logout fails
+      localStorage.removeItem('codfence_session_start');
       localStorage.removeItem('codfence_auth_user');
       localStorage.removeItem('codfence_auth_token');
+      localStorage.removeItem('codfence_last_path');
       throw error;
     }
   },
@@ -130,180 +124,76 @@ export const authService = {
 
   /**
    * Get the current session
-   * Also checks if session is valid (not from a closed browser)
+   * Supabase automatically persists and restores sessions with persistSession: true
    */
   async getSession() {
-    // Check if this is a new session (browser was closed)
-    const sessionStart = sessionStorage.getItem('codfence_session_start');
-    if (!sessionStart) {
-      // New session - no valid session
-      return { data: { session: null }, error: null };
+    try {
+      const result = await supabase.auth.getSession();
+      
+      // ✅ Check if user's email is verified
+      if (result.data?.session?.user && !result.data.session.user.email_confirmed_at) {
+        // Email not verified - invalidate session
+        await supabase.auth.signOut();
+        return { data: { session: null }, error: null };
+      }
+      
+      return result;
+    } catch (error) {
+      console.error('Error getting session:', error);
+      return { data: { session: null }, error: error as AuthError };
     }
-
-    const result = await supabase.auth.getSession();
-    
-    // ✅ Check if user's email is verified
-    if (result.data?.session?.user && !result.data.session.user.email_confirmed_at) {
-      // Email not verified - invalidate session
-      await supabase.auth.signOut();
-      sessionStorage.removeItem('codfence_session_start');
-      return { data: { session: null }, error: null };
-    }
-    
-    return result;
   },
 
   /**
    * Refresh the current session
+   * Supabase automatically handles session persistence with persistSession: true
    */
   async refreshSession() {
-    const result = await supabase.auth.refreshSession();
-    
-    // Update session in localStorage after refresh
-    if (result.data?.session) {
-      try {
-        localStorage.setItem('supabase_session', JSON.stringify({
-          access_token: result.data.session.access_token,
-          refresh_token: result.data.session.refresh_token,
-          expires_at: result.data.session.expires_at,
-          expires_in: result.data.session.expires_in,
-          token_type: result.data.session.token_type,
-          user: result.data.session.user,
-        }));
-      } catch (storageError) {
-        console.error('Error saving refreshed session to localStorage:', storageError);
-      }
-    } else if (result.error) {
-      // Refresh failed, clear saved session
-      localStorage.removeItem('supabase_session');
-    }
-    
-    return result;
+    return await supabase.auth.refreshSession();
   },
 
   /**
    * Set the session with tokens
+   * Supabase automatically handles session persistence with persistSession: true
    */
   async setSession(tokens: { access_token: string; refresh_token: string }) {
-    const result = await supabase.auth.setSession({
+    return await supabase.auth.setSession({
       access_token: tokens.access_token,
       refresh_token: tokens.refresh_token,
     });
-    
-    // Store session in localStorage as backup
-    if (result.data?.session) {
-      try {
-        localStorage.setItem('supabase_session', JSON.stringify({
-          access_token: result.data.session.access_token,
-          refresh_token: result.data.session.refresh_token,
-          expires_at: result.data.session.expires_at,
-          expires_in: result.data.session.expires_in,
-          token_type: result.data.session.token_type,
-          user: result.data.session.user,
-        }));
-      } catch (storageError) {
-        console.error('Error saving session to localStorage:', storageError);
-      }
-    }
-    
-    return result;
   },
 
   /**
-   * Restore session from localStorage
-   * Only restores if sessionStart exists in sessionStorage (browser wasn't closed)
+   * Restore session
+   * With persistSession: true, Supabase automatically restores sessions from localStorage
+   * This function simply checks if a session exists and is valid
    */
   async restoreSession() {
     try {
-      // Check if this is a new session (browser was closed)
-      const sessionStart = sessionStorage.getItem('codfence_session_start');
-      if (!sessionStart) {
-        // New session - don't restore
-        return { data: { session: null, user: null }, error: null };
-      }
-
-      // First, check if Supabase already has a valid session
-      const { data: { session: currentSession } } = await supabase.auth.getSession();
-      if (currentSession?.user) {
-        // ✅ Check if email is verified
-        if (!currentSession.user.email_confirmed_at) {
-          // Email not verified - don't restore
-          await supabase.auth.signOut();
-          sessionStorage.removeItem('codfence_session_start');
-          return { data: { session: null, user: null }, error: null };
-        }
-        // Supabase already has a valid session, use it
-        return { data: { session: currentSession, user: currentSession.user }, error: null };
-      }
-
-      // If no current session, try to restore from localStorage
-      const saved = localStorage.getItem('supabase_session');
-      if (saved) {
-        try {
-          const sessionData = JSON.parse(saved);
-          
-          // Check if we have the required tokens
-          if (sessionData.access_token && sessionData.refresh_token) {
-            // Try to restore the session
-            const result = await supabase.auth.setSession({
-              access_token: sessionData.access_token,
-              refresh_token: sessionData.refresh_token,
-            });
-            
-            // ✅ Check if email is verified after restoring session
-            if (result.data?.session?.user && !result.data.session.user.email_confirmed_at) {
-              // Email not verified - sign out and clear
-              await supabase.auth.signOut();
-              sessionStorage.removeItem('codfence_session_start');
-              localStorage.removeItem('supabase_session');
-              return { data: { session: null, user: null }, error: null };
-            }
-            
-            // If restoration failed but we have a refresh token, try to refresh
-            if (result.error && sessionData.refresh_token) {
-              try {
-                const refreshResult = await supabase.auth.refreshSession();
-                if (refreshResult.data?.session) {
-                  // ✅ Check if email is verified
-                  if (!refreshResult.data.session.user.email_confirmed_at) {
-                    await supabase.auth.signOut();
-                    sessionStorage.removeItem('codfence_session_start');
-                    localStorage.removeItem('supabase_session');
-                    return { data: { session: null, user: null }, error: null };
-                  }
-                  // Save refreshed session
-                  localStorage.setItem('supabase_session', JSON.stringify({
-                    access_token: refreshResult.data.session.access_token,
-                    refresh_token: refreshResult.data.session.refresh_token,
-                    expires_at: refreshResult.data.session.expires_at,
-                    expires_in: refreshResult.data.session.expires_in,
-                    token_type: refreshResult.data.session.token_type,
-                    user: refreshResult.data.session.user,
-                  }));
-                }
-                return refreshResult;
-              } catch (refreshError) {
-                // Refresh failed, clear saved session
-                localStorage.removeItem('supabase_session');
-                sessionStorage.removeItem('codfence_session_start');
-                return { data: { session: null, user: null }, error: refreshError as AuthError };
-              }
-            }
-            
-            return result;
-          }
-        } catch (parseError) {
-          console.error('Error parsing saved session:', parseError);
-          localStorage.removeItem('supabase_session');
-        }
+      // Supabase with persistSession: true automatically restores from localStorage
+      const { data: { session }, error } = await supabase.auth.getSession();
+      
+      if (error) {
+        console.error('Error restoring session:', error);
+        return { data: { session: null, user: null }, error };
       }
       
-      // No saved session or restoration failed
+      if (session?.user) {
+        // ✅ Check if email is verified
+        if (!session.user.email_confirmed_at) {
+          // Email not verified - sign out
+          await supabase.auth.signOut();
+          return { data: { session: null, user: null }, error: null };
+        }
+        
+        // Valid session found
+        return { data: { session, user: session.user }, error: null };
+      }
+      
+      // No session found
       return { data: { session: null, user: null }, error: null };
     } catch (error) {
       console.error('Error restoring session:', error);
-      localStorage.removeItem('supabase_session');
-      sessionStorage.removeItem('codfence_session_start');
       return { data: { session: null, user: null }, error: error as AuthError };
     }
   },

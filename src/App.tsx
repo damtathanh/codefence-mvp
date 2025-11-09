@@ -9,6 +9,7 @@ import {
   AutoLogoutWrapper,
   DashboardLayout 
 } from "./components";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { convertHashToQueryRedirect } from "./utils/hashToQueryRedirect";
 import { useRole } from "./hooks";
 import { Home } from "./pages/Home";
@@ -87,74 +88,76 @@ function App() {
   }, []);
 
   return (
-    <ThemeProvider>
-      <ToastProvider>
-        <AuthProvider>
-          <Router>
-            <ScrollToTop />
-            <ScrollToSectionHandler />
-            <AutoLogoutWrapper />
+    <ErrorBoundary>
+      <ThemeProvider>
+        <ToastProvider>
+          <AuthProvider>
+            <Router>
+              <ScrollToTop />
+              <ScrollToSectionHandler />
+              <AutoLogoutWrapper />
 
-        <Routes>
-          {/* Auth callback route - must be outside PublicLayout to handle redirects properly */}
-          <Route path="/auth/callback" element={<AuthCallback />} />
+              <Routes>
+                {/* Auth callback route - must be outside PublicLayout to handle redirects properly */}
+                <Route path="/auth/callback" element={<AuthCallback />} />
 
-          {/* Public routes */}
-          <Route path="/*" element={<PublicLayout />} />
+                {/* Public routes */}
+                <Route path="/*" element={<PublicLayout />} />
 
-          {/* Protected dashboard routes */}
-          <Route
-            path="/dashboard/*"
-            element={
-              <ProtectedRoute>
-                <DashboardRouter />
-              </ProtectedRoute>
-            }
-          >
-            <Route index element={<DashboardPage />} />
-            <Route path="analytics" element={<AnalyticsPage />} />
-            <Route path="products" element={<ProductsPage />} />
-            <Route path="orders" element={<OrdersPage />} />
-            <Route path="invoice" element={<InvoicePage />} />
-            <Route path="history" element={<HistoryPage />} />
-            <Route path="message" element={<MessagePage />} />
-            <Route path="settings" element={<SettingsPage />} />
-          </Route>
+                {/* Protected dashboard routes */}
+                <Route
+                  path="/dashboard/*"
+                  element={
+                    <ProtectedRoute>
+                      <DashboardRouter />
+                    </ProtectedRoute>
+                  }
+                >
+                  <Route index element={<DashboardPage />} />
+                  <Route path="analytics" element={<AnalyticsPage />} />
+                  <Route path="products" element={<ProductsPage />} />
+                  <Route path="orders" element={<OrdersPage />} />
+                  <Route path="invoice" element={<InvoicePage />} />
+                  <Route path="history" element={<HistoryPage />} />
+                  <Route path="message" element={<MessagePage />} />
+                  <Route path="settings" element={<SettingsPage />} />
+                </Route>
 
-          {/* Admin dashboard route - redirects to /dashboard (role-based rendering handles the rest) */}
-          <Route
-            path="/admin/dashboard"
-            element={
-              <ProtectedRoute>
-                <Navigate to="/dashboard" replace />
-              </ProtectedRoute>
-            }
-          />
+                {/* Admin dashboard route - redirects to /dashboard (role-based rendering handles the rest) */}
+                <Route
+                  path="/admin/dashboard"
+                  element={
+                    <ProtectedRoute>
+                      <Navigate to="/dashboard" replace />
+                    </ProtectedRoute>
+                  }
+                />
 
-          {/* User dashboard route - redirects to /dashboard (role-based rendering handles the rest) */}
-          <Route
-            path="/user/dashboard"
-            element={
-              <ProtectedRoute>
-                <Navigate to="/dashboard" replace />
-              </ProtectedRoute>
-            }
-          />
+                {/* User dashboard route - redirects to /dashboard (role-based rendering handles the rest) */}
+                <Route
+                  path="/user/dashboard"
+                  element={
+                    <ProtectedRoute>
+                      <Navigate to="/dashboard" replace />
+                    </ProtectedRoute>
+                  }
+                />
 
-          {/* Settings route - accessible from header dropdown */}
-          <Route
-            path="/settings"
-            element={
-              <ProtectedRoute>
-                <Navigate to="/dashboard/settings" replace />
-              </ProtectedRoute>
-            }
-          />
-        </Routes>
-          </Router>
-        </AuthProvider>
-      </ToastProvider>
-    </ThemeProvider>
+                {/* Settings route - accessible from header dropdown */}
+                <Route
+                  path="/settings"
+                  element={
+                    <ProtectedRoute>
+                      <Navigate to="/dashboard/settings" replace />
+                    </ProtectedRoute>
+                  }
+                />
+              </Routes>
+            </Router>
+          </AuthProvider>
+        </ToastProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }
 

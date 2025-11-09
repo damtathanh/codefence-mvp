@@ -65,13 +65,17 @@ export interface Notification {
   created_at: string;
 }
 
+/**
+ * UserProfile - matches the actual database schema in users_profile table
+ * Schema: id, email, full_name, phone, company_name, avatar_url, role, created_at
+ */
 export interface UserProfile {
   id: string;
-  display_name?: string;
-  company_name?: string;
-  avatar_url?: string;
-  theme?: 'light' | 'dark' | 'system';
-  created_at?: string;
-  updated_at?: string;
+  email: string;
+  full_name: string | null;
+  phone: string | null;
+  company_name: string | null;
+  avatar_url: string | null;
+  role: 'admin' | 'user';
+  created_at: string;
 }
-
