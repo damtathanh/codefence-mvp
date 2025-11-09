@@ -24,6 +24,7 @@ export const SettingsPage: React.FC = () => {
   const { theme, setTheme: setThemeContext } = useTheme();
   const [activeTab, setActiveTab] = useState<'profile' | 'password' | 'security' | 'theme'>('profile');
   const [saving, setSaving] = useState(false);
+  const [ready, setReady] = useState(false);
   const [profileData, setProfileData] = useState({
     full_name: '',
     phone: '',
@@ -37,6 +38,36 @@ export const SettingsPage: React.FC = () => {
   });
   const [twoFAEnabled, setTwoFAEnabled] = useState(false);
   const [updatingPassword, setUpdatingPassword] = useState(false);
+
+  // ✅ Introduce a short readiness delay so Settings waits until session is valid before querying Supabase
+  useEffect(() => {
+    // Set ready after a delay OR if user is authenticated and profile is loaded (or failed to load)
+    const timer = setTimeout(() => {
+      setReady(true);
+    }, 1000);
+    
+    // Also set ready if profile loading completes (success or error) - faster path
+    if (user && !profileLoading) {
+      const quickTimer = setTimeout(() => {
+        setReady(true);
+      }, 300);
+      return () => {
+        clearTimeout(timer);
+        clearTimeout(quickTimer);
+      };
+    }
+    
+    // Safety: Set ready after max 3 seconds even if profile is still loading
+    const safetyTimer = setTimeout(() => {
+      console.warn('Settings page: Profile loading timeout, showing form anyway');
+      setReady(true);
+    }, 3000);
+    
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(safetyTimer);
+    };
+  }, [user, profileLoading]);
 
   // Update profileData when profile loads
   useEffect(() => {
@@ -135,7 +166,7 @@ export const SettingsPage: React.FC = () => {
             email: user.email || '',
             full_name: updateData.full_name,
             phone: updateData.phone,
-            company_name: 'CodFence',
+            company_name: profileData.company_name?.trim() || null,
             role: (user.email === 'admin@codfence.com' || 
                    user.email === 'contact@codfence.com') ? 'admin' : 'user',
           })
@@ -341,11 +372,6 @@ export const SettingsPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="mb-4">
-        <h1 className="text-3xl font-bold text-[#E5E7EB] mb-2">Settings</h1>
-        <p className="text-[#E5E7EB]/70 text-lg">Manage your account settings</p>
-      </div>
-
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Sidebar */}
         <Card>
@@ -381,10 +407,14 @@ export const SettingsPage: React.FC = () => {
                 <CardTitle>Update Profile</CardTitle>
               </CardHeader>
               <CardContent>
-                {profileLoading ? (
+                {(!ready || (profileLoading && user)) ? (
                   <div className="flex items-center justify-center py-8">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#8B5CF6]"></div>
                     <span className="ml-3 text-[#E5E7EB]/70">Loading profile...</span>
+                  </div>
+                ) : !user ? (
+                  <div className="flex items-center justify-center py-8">
+                    <p className="text-[#E5E7EB]/70">Please log in to view your profile.</p>
                   </div>
                 ) : (
                   <form onSubmit={handleProfileUpdate} className="space-y-4">

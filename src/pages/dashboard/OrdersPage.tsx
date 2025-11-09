@@ -136,10 +136,6 @@ export const OrdersPage: React.FC = () => {
   if (loading && orders.length === 0) {
     return (
       <div className="space-y-6">
-        <div className="mb-4">
-          <h1 className="text-3xl font-bold text-[#E5E7EB] mb-2">Orders</h1>
-          <p className="text-[#E5E7EB]/70 text-lg">Verify and manage orders</p>
-        </div>
         <Card>
           <CardContent className="p-12 text-center">
             <p className="text-[#E5E7EB]/70">Loading orders...</p>
@@ -152,10 +148,6 @@ export const OrdersPage: React.FC = () => {
   if (error) {
     return (
       <div className="space-y-6">
-        <div className="mb-4">
-          <h1 className="text-3xl font-bold text-[#E5E7EB] mb-2">Orders</h1>
-          <p className="text-[#E5E7EB]/70 text-lg">Verify and manage orders</p>
-        </div>
         <Card>
           <CardContent className="p-12 text-center">
             <p className="text-red-400">Error: {error}</p>
@@ -170,10 +162,6 @@ export const OrdersPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="mb-4">
-        <h1 className="text-3xl font-bold text-[#E5E7EB] mb-2">Orders</h1>
-        <p className="text-[#E5E7EB]/70 text-lg">Verify and manage orders</p>
-      </div>
 
       {/* Filters */}
       <Card>

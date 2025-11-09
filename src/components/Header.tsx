@@ -143,13 +143,19 @@ export const Header: React.FC = () => {
 
   const handleGoHome = (e: React.MouseEvent) => {
     e.preventDefault();
+    // ✅ Always navigate to home page, regardless of current path
     if (location.pathname !== "/") {
-      navigate("/");
-      setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 100);
+      navigate("/", { replace: false });
+      // Small delay to ensure navigation completes before scrolling
+      setTimeout(() => {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }, 100);
     } else {
+      // Already on home page, just scroll to top
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
     setMobileMenuOpen(false);
+    setDropdownOpen(false);
   };
 
   const handleNavClick = (href: string) => {
@@ -176,10 +182,19 @@ export const Header: React.FC = () => {
     >
       <nav className="max-w-7xl mx-auto flex justify-between items-center py-4 px-6">
         {/* Logo */}
-        <a
-          href="/"
-          onClick={handleGoHome}
-          className="flex items-center gap-0 hover:opacity-90 transition"
+        <Link
+          to="/"
+          onClick={(e) => {
+            // If already on home, prevent navigation and just scroll
+            if (location.pathname === "/") {
+              e.preventDefault();
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }
+            setMobileMenuOpen(false);
+            setDropdownOpen(false);
+          }}
+          className="flex items-center gap-0 hover:opacity-90 transition cursor-pointer"
+          aria-label="Go to home page"
         >
           <img
             src="/assets/logo.png"
@@ -189,7 +204,7 @@ export const Header: React.FC = () => {
           <h1 className="text-2xl md:text-3xl font-extrabold gradient-logo">
             CodFence
           </h1>
-        </a>
+        </Link>
 
         {/* Desktop Navigation */}
         <ul className="hidden md:flex items-center space-x-8">

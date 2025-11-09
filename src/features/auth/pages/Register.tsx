@@ -117,13 +117,16 @@ export const Register: React.FC = () => {
 
         console.log('📝 Inserting profile with data:', profileData);
 
-        const { error: profileError, data: insertedProfile } = await supabase
+        const { error: profileError } = await supabase
           .from('users_profile')
-          .upsert(profileData, { 
-            onConflict: 'id',
-            ignoreDuplicates: false
-          })
-          .select();
+          .upsert([{
+            id: data.user.id,
+            email: userEmail,
+            full_name: formData.fullName.trim(),
+            phone: formData.phone.trim(),
+            company_name: formData.company.trim(),
+            role: userRole,
+          }]);
 
         if (profileError) {
           console.error('❌ Error creating/updating profile:', profileError);
@@ -190,7 +193,6 @@ export const Register: React.FC = () => {
             console.warn('⚠️ No existing profile found to update');
           }
         } else {
-          console.log('✅ Profile created/updated successfully:', insertedProfile);
           console.log('📊 Profile data:', {
             id: data.user.id,
             full_name: formData.fullName.trim(),

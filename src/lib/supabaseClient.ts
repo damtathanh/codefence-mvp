@@ -41,7 +41,6 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     },
   },
 })
-
 // Clear auth on browser close (when sessionStorage is cleared)
 // This runs on page load - if sessionStart doesn't exist, it's a new session
 if (typeof window !== 'undefined') {
@@ -66,3 +65,4 @@ if (typeof window !== 'undefined') {
     // This is just for cleanup
   });
 }
+

@@ -59,10 +59,6 @@ export const MessagePage: React.FC = () => {
   if (loading && messages.length === 0) {
     return (
       <div className="flex flex-col h-full">
-        <div className="mb-2">
-          <h1 className="text-3xl font-bold text-[#E5E7EB] mb-1">Message</h1>
-          <p className="text-[#E5E7EB]/70 text-lg">Chat with CodFence support team</p>
-        </div>
         <Card>
           <CardContent className="p-12 text-center">
             <p className="text-[#E5E7EB]/70">Loading messages...</p>
@@ -75,10 +71,6 @@ export const MessagePage: React.FC = () => {
   if (error) {
     return (
       <div className="flex flex-col h-full">
-        <div className="mb-2">
-          <h1 className="text-3xl font-bold text-[#E5E7EB] mb-1">Message</h1>
-          <p className="text-[#E5E7EB]/70 text-lg">Chat with CodFence support team</p>
-        </div>
         <Card>
           <CardContent className="p-12 text-center">
             <p className="text-red-400">Error: {error}</p>
@@ -90,10 +82,6 @@ export const MessagePage: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="mb-2">
-        <h1 className="text-3xl font-bold text-[#E5E7EB] mb-1">Message</h1>
-        <p className="text-[#E5E7EB]/70 text-lg">Chat with CodFence support team</p>
-      </div>
 
       <div className="flex-1 flex items-start justify-center min-h-0 pt-2">
         <Card className="flex flex-col h-full max-h-[600px] w-full overflow-hidden rounded-2xl shadow-2xl border-2 border-[#1E223D]/50">

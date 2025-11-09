@@ -116,10 +116,6 @@ export const InvoicePage: React.FC = () => {
   if (loading && invoices.length === 0) {
     return (
       <div className="space-y-6">
-        <div className="mb-4">
-          <h1 className="text-3xl font-bold text-[#E5E7EB] mb-2">Invoice</h1>
-          <p className="text-[#E5E7EB]/70 text-lg">Manage and download invoices</p>
-        </div>
         <Card>
           <CardContent className="p-12 text-center">
             <p className="text-[#E5E7EB]/70">Loading invoices...</p>
@@ -132,10 +128,6 @@ export const InvoicePage: React.FC = () => {
   if (error) {
     return (
       <div className="space-y-6">
-        <div className="mb-4">
-          <h1 className="text-3xl font-bold text-[#E5E7EB] mb-2">Invoice</h1>
-          <p className="text-[#E5E7EB]/70 text-lg">Manage and download invoices</p>
-        </div>
         <Card>
           <CardContent className="p-12 text-center">
             <p className="text-red-400">Error: {error}</p>
@@ -150,11 +142,6 @@ export const InvoicePage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="mb-4">
-        <h1 className="text-3xl font-bold text-[#E5E7EB] mb-2">Invoice</h1>
-        <p className="text-[#E5E7EB]/70 text-lg">Manage and download invoices</p>
-      </div>
-
       {/* Filters */}
       <Card>
         <CardHeader className="!pt-4 !pb-3 !px-6">

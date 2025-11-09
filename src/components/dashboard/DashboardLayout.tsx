@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Outlet, useNavigate, useLocation } from 'react-router-dom';
+import { Outlet, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../../features/auth';
+import { useUserProfile } from '../../hooks/useUserProfile';
 import { useSupabaseTable } from '../../hooks/useSupabaseTable';
 import { supabase } from '../../lib/supabaseClient';
 import type { Notification as SupabaseNotification } from '../../types/supabase';
@@ -14,7 +15,6 @@ import {
   MessageSquare,
   Settings,
   LogOut,
-  Search,
   Bell,
   Menu,
   X,
@@ -23,6 +23,7 @@ import {
   AlertCircle,
   Info,
   Shield,
+  ArrowLeft,
 } from 'lucide-react';
 
 interface SidebarItem {
@@ -56,6 +57,7 @@ export const DashboardLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { logout, user } = useAuth();
+  const { profile, refreshProfile } = useUserProfile();
   const {
     data: supabaseNotifications,
     loading: notificationsLoading,
@@ -67,6 +69,18 @@ export const DashboardLayout: React.FC = () => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const mainContentRef = useRef<HTMLElement>(null);
   const notificationRef = useRef<HTMLDivElement>(null);
+
+  // Listen for profile update events from Settings page
+  useEffect(() => {
+    const handleProfileUpdate = () => {
+      refreshProfile();
+    };
+
+    window.addEventListener('profileUpdated', handleProfileUpdate);
+    return () => {
+      window.removeEventListener('profileUpdated', handleProfileUpdate);
+    };
+  }, [refreshProfile]);
 
   // Reset scroll position when route changes
   useEffect(() => {
@@ -183,6 +197,74 @@ export const DashboardLayout: React.FC = () => {
     setShowLogoutModal(true);
   };
 
+  // Page title and subtitle mapping - updates when profile or location changes
+  const getPageInfo = () => {
+    const path = location.pathname;
+    // Extract first name from full_name for personalized greeting
+    const fullName = profile?.full_name || '';
+    const firstName = fullName ? fullName.trim().split(' ')[0] : (user?.email?.split('@')[0] || '');
+    const userName = firstName;
+    
+    // Map paths to page info
+    const pageMap: Record<string, { title: string; subtitle: string }> = {
+      '/dashboard': {
+        title: 'Dashboard',
+        subtitle: userName ? `Welcome back, ${userName}! Here's your overview` : "Welcome back! Here's your overview"
+      },
+      '/dashboard/analytics': {
+        title: 'Analytics',
+        subtitle: 'Detailed insights and performance metrics'
+      },
+      '/dashboard/settings': {
+        title: 'Settings',
+        subtitle: 'Manage your account settings'
+      },
+      '/dashboard/orders': {
+        title: 'Orders',
+        subtitle: 'Track and manage your order history'
+      },
+      '/dashboard/products': {
+        title: 'Products',
+        subtitle: 'Manage your product listings and details'
+      },
+      '/dashboard/invoice': {
+        title: 'Invoice',
+        subtitle: 'View and download billing and payment details'
+      },
+      '/dashboard/history': {
+        title: 'History',
+        subtitle: 'Verification logs and activity history'
+      },
+      '/dashboard/message': {
+        title: 'Message',
+        subtitle: 'Chat with CodFence support team'
+      }
+    };
+    
+    // Get page info or default
+    const pageInfo = pageMap[path] || {
+      title: path.split('/').pop()?.replace(/-/g, ' ') || 'Dashboard',
+      subtitle: 'Dashboard overview'
+    };
+    
+    // Capitalize title
+    pageInfo.title = pageInfo.title
+      .split(' ')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+    
+    return pageInfo;
+  };
+
+  const pageInfo = getPageInfo();
+
+  const isActive = (path: string) => {
+    if (path === '/dashboard') {
+      return location.pathname === '/dashboard';
+    }
+    return location.pathname.startsWith(path);
+  };
+
   const confirmLogout = async () => {
     try {
       await logout(); // Calls Supabase signOut() from AuthContext
@@ -191,13 +273,6 @@ export const DashboardLayout: React.FC = () => {
     } catch (error) {
       console.error('Logout error:', error);
     }
-  };
-
-  const isActive = (path: string) => {
-    if (path === '/dashboard') {
-      return location.pathname === '/dashboard';
-    }
-    return location.pathname.startsWith(path);
   };
 
   return (
@@ -221,14 +296,19 @@ export const DashboardLayout: React.FC = () => {
         {/* Logo */}
         <div className="flex items-center justify-between p-6 border-b border-[#1E223D]">
           {sidebarOpen && (
-            <div className="flex items-center gap-3">
+            <Link
+              to="/"
+              className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition"
+            >
               <img
                 src="/assets/logo.png"
                 alt="CodFence Logo"
                 className="w-8 h-8 object-contain"
               />
-              <span className="text-xl font-bold text-[#E5E7EB]">CodFence</span>
-            </div>
+              <span className="text-xl font-bold bg-gradient-to-r from-[#8B5CF6] to-[#6366F1] bg-clip-text text-transparent">
+                CodFence
+              </span>
+            </Link>
           )}
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -276,28 +356,37 @@ export const DashboardLayout: React.FC = () => {
       <div className={`flex-1 flex flex-col lg:ml-0 transition-all duration-300`}>
         {/* Topbar */}
         <header className="h-16 bg-gradient-to-r from-[#12163A] to-[#181C3B] border-b border-[#1E223D] flex items-center justify-between px-6 sticky top-0 z-20">
-          {/* Mobile Menu Button */}
-          <button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="lg:hidden p-2 rounded-lg hover:bg-white/10 transition text-[#E5E7EB] mr-2"
-          >
-            <Menu size={20} />
-          </button>
-
-          {/* Search */}
-          <div className="flex-1 max-w-md">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-[#E5E7EB]/50" size={20} />
-              <input
-                type="text"
-                placeholder="Search..."
-                className="w-full pl-10 pr-4 py-2 bg-white/5 border border-[#1E223D] rounded-lg text-[#E5E7EB] placeholder-[#E5E7EB]/50 focus:outline-none focus:ring-2 focus:ring-[#8B5CF6] transition"
-              />
+          {/* Left side: Mobile Menu Button + Breadcrumb */}
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="lg:hidden p-2 rounded-lg hover:bg-white/10 transition text-[#E5E7EB]"
+            >
+              <Menu size={20} />
+            </button>
+            
+            {/* Page Title and Subtitle */}
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-semibold text-[#E5E7EB] tracking-wide">
+                {pageInfo.title}:
+              </h2>
+              <p className="text-base text-[#E5E7EB]/70">
+                {pageInfo.subtitle}
+              </p>
             </div>
           </div>
 
-          {/* Right side */}
-          <div className="flex items-center gap-4">
+          {/* Right side: Back to Home Button + Notifications + Profile */}
+          <div className="flex items-center gap-3 ml-4">
+            {/* Back to Home Button */}
+            <button
+              onClick={() => navigate("/")}
+              className="flex items-center gap-2 px-4 py-2 bg-[#8B5CF6]/20 border border-[#8B5CF6]/30 rounded-lg text-[#E5E7EB] hover:bg-[#8B5CF6]/30 transition whitespace-nowrap"
+            >
+              <ArrowLeft size={18} />
+              <span className="text-sm font-medium hidden md:inline">Quay về Trang chủ</span>
+              <span className="text-sm font-medium md:hidden">Home</span>
+            </button>
             {/* Notifications */}
             <div className="relative" ref={notificationRef}>
               <button
@@ -391,7 +480,9 @@ export const DashboardLayout: React.FC = () => {
               <div className="w-8 h-8 rounded-full bg-gradient-to-r from-[#6366F1] via-[#7C3AED] to-[#8B5CF6] flex items-center justify-center">
                 <User size={18} className="text-white" />
               </div>
-              <span className="text-[#E5E7EB] font-medium hidden md:block">Admin</span>
+              <span className="text-[#E5E7EB] font-medium hidden md:block">
+                {profile?.full_name || 'User'}
+              </span>
             </button>
           </div>
         </header>

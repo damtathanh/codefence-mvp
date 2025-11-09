@@ -33,12 +33,6 @@ const verificationActivityData = [
 export const DashboardPage: React.FC = () => {
   return (
     <div className="space-y-6">
-      {/* Page Header */}
-      <div className="mb-4">
-        <h1 className="text-3xl font-bold text-[#E5E7EB] mb-2">Dashboard</h1>
-        <p className="text-[#E5E7EB]/70 text-lg">Welcome back! Here's your overview</p>
-      </div>
-
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {summaryData.map((item, index) => {

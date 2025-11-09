@@ -131,12 +131,6 @@ export const ProductsPage: React.FC = () => {
   if (loading && products.length === 0) {
     return (
       <div className="space-y-6">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h1 className="text-3xl font-bold text-[#E5E7EB] mb-2">Products</h1>
-            <p className="text-[#E5E7EB]/70 text-lg">Manage your product catalog</p>
-          </div>
-        </div>
         <Card>
           <CardContent className="p-12 text-center">
             <p className="text-[#E5E7EB]/70">Loading products...</p>
@@ -149,12 +143,6 @@ export const ProductsPage: React.FC = () => {
   if (error) {
     return (
       <div className="space-y-6">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h1 className="text-3xl font-bold text-[#E5E7EB] mb-2">Products</h1>
-            <p className="text-[#E5E7EB]/70 text-lg">Manage your product catalog</p>
-          </div>
-        </div>
         <Card>
           <CardContent className="p-12 text-center">
             <p className="text-red-400">Error: {error}</p>
@@ -169,11 +157,7 @@ export const ProductsPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h1 className="text-3xl font-bold text-[#E5E7EB] mb-2">Products</h1>
-          <p className="text-[#E5E7EB]/70 text-lg">Manage your product catalog</p>
-        </div>
+      <div className="flex items-center justify-end mb-4">
         <Button onClick={openAddModal}>
           <Plus size={20} className="mr-2" />
           Add Product

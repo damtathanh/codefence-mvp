@@ -53,11 +53,7 @@ export const HistoryPage: React.FC = () => {
 
   if (loading && logs.length === 0) {
     return (
-      <div className="space-y-6 -mt-2">
-        <div className="mb-4">
-          <h1 className="text-3xl font-bold text-[#E5E7EB] mb-2">Activity history</h1>
-          <p className="text-[#E5E7EB]/70 text-lg">View all order verification activities</p>
-        </div>
+      <div className="space-y-6">
         <Card>
           <CardContent className="p-12 text-center">
             <p className="text-[#E5E7EB]/70">Loading history...</p>
@@ -69,11 +65,7 @@ export const HistoryPage: React.FC = () => {
 
   if (error) {
     return (
-      <div className="space-y-6 -mt-2">
-        <div className="mb-4">
-          <h1 className="text-3xl font-bold text-[#E5E7EB] mb-2">Activity history</h1>
-          <p className="text-[#E5E7EB]/70 text-lg">View all order verification activities</p>
-        </div>
+      <div className="space-y-6">
         <Card>
           <CardContent className="p-12 text-center">
             <p className="text-red-400">Error: {error}</p>
@@ -84,11 +76,7 @@ export const HistoryPage: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6 -mt-2">
-      <div className="mb-3">
-        <h1 className="text-3xl font-bold text-[#E5E7EB] mb-1">History</h1>
-        <p className="text-[#E5E7EB]/70 text-lg">Verification logs and activity history</p>
-      </div>
+    <div className="space-y-6">
 
       {/* Filters */}
       <Card>

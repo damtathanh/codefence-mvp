@@ -1,5 +1,5 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { BarChart3, Users, Package, TrendingUp, ArrowLeft, LogOut } from 'lucide-react';
 import { useAuth } from '../../features/auth';
 
@@ -29,21 +29,42 @@ export const AdminDashboard: React.FC = () => {
       <nav className="fixed top-0 left-0 right-0 z-50 bg-white/5 backdrop-blur-md border-b border-white/10 shadow-lg">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
-            <button
-              onClick={() => navigate('/')}
-              className="flex items-center gap-2 px-4 py-2 text-white/90 hover:text-white bg-white/10 hover:bg-white/20 rounded-lg transition-all duration-200 border border-white/20 hover:border-white/30"
+            {/* Left: CodFence Logo */}
+            <Link
+              to="/"
+              className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition"
             >
-              <ArrowLeft className="w-4 h-4" />
-              <span className="text-sm font-medium">Back to Website</span>
-            </button>
-            <h1 className="text-xl font-bold text-white">Admin Dashboard</h1>
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white font-medium px-4 py-2 rounded-lg transition-all duration-200"
-            >
-              <LogOut className="w-4 h-4" />
-              <span>Logout</span>
-            </button>
+              <img
+                src="/assets/logo.png"
+                alt="CodFence Logo"
+                className="h-8 w-8 object-contain"
+              />
+              <span className="text-xl font-bold bg-gradient-to-r from-[#8B5CF6] to-[#6366F1] bg-clip-text text-transparent hidden sm:block">
+                CodFence
+              </span>
+            </Link>
+
+            {/* Center: Admin Dashboard Title */}
+            <h1 className="text-xl font-bold text-white hidden md:block">Admin Dashboard</h1>
+
+            {/* Right: Back to Home + Logout */}
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => navigate('/')}
+                className="flex items-center gap-2 px-4 py-2 bg-[#8B5CF6]/20 border border-[#8B5CF6]/30 rounded-lg text-white hover:bg-[#8B5CF6]/30 transition whitespace-nowrap"
+              >
+                <ArrowLeft size={18} />
+                <span className="text-sm font-medium hidden md:inline">Quay về Trang chủ</span>
+                <span className="text-sm font-medium md:hidden">Home</span>
+              </button>
+              <button
+                onClick={handleLogout}
+                className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white font-medium px-4 py-2 rounded-lg transition-all duration-200"
+              >
+                <LogOut className="w-4 h-4" />
+                <span className="hidden sm:inline">Logout</span>
+              </button>
+            </div>
           </div>
         </div>
       </nav>

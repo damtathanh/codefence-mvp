@@ -7,6 +7,9 @@ import { authService } from '../services/authService';
 const STORAGE_KEY = 'codfence_auth_user';
 const STORAGE_TOKEN_KEY = 'codfence_auth_token';
 
+// ✅ Global flag to prevent double session restoration
+let isRestoringSession = false;
+
 export interface AuthContextType {
   user: User | null;
   loading: boolean;
@@ -83,106 +86,147 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [loading, setLoading] = useState<boolean>(true);
   const justLoggedInRef = useRef<boolean>(false);
 
+  // ✅ Restore last route after refresh
+  useEffect(() => {
+    const lastPath = localStorage.getItem('codfence_last_path');
+    // Only redirect if we're on home page and have a valid last path (dashboard page)
+    if (lastPath && window.location.pathname === '/' && (lastPath.includes('/dashboard') || lastPath.includes('/admin') || lastPath.includes('/user'))) {
+      // Only redirect if we have a valid session
+      const checkSession = async () => {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user && session.user.email_confirmed_at) {
+          // Small delay to ensure auth state is ready
+          setTimeout(() => {
+            window.location.replace(lastPath);
+          }, 100);
+        }
+      };
+      checkSession();
+    }
+  }, []);
+
   // Load user from localStorage on mount
   useEffect(() => {
     let isMounted = true;
-    let lastSessionCheck = Date.now();
 
     const initializeAuth = async () => {
       try {
-        // Step 1: Check if this is a new session (browser was closed)
-        const sessionStart = sessionStorage.getItem('codfence_session_start');
-        if (!sessionStart) {
-          // New session - don't restore from localStorage
-          if (isMounted) {
-            setUser(null);
-            setLoading(false);
-          }
-          return;
-        }
+        // ✅ Prevent double session restoration
+        if (isRestoringSession) return;
+        isRestoringSession = true;
 
-        // Step 2: Try to restore session
-        const restoreResult = await authService.restoreSession();
-        
-        if (restoreResult.data?.session?.user && isMounted) {
-          const restoredSession = restoreResult.data.session;
-        
+        // Step 1: Try to get current session from Supabase
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
           // ✅ Check if email is verified
-          if (!restoredSession.user.email_confirmed_at) {
-            // Email not verified - don't restore session
+          if (!session.user.email_confirmed_at) {
             await supabase.auth.signOut();
             sessionStorage.removeItem('codfence_session_start');
             if (isMounted) {
               setUser(null);
               setLoading(false);
             }
+            isRestoringSession = false;
             return;
           }
 
-          setUser(restoredSession.user);
-          saveUserToStorage(restoredSession.user, restoredSession.access_token);
-          lastSessionCheck = Date.now();
-        
-          // ✅ Sync Supabase global session
-          await supabase.auth.setSession({
-            access_token: restoredSession.access_token,
-            refresh_token: restoredSession.refresh_token,
-          });
-        
-          setLoading(false);
-          return;
-        }        
-        
-        // Step 2: Get current session from Supabase
-        const { data: { session } } = await authService.getSession();
-        
-        if (session?.user && isMounted) {
           setUser(session.user);
           saveUserToStorage(session.user, session.access_token);
-          lastSessionCheck = Date.now();
-          setLoading(false);
-        } else if (!session?.user && isMounted) {
-          // Step 3: Try to refresh session if we have a refresh token
-          try {
-            const refreshResult = await authService.refreshSession();
-            if (refreshResult.data?.session?.user && isMounted) {
-              setUser(refreshResult.data.session.user);
-              saveUserToStorage(refreshResult.data.session.user, refreshResult.data.session.access_token);
-              lastSessionCheck = Date.now();
-              setLoading(false);
-              return;
-            }
-          } catch (refreshError) {
-            console.log('Session refresh failed:', refreshError);
+          // ✅ Save last path for session persistence
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('codfence_last_path', window.location.pathname);
           }
-          
-          // No session found after all attempts - clear storage
-          // But only if we're sure (not immediately after mount)
-          clearStorage();
+          sessionStorage.setItem('codfence_session_start', Date.now().toString());
+          setLoading(false);
+          isRestoringSession = false;
+          return;
+        }
+
+        // Step 2: Try to restore session from authService
+        const { data: { session: restored } } = await authService.restoreSession();
+        if (restored?.user) {
+          // ✅ Check if email is verified
+          if (!restored.user.email_confirmed_at) {
+            await supabase.auth.signOut();
+            sessionStorage.removeItem('codfence_session_start');
+            if (isMounted) {
+              setUser(null);
+              setLoading(false);
+            }
+            isRestoringSession = false;
+            return;
+          }
+
+          setUser(restored.user);
+          saveUserToStorage(restored.user, restored.access_token);
+          // ✅ Save last path for session persistence
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('codfence_last_path', window.location.pathname);
+          }
+          sessionStorage.setItem('codfence_session_start', Date.now().toString());
+        }
+
+        setLoading(false);
+        isRestoringSession = false;
+      } catch (error) {
+        console.error('Error restoring session:', error);
+        if (isMounted) {
           setUser(null);
           setLoading(false);
         }
-      } catch (error) {
-        console.error('Error initializing auth:', error);
-        // Don't clear user on error - might be a temporary issue
-        if (isMounted) {
-          // Final attempt: try to get session
-          try {
-            const { data: { session } } = await authService.getSession();
-            if (session?.user) {
-              setUser(session.user);
-              saveUserToStorage(session.user, session.access_token);
+        isRestoringSession = false;
+      }
+    };
+
+    // Handle email verification callback
+    const handleVerificationCallback = async () => {
+      if (typeof window !== 'undefined' && window.location.hash && window.location.hash.includes('access_token')) {
+        try {
+          const hashParams = new URLSearchParams(window.location.hash.substring(1));
+          const accessToken = hashParams.get('access_token');
+          const refreshToken = hashParams.get('refresh_token');
+
+          if (accessToken && refreshToken) {
+            console.log('🔑 Restoring session after email verification...');
+            const { data, error } = await supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken,
+            });
+
+            if (error) {
+              console.warn('❌ Failed to restore session from verification link:', error.message);
+            } else if (data?.session?.user) {
+              setUser(data.session.user);
+              saveUserToStorage(data.session.user, data.session.access_token);
+              // ✅ Save last path for session persistence
+              if (typeof window !== 'undefined') {
+                localStorage.setItem('codfence_last_path', window.location.pathname);
+              }
+              sessionStorage.setItem('codfence_session_start', Date.now().toString());
+              console.log('✅ Session restored successfully after verification');
             }
-          } catch (retryError) {
-            console.error('Final retry failed:', retryError);
-            // Don't clear on error - let auth state change handle it
+
+            // Clean up URL hash
+            try {
+              window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
+            } catch (e) {
+              console.warn('Failed to clean up URL hash:', e);
+            }
           }
-          setLoading(false);
+        } catch (err) {
+          console.error('Error while parsing URL hash for session restore:', err);
         }
       }
     };
 
-    initializeAuth();
+    // Check for verification callback first, then initialize auth
+    handleVerificationCallback().then(() => {
+      initializeAuth();
+    });
+
+    return () => {
+      isMounted = false;
+    };
 
     // Listen to auth state changes with better handling
     const {
@@ -190,10 +234,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     } = authService.onAuthStateChange(async (event, session) => {
       if (!isMounted) return;
 
-      console.log('Auth state change:', event, session?.user?.email || 'no user');
+      console.log('🔄 Auth change event:', event, session?.user?.email || 'no user');
 
       // Handle different auth events
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        // ✅ Add delay to give Supabase time to finalize token refresh after verification
+        // This prevents invalid RLS token errors
+        await new Promise(resolve => setTimeout(resolve, 800));
+        
         if (session?.user) {
           // ✅ Check if email is verified
           if (!session.user.email_confirmed_at) {
@@ -224,7 +272,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
           setUser(session.user);
           saveUserToStorage(session.user, session.access_token);
-          lastSessionCheck = Date.now();
+          // ✅ Save last path for session persistence
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('codfence_last_path', window.location.pathname);
+          }
+          sessionStorage.setItem('codfence_session_start', Date.now().toString());
           setLoading(false);
         } else {
           // Session might not be ready yet, wait and check again
@@ -251,6 +303,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
               setUser(retrySession.user);
               saveUserToStorage(retrySession.user, retrySession.access_token);
+              // ✅ Save last path for session persistence
+              if (typeof window !== 'undefined') {
+                localStorage.setItem('codfence_last_path', window.location.pathname);
+              }
               if (event === 'SIGNED_IN') {
                 justLoggedInRef.current = true;
                 setTimeout(() => {
@@ -263,6 +319,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
               if (restoreResult.data?.session?.user) {
                 setUser(restoreResult.data.session.user);
                 saveUserToStorage(restoreResult.data.session.user, restoreResult.data.session.access_token);
+                // ✅ Save last path for session persistence
+                if (typeof window !== 'undefined') {
+                  localStorage.setItem('codfence_last_path', window.location.pathname);
+                }
               }
             }
             setLoading(false);
@@ -287,7 +347,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         // For other events (like USER_UPDATED), update if we have a session
         setUser(session.user);
         saveUserToStorage(session.user, session.access_token);
-        lastSessionCheck = Date.now();
+        // ✅ Save last path for session persistence
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('codfence_last_path', window.location.pathname);
+        }
+        sessionStorage.setItem('codfence_session_start', Date.now().toString());
         setLoading(false);
       } else if (event === 'INITIAL_SESSION') {
         // Initial session event - don't clear user if session is null
@@ -295,7 +359,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         if (session?.user) {
           setUser(session.user);
           saveUserToStorage(session.user, session.access_token);
-          lastSessionCheck = Date.now();
+          // ✅ Save last path for session persistence
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('codfence_last_path', window.location.pathname);
+          }
+          sessionStorage.setItem('codfence_session_start', Date.now().toString());
         }
         // Don't clear user if session is null on INITIAL_SESSION
         // The initializeAuth function will handle it
@@ -311,6 +379,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     // Cleanup subscription on unmount
     return () => {
       isMounted = false;
+      (window as any).__codfence_auth_initializing__ = false;
       subscription.unsubscribe();
     };
   }, []);
@@ -329,14 +398,19 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         if (session?.user) {
           setUser(session.user);
           saveUserToStorage(session.user, session.access_token);
-  
+          // ✅ Save last path for session persistence
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('codfence_last_path', window.location.pathname);
+          }
+          sessionStorage.setItem('codfence_session_start', Date.now().toString());
+
           try {
             await supabase.auth.setSession({
               access_token: session.access_token,
               refresh_token: session.refresh_token || 'mhldnxu5lbqd',
             });
             console.log('✅ Supabase SDK session restored manually');
-  
+
             // ✅ Sync into the key that Supabase actually reads
             const projectRef = 'jetpllxiqbtigpxqnphm';
             const sbKey = `sb-${projectRef}-auth-token`;
@@ -350,7 +424,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           } catch (err) {
             console.error('❌ Failed to set Supabase session manually:', err);
           }
-  
+
           setTimeout(() => {
             justLoggedInRef.current = false;
           }, 5000);
@@ -358,18 +432,23 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           // Retry if session not ready
           await new Promise(resolve => setTimeout(resolve, 300));
           const { data: { session: retrySession } } = await authService.getSession();
-  
+
           if (retrySession?.user) {
             setUser(retrySession.user);
             saveUserToStorage(retrySession.user, retrySession.access_token);
-  
+            // ✅ Save last path for session persistence
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('codfence_last_path', window.location.pathname);
+            }
+            sessionStorage.setItem('codfence_session_start', Date.now().toString());
+
             try {
               await supabase.auth.setSession({
                 access_token: retrySession.access_token,
                 refresh_token: retrySession.refresh_token || 'mhldnxu5lbqd',
               });
               console.log('✅ Supabase SDK session restored (retry)');
-  
+
               const projectRef = 'jetpllxiqbtigpxqnphm';
               const sbKey = `sb-${projectRef}-auth-token`;
               localStorage.setItem(
@@ -382,7 +461,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             } catch (err) {
               console.error('❌ Retry failed to set Supabase session:', err);
             }
-  
+
             setTimeout(() => {
               justLoggedInRef.current = false;
             }, 5000);
@@ -393,7 +472,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
               const s = restoreResult.data.session;
               setUser(s.user);
               saveUserToStorage(s.user, s.access_token);
-  
+              // ✅ Save last path for session persistence
+              if (typeof window !== 'undefined') {
+                localStorage.setItem('codfence_last_path', window.location.pathname);
+              }
+              sessionStorage.setItem('codfence_session_start', Date.now().toString());
+
               await supabase.auth.setSession({
                 access_token: s.access_token,
                 refresh_token: s.refresh_token || 'mhldnxu5lbqd',
@@ -450,6 +534,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       // Reset login flag before logout
       justLoggedInRef.current = false;
+      // ✅ Clear last path on logout
+      localStorage.removeItem('codfence_last_path');
       await authService.logout();
       clearStorage();
       // Clear Supabase session from localStorage
