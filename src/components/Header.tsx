@@ -160,16 +160,66 @@ export const Header: React.FC = () => {
 
   const handleNavClick = (href: string) => {
     setMobileMenuOpen(false);
-    if (location.pathname !== "/") {
-      navigate("/");
-      setTimeout(() => {
-        const element = document.querySelector(href);
-        element?.scrollIntoView({ behavior: "smooth" });
-      }, 100);
-    } else {
-      const element = document.querySelector(href);
-      element?.scrollIntoView({ behavior: "smooth" });
+    const sectionId = href.substring(1); // Remove the # from href
+    
+    if (!sectionId) {
+      return;
     }
+    
+    if (location.pathname !== "/") {
+      // Not on home page, navigate to home with hash
+      navigate(`/#${sectionId}`);
+      // Scroll will be handled by ScrollToSectionHandler after navigation
+      return;
+    }
+    
+    // Already on home page, scroll directly with proper offset
+    const scrollToSection = () => {
+      let tries = 0;
+      const maxTries = 30;
+      
+      const tryScroll = () => {
+        const el = document.getElementById(sectionId);
+        const header = document.querySelector("header");
+        
+        if (!el || !header) {
+          if (tries < maxTries) {
+            tries++;
+            setTimeout(tryScroll, 50);
+          }
+          return;
+        }
+        
+        const headerHeight = (header as HTMLElement).offsetHeight;
+        
+        // Get the element's computed styles to check for scroll-margin-top
+        const computedStyle = window.getComputedStyle(el);
+        const scrollMarginTop = parseInt(computedStyle.scrollMarginTop || "0", 10) || 0;
+        
+        // Get the element's absolute position in the document
+        // getBoundingClientRect gives us position relative to viewport (includes padding)
+        const rect = el.getBoundingClientRect();
+        const scrollY = window.pageYOffset || document.documentElement.scrollTop;
+        const absoluteTop = rect.top + scrollY;
+        
+        // Calculate scroll position:
+        // - Start from the absolute top of the section element
+        // - Subtract header height to position it below the navbar
+        // - Optionally account for scroll-margin-top if it's set (for scrollIntoView compatibility)
+        // The goal is to show the section's padding-top area starting right below the navbar
+        const scrollPosition = Math.max(0, absoluteTop - headerHeight);
+        
+        window.scrollTo({
+          top: scrollPosition,
+          behavior: "smooth",
+        });
+      };
+      
+      // Wait a bit for any layout updates to complete
+      setTimeout(tryScroll, 100);
+    };
+    
+    scrollToSection();
   };
 
   return (
