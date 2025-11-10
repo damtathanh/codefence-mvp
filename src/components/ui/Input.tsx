@@ -9,8 +9,27 @@ export const Input: React.FC<InputProps> = ({
   label,
   error,
   className = '',
+  type,
+  onKeyDown,
   ...props
 }) => {
+  // Handle invalid characters for number inputs
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // If it's a number input, prevent invalid characters
+    if (type === 'number') {
+      // Prevent: 'e', 'E', '+', '-' (but allow backspace, delete, tab, escape, enter, arrow keys, and Ctrl/Cmd combinations)
+      if (!e.ctrlKey && !e.metaKey && ['e', 'E', '+', '-'].includes(e.key)) {
+        e.preventDefault();
+        return; // Don't call custom handler if we prevented the event
+      }
+    }
+    
+    // Call custom onKeyDown handler if provided
+    if (onKeyDown) {
+      onKeyDown(e);
+    }
+  };
+
   return (
     <div className="w-full">
       {label && (
@@ -19,6 +38,8 @@ export const Input: React.FC<InputProps> = ({
         </label>
       )}
       <input
+        type={type}
+        onKeyDown={handleKeyDown}
         className={`w-full px-4 py-3.5 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl text-[#E5E7EB] placeholder-[#E5E7EB]/50 focus:outline-none focus:ring-2 focus:ring-[#8B5CF6] focus:border-[#8B5CF6]/50 focus:bg-white/10 transition-all duration-300 ${className}`}
         {...props}
       />

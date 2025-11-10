@@ -15,16 +15,23 @@ export interface Product {
 export interface Order {
   id: string;
   user_id: string;
-  product_id: string;
+  order_id: string;
   customer_name: string;
-  customer_phone: string;
-  date: string;
+  phone: string;
+  address: string | null;
+  product_id: string | null; // UUID reference to products table
+  product?: string; // Legacy field (for backward compatibility during migration)
   amount: number;
-  risk_score: number;
-  risk_level: 'low' | 'medium' | 'high';
-  status: 'pending' | 'verified' | 'rejected';
+  status: string; // Default: 'Pending'
+  risk_score: string; // Default: 'N/A'
   created_at?: string;
   updated_at?: string;
+  // Joined product data (when fetching with join)
+  products?: {
+    id: string;
+    name: string;
+    category: string;
+  } | null;
 }
 
 export interface Invoice {

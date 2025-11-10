@@ -1,12 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Plus, Edit, Trash2, X, Filter } from 'lucide-react';
 import { useSupabaseTable } from '../../hooks/useSupabaseTable';
+import { useToast } from '../../components/ui/Toast';
+import { PRODUCT_CATEGORIES, getCategoryDisplayName, getAllCategorySlugs } from '../../constants/productCategories';
 import type { Product } from '../../types/supabase';
 
 export const ProductsPage: React.FC = () => {
+  const { showSuccess, showError } = useToast();
   const {
     data: products,
     loading,
@@ -40,9 +43,10 @@ export const ProductsPage: React.FC = () => {
   const openEditModal = (product: Product) => {
     setIsEditMode(true);
     setSelectedProduct(product);
+    // Use the category slug as stored (lowercase), or fallback to the stored value
     setFormData({
       name: product.name,
-      category: product.category,
+      category: product.category.toLowerCase(),
       price: product.price.toString(),
       stock: product.stock.toString(),
       status: product.status,
@@ -55,30 +59,60 @@ export const ProductsPage: React.FC = () => {
     setFormData({ name: '', category: '', price: '', stock: '', status: 'active' });
   };
 
+  // Handle ESC key to close modal
+  useEffect(() => {
+    if (!isModalOpen) return;
+
+    const handleEsc = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        closeModal();
+      }
+    };
+
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [isModalOpen]);
+
+  // Handle click outside to close modal
+  const handleOverlayClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.target === e.currentTarget) {
+      closeModal();
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      // Validate category is selected
+      if (!formData.category) {
+        showError('Please select a category');
+        return;
+      }
+
       if (isEditMode && selectedProduct) {
         await updateItem(selectedProduct.id, {
           name: formData.name,
-          category: formData.category,
+          category: formData.category.toLowerCase().trim(),
           price: parseFloat(formData.price),
           stock: parseInt(formData.stock),
           status: formData.status,
         });
+        showSuccess('Product updated successfully!');
       } else {
         await addItem({
           name: formData.name,
-          category: formData.category,
+          category: formData.category.toLowerCase().trim(),
           price: parseFloat(formData.price),
           stock: parseInt(formData.stock),
           status: formData.status,
         });
+        const categoryName = getCategoryDisplayName(formData.category);
+        showSuccess(`Product added successfully under category: ${categoryName}`);
       }
       closeModal();
     } catch (err) {
       console.error('Error saving product:', err);
-      alert('Failed to save product. Please try again.');
+      showError('Failed to save product. Please try again.');
     }
   };
 
@@ -98,12 +132,16 @@ export const ProductsPage: React.FC = () => {
     }
   };
 
-  // Get unique categories for filter dropdown
-  const uniqueCategories = Array.from(new Set(products.map(p => p.category)));
+  // Get unique categories for filter dropdown (include both standardized and existing categories for backward compatibility)
+  const existingCategories = Array.from(new Set(products.map(p => p.category))).filter(
+    cat => cat && !getAllCategorySlugs().includes(cat.toLowerCase())
+  );
 
   const filteredProducts = products.filter(product => {
     const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesCategory = categoryFilter === 'all' || product.category === categoryFilter;
+    // Compare categories case-insensitively for backward compatibility
+    const matchesCategory = categoryFilter === 'all' || 
+      product.category.toLowerCase() === categoryFilter.toLowerCase();
     const matchesStatus = statusFilter === 'all' || product.status === statusFilter;
     return matchesSearch && matchesCategory && matchesStatus;
   });
@@ -187,9 +225,24 @@ export const ProductsPage: React.FC = () => {
                 className="w-full px-4 py-3 bg-white/10 backdrop-blur-md border border-white/20 rounded-lg text-[#E5E7EB] focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
               >
                 <option value="all">All Categories</option>
-                {uniqueCategories.map(category => (
-                  <option key={category} value={category}>{category}</option>
+                {PRODUCT_CATEGORIES.map(group => (
+                  <optgroup key={group.groupName} label={group.groupName}>
+                    {group.categories.map(category => (
+                      <option key={category.slug} value={category.slug}>
+                        {category.displayName}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
+                {existingCategories.length > 0 && (
+                  <optgroup label="Other Categories">
+                    {existingCategories.map(category => (
+                      <option key={category} value={category}>
+                        {getCategoryDisplayName(category)}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
             </div>
             <div>
@@ -210,7 +263,7 @@ export const ProductsPage: React.FC = () => {
 
       <Card>
         <CardContent className="p-0">
-          <div className="p-4 border-b border-[#1E223D] flex items-center justify-between">
+          <div className="px-6 pb-3 pt-0 border-b border-[#1E223D] flex items-center justify-between">
             <div className="flex items-center gap-4">
               <button
                 onClick={handleSelectAll}
@@ -259,7 +312,7 @@ export const ProductsPage: React.FC = () => {
                       />
                     </td>
                     <td className="px-6 py-5 text-sm text-[#E5E7EB]">{product.name}</td>
-                    <td className="px-6 py-5 text-sm text-[#E5E7EB]">{product.category}</td>
+                    <td className="px-6 py-5 text-sm text-[#E5E7EB]">{getCategoryDisplayName(product.category)}</td>
                     <td className="px-6 py-5 text-sm text-[#E5E7EB]">
                       {product.price.toLocaleString('vi-VN')} VND
                     </td>
@@ -306,13 +359,26 @@ export const ProductsPage: React.FC = () => {
 
       {/* Add/Edit Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-gradient-to-br from-[#12163A] to-[#181C3B] rounded-lg border border-[#1E223D] p-6 lg:p-8 max-w-md w-full">
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onClick={handleOverlayClick}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="product-modal-title"
+        >
+          <div 
+            className="bg-gradient-to-br from-[#12163A] to-[#181C3B] rounded-lg border border-[#1E223D] p-6 lg:p-8 max-w-md w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-semibold text-[#E5E7EB]">
+              <h3 id="product-modal-title" className="text-xl font-semibold text-[#E5E7EB]">
                 {isEditMode ? 'Edit Product' : 'Add Product'}
               </h3>
-              <button onClick={closeModal} className="text-[#E5E7EB]/70 hover:text-[#E5E7EB]">
+              <button 
+                onClick={closeModal} 
+                className="text-[#E5E7EB]/70 hover:text-[#E5E7EB] transition-colors"
+                aria-label="Close modal"
+              >
                 <X size={20} />
               </button>
             </div>
@@ -323,12 +389,43 @@ export const ProductsPage: React.FC = () => {
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 required
               />
-              <Input
-                label="Category"
-                value={formData.category}
-                onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                required
-              />
+              <div>
+                <label className="block text-sm font-medium text-[#E5E7EB]/90 mb-2">
+                  Category <span className="text-red-400">*</span>
+                </label>
+                <select
+                  value={formData.category}
+                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                  className="w-full px-4 py-3.5 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl text-[#E5E7EB] focus:outline-none focus:ring-2 focus:ring-[#8B5CF6] focus:border-[#8B5CF6]/50 focus:bg-white/10 transition-all duration-300"
+                  required
+                >
+                  <option value="">Select a category</option>
+                  {PRODUCT_CATEGORIES.map(group => (
+                    <optgroup key={group.groupName} label={group.groupName}>
+                      {group.categories.map(category => (
+                        <option key={category.slug} value={category.slug}>
+                          {category.displayName}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                  {/* Show current category if it's not in the standard list (for backward compatibility when editing) */}
+                  {isEditMode && selectedProduct && 
+                   !getAllCategorySlugs().includes(selectedProduct.category.toLowerCase()) && (
+                    <optgroup label="Current Category">
+                      <option value={selectedProduct.category.toLowerCase()}>
+                        {getCategoryDisplayName(selectedProduct.category)} (Current)
+                      </option>
+                    </optgroup>
+                  )}
+                </select>
+                {isEditMode && selectedProduct && 
+                 !getAllCategorySlugs().includes(selectedProduct.category.toLowerCase()) && (
+                  <p className="mt-1 text-xs text-yellow-400">
+                    This product uses a legacy category. Consider updating to a standardized category.
+                  </p>
+                )}
+              </div>
               <Input
                 label="Price (VND)"
                 type="number"

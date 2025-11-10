@@ -128,6 +128,22 @@ textarea::placeholder {
 }
 
 /* ===============================
+   🔢 NUMBER INPUT STYLE
+   Hide spin buttons on number inputs
+=================================*/
+/* Hide number input arrows (for Chrome, Safari, Edge, Opera) */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* For Firefox */
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* ===============================
    🔘 GRADIENT BUTTONS
 =================================*/
 @keyframes gradientShift {

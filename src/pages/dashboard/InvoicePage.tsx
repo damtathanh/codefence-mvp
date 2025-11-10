@@ -183,7 +183,7 @@ export const InvoicePage: React.FC = () => {
 
       <Card>
         <CardContent className="p-0">
-          <div className="p-4 border-b border-[#1E223D] flex items-center justify-between">
+          <div className="px-6 pb-3 pt-0 border-b border-[#1E223D] flex items-center justify-between">
             <div className="flex items-center gap-4">
               <button
                 onClick={handleSelectAll}
