@@ -248,15 +248,25 @@ export function useSupabaseTable<T extends { id: string; user_id: string }>(
           },
           (payload) => {
             console.log(`[${tableName}] Realtime event:`, payload.eventType, payload);
-            if (payload.eventType === 'INSERT') {
-              setData((prev) => [payload.new as T, ...prev]);
-            } else if (payload.eventType === 'UPDATE') {
-              setData((prev) =>
-                prev.map((item) => (item.id === payload.new.id ? (payload.new as T) : item))
-              );
-            } else if (payload.eventType === 'DELETE') {
-              setData((prev) => prev.filter((item) => item.id === payload.old.id));
-            }
+
+            setData((prev) => {
+              switch (payload.eventType) {
+                case 'INSERT': {
+                  // ✅ Prevent duplicates: skip if the record already exists
+                  const exists = prev.some((item) => item.id === payload.new.id);
+                  if (exists) return prev;
+                  return [payload.new as T, ...prev];
+                }
+                case 'UPDATE':
+                  return prev.map((item) =>
+                    item.id === payload.new.id ? (payload.new as T) : item
+                  );
+                case 'DELETE':
+                  return prev.filter((item) => item.id !== payload.old.id);
+                default:
+                  return prev;
+              }
+            });
           }
         )
         .subscribe();

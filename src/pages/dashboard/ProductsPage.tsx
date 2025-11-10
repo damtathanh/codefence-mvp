@@ -43,7 +43,28 @@ export const ProductsPage: React.FC = () => {
     productId: null,
     productName: '',
   });
+  const [deleteAllModal, setDeleteAllModal] = useState<{
+    isOpen: boolean;
+    selectedCount: number;
+  }>({
+    isOpen: false,
+    selectedCount: 0,
+  });
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteAllLoading, setDeleteAllLoading] = useState(false);
+
+  // Helper function to handle formatted number input for price
+  const handleFormattedNumberChange = (field: 'price' | 'stock', e: React.ChangeEvent<HTMLInputElement>) => {
+    if (field === 'price') {
+      // For price: format with commas
+      let value = e.target.value.replace(/[^\d]/g, ''); // remove non-digits
+      const formatted = value ? Number(value).toLocaleString('en-US') : '';
+      setFormData({ ...formData, [field]: formatted });
+    } else {
+      // For stock: keep as-is (no formatting needed)
+      setFormData({ ...formData, [field]: e.target.value });
+    }
+  };
 
   const openAddModal = () => {
     setIsEditMode(false);
@@ -56,10 +77,12 @@ export const ProductsPage: React.FC = () => {
     setIsEditMode(true);
     setSelectedProduct(product);
     // Use the category slug as stored (lowercase), or fallback to the stored value
+    // Format price with commas for display
+    const formattedPrice = product.price ? Number(product.price).toLocaleString('en-US') : '';
     setFormData({
       name: product.name,
       category: product.category.toLowerCase(),
-      price: product.price.toString(),
+      price: formattedPrice,
       stock: product.stock.toString(),
       status: product.status,
     });
@@ -101,11 +124,11 @@ export const ProductsPage: React.FC = () => {
         return;
       }
 
-      // Validate price and stock are valid numbers
-      const price = parseFloat(formData.price);
+      // Convert formatted price string back to number (remove commas)
+      const numericPrice = formData.price ? Number(formData.price.replace(/,/g, '')) : 0;
       const stock = parseInt(formData.stock);
       
-      if (isNaN(price) || price < 0) {
+      if (isNaN(numericPrice) || numericPrice < 0) {
         showError('Please enter a valid price');
         return;
       }
@@ -120,7 +143,7 @@ export const ProductsPage: React.FC = () => {
         await updateItem(selectedProduct.id, {
           name: formData.name.trim(),
           category: formData.category.toLowerCase().trim(),
-          price: price,
+          price: numericPrice,
           stock: stock,
           status: formData.status,
         });
@@ -135,7 +158,7 @@ export const ProductsPage: React.FC = () => {
         await addItem({
           name: formData.name.trim(),
           category: formData.category.toLowerCase().trim(),
-          price: price,
+          price: numericPrice,
           stock: stock,
           status: formData.status,
         });
@@ -207,6 +230,53 @@ export const ProductsPage: React.FC = () => {
 
   const handleDeleteCancel = () => {
     setConfirmModal({ isOpen: false, productId: null, productName: '' });
+  };
+
+  const handleDeleteAllClick = () => {
+    if (selectedIds.size === 0) return;
+    setDeleteAllModal({
+      isOpen: true,
+      selectedCount: selectedIds.size,
+    });
+  };
+
+  const handleDeleteAllConfirm = async () => {
+    if (selectedIds.size === 0) return;
+
+    setDeleteAllLoading(true);
+    try {
+      const idsToDelete = Array.from(selectedIds);
+      const deletePromises = idsToDelete.map(id => deleteItem(id));
+      
+      // Delete all selected items in parallel
+      await Promise.all(deletePromises);
+      
+      // Clear selected IDs
+      setSelectedIds(new Set());
+      
+      // Explicitly refetch to ensure UI is in sync with database
+      await fetchAll();
+      
+      showSuccess(`Successfully deleted ${idsToDelete.length} product${idsToDelete.length > 1 ? 's' : ''}!`);
+      setDeleteAllModal({ isOpen: false, selectedCount: 0 });
+    } catch (err) {
+      console.error('Error deleting products:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to delete products. Please try again.';
+      showError(errorMessage);
+      
+      // Refetch on error to ensure UI reflects current database state
+      try {
+        await fetchAll();
+      } catch (fetchErr) {
+        console.error('Error refetching products after delete all error:', fetchErr);
+      }
+    } finally {
+      setDeleteAllLoading(false);
+    }
+  };
+
+  const handleDeleteAllCancel = () => {
+    setDeleteAllModal({ isOpen: false, selectedCount: 0 });
   };
 
   // Get unique categories for filter dropdown (include both standardized and existing categories for backward compatibility)
@@ -356,6 +426,15 @@ export const ProductsPage: React.FC = () => {
                 </span>
               )}
             </div>
+            {selectedIds.size > 0 && (
+              <button
+                onClick={handleDeleteAllClick}
+                className="px-4 py-2 text-sm font-semibold rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-400 hover:text-red-300 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-red-500/50 focus:ring-offset-2 focus:ring-offset-[#0B0F28] flex items-center gap-2"
+              >
+                <Trash2 size={16} />
+                Delete All
+              </button>
+            )}
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -506,10 +585,11 @@ export const ProductsPage: React.FC = () => {
               </div>
               <Input
                 label="Price (VND)"
-                type="number"
+                type="text"
                 value={formData.price}
-                onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+                onChange={(e) => handleFormattedNumberChange('price', e)}
                 required
+                placeholder="e.g., 20,000,000"
               />
               <Input
                 label="Stock"
@@ -552,6 +632,18 @@ export const ProductsPage: React.FC = () => {
         onConfirm={handleDeleteConfirm}
         onCancel={handleDeleteCancel}
         loading={deleteLoading}
+      />
+
+      {/* Confirm Delete All Modal */}
+      <ConfirmModal
+        isOpen={deleteAllModal.isOpen}
+        message={`Are you sure you want to delete ${deleteAllModal.selectedCount} selected product${deleteAllModal.selectedCount > 1 ? 's' : ''}? This action cannot be undone.`}
+        confirmText={`Delete ${deleteAllModal.selectedCount} Product${deleteAllModal.selectedCount > 1 ? 's' : ''}`}
+        cancelText="Cancel"
+        variant="danger"
+        onConfirm={handleDeleteAllConfirm}
+        onCancel={handleDeleteAllCancel}
+        loading={deleteAllLoading}
       />
     </div>
   );

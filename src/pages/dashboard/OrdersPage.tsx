@@ -2,11 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
-import { CheckCircle, XCircle, Filter, Plus, AlertTriangle } from 'lucide-react';
+import { CheckCircle, XCircle, Filter, Plus, AlertTriangle, Trash2 } from 'lucide-react';
 import { useSupabaseTable } from '../../hooks/useSupabaseTable';
 import { useAuth } from '../../features/auth';
 import { supabase } from '../../lib/supabaseClient';
 import { AddOrderModal } from '../../components/dashboard/AddOrderModal';
+import { ConfirmModal } from '../../components/ui/ConfirmModal';
 import { useToast } from '../../components/ui/Toast';
 import type { Order, Product } from '../../types/supabase';
 
@@ -22,6 +23,14 @@ export const OrdersPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [statusFilter, setStatusFilter] = useState('all');
+  const [deleteAllModal, setDeleteAllModal] = useState<{
+    isOpen: boolean;
+    selectedCount: number;
+  }>({
+    isOpen: false,
+    selectedCount: 0,
+  });
+  const [deleteAllLoading, setDeleteAllLoading] = useState(false);
 
   // Fetch orders with product joins
   const fetchOrders = async () => {
@@ -231,6 +240,66 @@ export const OrdersPage: React.FC = () => {
     });
   };
 
+  const handleDeleteAllClick = () => {
+    if (selectedIds.size === 0) return;
+    setDeleteAllModal({
+      isOpen: true,
+      selectedCount: selectedIds.size,
+    });
+  };
+
+  const handleDeleteAllConfirm = async () => {
+    if (selectedIds.size === 0 || !user) return;
+
+    setDeleteAllLoading(true);
+    try {
+      const idsToDelete = Array.from(selectedIds);
+      
+      // Delete all selected orders in parallel
+      const deletePromises = idsToDelete.map(id =>
+        supabase
+          .from('orders')
+          .delete()
+          .eq('id', id)
+          .eq('user_id', user.id)
+      );
+      
+      const results = await Promise.all(deletePromises);
+      
+      // Check for errors
+      const errors = results.filter(result => result.error);
+      if (errors.length > 0) {
+        throw new Error(`Failed to delete ${errors.length} order(s).`);
+      }
+      
+      // Clear selected IDs
+      setSelectedIds(new Set());
+      
+      // Refresh orders list
+      await fetchOrders();
+      
+      showSuccess(`Successfully deleted ${idsToDelete.length} order${idsToDelete.length > 1 ? 's' : ''}!`);
+      setDeleteAllModal({ isOpen: false, selectedCount: 0 });
+    } catch (err) {
+      console.error('Error deleting orders:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to delete orders. Please try again.';
+      showError(errorMessage);
+      
+      // Refetch on error to ensure UI reflects current database state
+      try {
+        await fetchOrders();
+      } catch (fetchErr) {
+        console.error('Error refetching orders after delete all error:', fetchErr);
+      }
+    } finally {
+      setDeleteAllLoading(false);
+    }
+  };
+
+  const handleDeleteAllCancel = () => {
+    setDeleteAllModal({ isOpen: false, selectedCount: 0 });
+  };
+
   if (loading && orders.length === 0) {
     return (
       <div className="space-y-6">
@@ -317,6 +386,15 @@ export const OrdersPage: React.FC = () => {
                 </span>
               )}
             </div>
+            {selectedIds.size > 0 && (
+              <button
+                onClick={handleDeleteAllClick}
+                className="px-4 py-2 text-sm font-semibold rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-400 hover:text-red-300 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-red-500/50 focus:ring-offset-2 focus:ring-offset-[#0B0F28] flex items-center gap-2"
+              >
+                <Trash2 size={16} />
+                Delete All
+              </button>
+            )}
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -451,6 +529,18 @@ export const OrdersPage: React.FC = () => {
           fetchOrders();
           setIsAddOrderModalOpen(false);
         }}
+      />
+
+      {/* Confirm Delete All Modal */}
+      <ConfirmModal
+        isOpen={deleteAllModal.isOpen}
+        message={`Are you sure you want to delete ${deleteAllModal.selectedCount} selected order${deleteAllModal.selectedCount > 1 ? 's' : ''}? This action cannot be undone.`}
+        confirmText={`Delete ${deleteAllModal.selectedCount} Order${deleteAllModal.selectedCount > 1 ? 's' : ''}`}
+        cancelText="Cancel"
+        variant="danger"
+        onConfirm={handleDeleteAllConfirm}
+        onCancel={handleDeleteAllCancel}
+        loading={deleteAllLoading}
       />
     </div>
   );

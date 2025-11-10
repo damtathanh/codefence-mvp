@@ -12,7 +12,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
     // Check which key is missing
     if (!import.meta.env.VITE_SUPABASE_ANON_KEY && !import.meta.env.VITE_SUPABASE_KEY) {
       missing.push('VITE_SUPABASE_ANON_KEY (or VITE_SUPABASE_KEY)');
-    }
+    } 
   }
   
   const errorMessage = `❌ Missing Supabase environment variables: ${missing.join(', ')}\n\nPlease check your .env file and ensure these variables are set:\n${missing.map(v => `  - ${v}`).join('\n')}\n\nThen restart your development server.`;

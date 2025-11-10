@@ -33,13 +33,14 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
   const products = allProducts.filter(p => p.status === 'active');
 
   // Manual entry form state
-  const [formData, setFormData] = useState<Partial<OrderInput>>({
+  const [formData, setFormData] = useState<Partial<OrderInput & { amountDisplay: string }>>({
     order_id: '',
     customer_name: '',
     phone: '',
     address: '',
     product_id: '',
     amount: 0,
+    amountDisplay: '',
   });
 
   // File upload state
@@ -47,6 +48,13 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
   const [invalidOrders, setInvalidOrders] = useState<InvalidOrderRow[]>([]);
   const [correctedOrders, setCorrectedOrders] = useState<Map<number, string>>(new Map()); // rowIndex -> product_id
   const [showPreview, setShowPreview] = useState(false);
+
+  // Helper function to handle formatted number input for amount
+  const handleFormattedNumberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let value = e.target.value.replace(/[^\d]/g, ''); // remove non-digits
+    const formatted = value ? Number(value).toLocaleString('en-US') : '';
+    setFormData({ ...formData, amountDisplay: formatted });
+  };
 
   // Reset form when modal closes
   useEffect(() => {
@@ -58,6 +66,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
         address: '',
         product_id: '',
         amount: 0,
+        amountDisplay: '',
       });
       setUploadProgress('');
       setUploadedOrders([]);
@@ -83,8 +92,27 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
         return;
       }
 
+      // Convert formatted amount string back to number (remove commas)
+      const numericAmount = formData.amountDisplay ? Number(formData.amountDisplay.replace(/,/g, '')) : 0;
+      
+      if (numericAmount <= 0) {
+        showError('Amount must be greater than 0');
+        setLoading(false);
+        return;
+      }
+
+      // Prepare order data with numeric amount
+      const orderData: OrderInput = {
+        order_id: formData.order_id || '',
+        customer_name: formData.customer_name || '',
+        phone: formData.phone || '',
+        address: formData.address || null,
+        product_id: formData.product_id || '',
+        amount: numericAmount,
+      };
+
       // Validate order
-      const validationError = validateOrder(formData as OrderInput);
+      const validationError = validateOrder(orderData);
       if (validationError) {
         showError(validationError);
         setLoading(false);
@@ -92,7 +120,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
       }
 
       // Insert order
-      await insertOrder(formData as OrderInput);
+      await insertOrder(orderData);
       
       showSuccess('Order added successfully!');
       
@@ -374,13 +402,12 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
             </div>
             <Input
               label="Amount (VND)"
-              type="number"
-              value={formData.amount}
-              onChange={(e) => setFormData({ ...formData, amount: parseFloat(e.target.value) || 0 })}
+              type="text"
+              value={formData.amountDisplay || ''}
+              onChange={handleFormattedNumberChange}
               required
-              min="0"
-              step="0.01"
               disabled={loading}
+              placeholder="e.g., 20,000,000"
             />
             <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3">
               <p className="text-sm text-blue-300">
@@ -415,38 +442,44 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
           <div className="space-y-5">
             {!showPreview ? (
               <>
-                <div className="border-2 border-dashed border-white/20 rounded-lg p-8 text-center">
-                  <Upload size={48} className="mx-auto mb-4 text-[#E5E7EB]/50" />
-                  <p className="text-[#E5E7EB] mb-2">Upload CSV or XLSX file</p>
-                  <p className="text-sm text-[#E5E7EB]/70 mb-4">
-                    Supported formats: .csv, .xlsx, .xls
-                  </p>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".csv,.xlsx,.xls"
-                    onChange={handleFileUpload}
-                    className="hidden"
-                    disabled={loading}
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={loading}
-                  >
-                    {loading ? (
-                      <>
-                        <Loader2 size={16} className="mr-2 animate-spin" />
-                        Processing...
-                      </>
-                    ) : (
-                      <>
-                        <Upload size={16} className="mr-2" />
-                        Choose File
-                      </>
-                    )}
-                  </Button>
+                <div className="relative">
+                  <div className="border-2 border-dashed border-[#8B5CF6]/30 rounded-xl p-8 text-center bg-gradient-to-br from-[#8B5CF6]/5 to-transparent hover:border-[#8B5CF6]/50 transition-all duration-300">
+                    <div className="flex flex-col items-center justify-center">
+                      <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[#8B5CF6]/20 to-[#8B5CF6]/10 flex items-center justify-center mb-4 border border-[#8B5CF6]/30">
+                        <Upload size={28} className="text-[#8B5CF6]" />
+                      </div>
+                      <p className="text-[#E5E7EB] font-medium mb-1 text-lg">Upload CSV or XLSX file</p>
+                      <p className="text-sm text-[#E5E7EB]/60 mb-6">
+                        Supported formats: .csv, .xlsx, .xls
+                      </p>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept=".csv,.xlsx,.xls"
+                        onChange={handleFileUpload}
+                        className="hidden"
+                        disabled={loading}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={loading}
+                        className="px-6 py-3 bg-gradient-to-r from-[#8B5CF6] to-[#7C3AED] hover:from-[#7C3AED] hover:to-[#6D28D9] text-white font-semibold rounded-xl transition-all duration-300 shadow-lg shadow-[#8B5CF6]/20 hover:shadow-[#8B5CF6]/30 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:from-[#8B5CF6] disabled:hover:to-[#7C3AED]"
+                      >
+                        {loading ? (
+                          <>
+                            <Loader2 size={18} className="animate-spin" />
+                            <span>Processing...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Upload size={18} />
+                            <span>Choose File</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
                 {uploadProgress && (
@@ -567,19 +600,6 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
                   </Button>
                 </div>
               </>
-            )}
-
-            {!showPreview && (
-              <div className="flex gap-3 justify-end mt-6 pt-4 border-t border-[#1E223D]">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={onClose}
-                  disabled={loading}
-                >
-                  Close
-                </Button>
-              </div>
             )}
           </div>
         )}
