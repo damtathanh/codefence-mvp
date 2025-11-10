@@ -1,145 +1,218 @@
 // Shared hook for Supabase CRUD operations
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabaseClient';
-import { useAuth } from '../features/auth';
 
 interface UseSupabaseTableOptions<T> {
   tableName: string;
   enableRealtime?: boolean;
 }
 
+/**
+ * Helper function to get the current authenticated user ID
+ * Throws an error if user is not authenticated
+ */
+async function getCurrentUserId(): Promise<string> {
+  const { data: { user }, error } = await supabase.auth.getUser();
+  
+  if (error) {
+    console.error('[useSupabaseTable] Authentication error:', error);
+    throw new Error(`Authentication failed: ${error.message}`);
+  }
+  
+  if (!user) {
+    throw new Error('User not authenticated. Please log in again.');
+  }
+  
+  return user.id;
+}
+
 export function useSupabaseTable<T extends { id: string; user_id: string }>(
   options: UseSupabaseTableOptions<T>
 ) {
   const { tableName, enableRealtime = false } = options;
-  const { user } = useAuth();
   const [data, setData] = useState<T[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Fetch all items for the current user
   const fetchAll = useCallback(async () => {
-    if (!user) {
-      setData([]);
-      setLoading(false);
-      return;
-    }
-
     try {
       setLoading(true);
       setError(null);
+
+      // Get authenticated user ID
+      const userId = await getCurrentUserId();
+      console.log(`[${tableName}] Fetching items for user ${userId}`);
+
       const { data: items, error: fetchError } = await supabase
         .from(tableName)
         .select('*')
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
         .order('created_at', { ascending: false });
 
       if (fetchError) {
-        console.error(`Error fetching ${tableName}:`, fetchError);
-        setError(fetchError.message);
+        console.error(`[${tableName}] Error fetching items:`, fetchError);
+        console.error(`[${tableName}] Fetch error details:`, {
+          code: fetchError.code,
+          message: fetchError.message,
+          details: fetchError.details,
+          hint: fetchError.hint,
+        });
+        const errorMessage = fetchError.message || 'Failed to fetch data';
+        setError(errorMessage);
         setData([]);
-      } else {
-        setData((items as T[]) || []);
+        throw new Error(errorMessage);
       }
+
+      console.log(`[${tableName}] Successfully fetched ${items?.length || 0} items`);
+      setData((items as T[]) || []);
+      return items as T[];
     } catch (err) {
-      console.error(`Unexpected error fetching ${tableName}:`, err);
-      setError('Failed to fetch data');
+      console.error(`[${tableName}] Unexpected error fetching items:`, err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch data';
+      setError(errorMessage);
       setData([]);
+      throw err;
     } finally {
       setLoading(false);
     }
-  }, [user, tableName]);
+  }, [tableName]);
 
   // Add new item
   const addItem = useCallback(
     async (item: Omit<T, 'id' | 'user_id' | 'created_at' | 'updated_at'>) => {
-      if (!user) {
-        throw new Error('User must be authenticated');
-      }
-
       try {
-        const { data: newItem, error: insertError } = await supabase
+        // Get authenticated user ID
+        const userId = await getCurrentUserId();
+        console.log(`[${tableName}] Adding item for user ${userId}:`, item);
+
+        // Prepare item with user_id and timestamps
+        const itemToInsert = {
+          ...item,
+          user_id: userId,
+          created_at: new Date().toISOString(),
+        };
+
+        const { data: newItems, error: insertError } = await supabase
           .from(tableName)
-          .insert([{ ...item, user_id: user.id }])
-          .select()
-          .single();
+          .insert([itemToInsert])
+          .select();
 
         if (insertError) {
-          console.error(`Error adding to ${tableName}:`, insertError);
-          throw insertError;
+          console.error(`[${tableName}] Error adding item:`, insertError);
+          console.error(`[${tableName}] Insert error details:`, {
+            code: insertError.code,
+            message: insertError.message,
+            details: insertError.details,
+            hint: insertError.hint,
+          });
+          const errorMessage = insertError.message || 'Failed to add item';
+          throw new Error(errorMessage);
         }
 
-        // Optimistically update local state
-        setData((prev) => [newItem as T, ...prev]);
-        return newItem as T;
+        if (!newItems || newItems.length === 0) {
+          throw new Error('Insert succeeded but no data returned. This may indicate an RLS policy issue.');
+        }
+
+        const newItem = newItems[0] as T;
+        console.log(`[${tableName}] Successfully added item with ID ${newItem.id}:`, newItem);
+
+        // Update local state with the returned data from Supabase
+        setData((prev) => [newItem, ...prev]);
+        return newItem;
       } catch (err) {
-        console.error(`Unexpected error adding to ${tableName}:`, err);
+        console.error(`[${tableName}] Unexpected error adding item:`, err);
         throw err;
       }
     },
-    [user, tableName]
+    [tableName]
   );
 
   // Update item
   const updateItem = useCallback(
     async (id: string, updates: Partial<Omit<T, 'id' | 'user_id' | 'created_at'>>) => {
-      if (!user) {
-        throw new Error('User must be authenticated');
-      }
-
       try {
-        const { data: updatedItem, error: updateError } = await supabase
+        const userId = await getCurrentUserId();
+  
+        // Không thêm updated_at thủ công (DB trigger tự cập nhật)
+        const updateData: any = { ...updates };
+  
+        console.log(`[${tableName}] Updating item ${id} for user ${userId}:`, updateData);
+  
+        const { data: updatedItems, error: updateError } = await supabase
           .from(tableName)
-          .update(updates)
+          .update(updateData)
           .eq('id', id)
-          .eq('user_id', user.id) // Ensure user can only update their own items
+          .eq('user_id', userId)
           .select()
-          .single();
-
+          .single(); // lấy 1 record thôi, gọn
+  
         if (updateError) {
-          console.error(`Error updating ${tableName}:`, updateError);
-          throw updateError;
+          console.error(`[${tableName}] Error updating item ${id}:`, updateError);
+          throw new Error(updateError.message || 'Failed to update item');
         }
-
-        // Optimistically update local state
-        setData((prev) => prev.map((item) => (item.id === id ? (updatedItem as T) : item)));
-        return updatedItem as T;
+  
+        if (!updatedItems) {
+          throw new Error('Update failed or item not found (possible RLS restriction)');
+        }
+  
+        console.log(`[${tableName}] Successfully updated item ${id}`, updatedItems);
+  
+        // Cập nhật UI state
+        setData((prev) => prev.map((item) => (item.id === id ? updatedItems : item)));
+  
+        return updatedItems;
       } catch (err) {
-        console.error(`Unexpected error updating ${tableName}:`, err);
+        console.error(`[${tableName}] Unexpected error updating item ${id}:`, err);
         throw err;
       }
     },
-    [user, tableName]
+    [tableName]
   );
 
   // Delete item
   const deleteItem = useCallback(
     async (id: string) => {
-      if (!user) {
-        throw new Error('User must be authenticated');
-      }
-
       try {
+        const userId = await getCurrentUserId();
+        console.log(`[${tableName}] Deleting item ${id} for user ${userId}`);
+  
         const { error: deleteError } = await supabase
           .from(tableName)
           .delete()
           .eq('id', id)
-          .eq('user_id', user.id); // Ensure user can only delete their own items
-
+          .eq('user_id', userId);
+  
         if (deleteError) {
-          console.error(`Error deleting from ${tableName}:`, deleteError);
-          throw deleteError;
+          console.error(`[${tableName}] Delete error for item ${id}:`, deleteError);
+          throw new Error(deleteError.message || 'Failed to delete item');
         }
-
-        // Optimistically update local state
+  
+        // Thêm delay nhỏ (chờ DB apply RLS + replication)
+        await new Promise((res) => setTimeout(res, 300));
+  
+        // Kiểm tra lại xem item còn không
+        const { data: verifyItem } = await supabase
+          .from(tableName)
+          .select('id')
+          .eq('id', id)
+          .eq('user_id', userId)
+          .maybeSingle();
+  
+        if (verifyItem) {
+          console.warn(`[${tableName}] Delete verification: item still exists (${id})`);
+          throw new Error('Delete operation failed: Item still exists (possible RLS issue).');
+        }
+  
+        console.log(`[${tableName}] Successfully deleted item ${id}`);
         setData((prev) => prev.filter((item) => item.id !== id));
       } catch (err) {
-        console.error(`Unexpected error deleting from ${tableName}:`, err);
+        console.error(`[${tableName}] Unexpected error deleting item ${id}:`, err);
         throw err;
       }
     },
-    [user, tableName]
-  );
+    [tableName]
+  );  
 
   // Initial fetch on mount
   useEffect(() => {
@@ -148,36 +221,58 @@ export function useSupabaseTable<T extends { id: string; user_id: string }>(
 
   // Realtime subscription (optional)
   useEffect(() => {
-    if (!enableRealtime || !user) return;
+    if (!enableRealtime) return;
 
-    const channel = supabase
-      .channel(`${tableName}_changes`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: tableName,
-          filter: `user_id=eq.${user.id}`,
-        },
-        (payload) => {
-          if (payload.eventType === 'INSERT') {
-            setData((prev) => [payload.new as T, ...prev]);
-          } else if (payload.eventType === 'UPDATE') {
-            setData((prev) =>
-              prev.map((item) => (item.id === payload.new.id ? (payload.new as T) : item))
-            );
-          } else if (payload.eventType === 'DELETE') {
-            setData((prev) => prev.filter((item) => item.id !== payload.old.id));
+    let channel: any = null;
+
+    const setupRealtime = async () => {
+      // Get authenticated user
+      const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
+      
+      if (authError || !authUser) {
+        console.warn(`[${tableName}] Cannot setup realtime: user not authenticated`);
+        return;
+      }
+
+      console.log(`[${tableName}] Setting up realtime subscription for user ${authUser.id}`);
+
+      channel = supabase
+        .channel(`${tableName}_changes_${authUser.id}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: tableName,
+            filter: `user_id=eq.${authUser.id}`,
+          },
+          (payload) => {
+            console.log(`[${tableName}] Realtime event:`, payload.eventType, payload);
+            if (payload.eventType === 'INSERT') {
+              setData((prev) => [payload.new as T, ...prev]);
+            } else if (payload.eventType === 'UPDATE') {
+              setData((prev) =>
+                prev.map((item) => (item.id === payload.new.id ? (payload.new as T) : item))
+              );
+            } else if (payload.eventType === 'DELETE') {
+              setData((prev) => prev.filter((item) => item.id === payload.old.id));
+            }
           }
-        }
-      )
-      .subscribe();
+        )
+        .subscribe();
+
+      console.log(`[${tableName}] Realtime subscription established`);
+    };
+
+    setupRealtime();
 
     return () => {
-      supabase.removeChannel(channel);
+      if (channel) {
+        console.log(`[${tableName}] Removing realtime subscription`);
+        supabase.removeChannel(channel);
+      }
     };
-  }, [enableRealtime, user, tableName]);
+  }, [enableRealtime, tableName]);
 
   return {
     data,
@@ -189,4 +284,3 @@ export function useSupabaseTable<T extends { id: string; user_id: string }>(
     deleteItem,
   };
 }
-

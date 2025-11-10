@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
+import { ConfirmModal } from '../../components/ui/ConfirmModal';
 import { Plus, Edit, Trash2, X, Filter } from 'lucide-react';
 import { useSupabaseTable } from '../../hooks/useSupabaseTable';
 import { useToast } from '../../components/ui/Toast';
@@ -17,6 +18,7 @@ export const ProductsPage: React.FC = () => {
     addItem,
     updateItem,
     deleteItem,
+    fetchAll,
   } = useSupabaseTable<Product>({ tableName: 'products', enableRealtime: true });
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
@@ -32,6 +34,16 @@ export const ProductsPage: React.FC = () => {
     stock: '',
     status: 'active' as 'active' | 'inactive',
   });
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    productId: string | null;
+    productName: string;
+  }>({
+    isOpen: false,
+    productId: null,
+    productName: '',
+  });
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   const openAddModal = () => {
     setIsEditMode(false);
@@ -89,47 +101,112 @@ export const ProductsPage: React.FC = () => {
         return;
       }
 
+      // Validate price and stock are valid numbers
+      const price = parseFloat(formData.price);
+      const stock = parseInt(formData.stock);
+      
+      if (isNaN(price) || price < 0) {
+        showError('Please enter a valid price');
+        return;
+      }
+      
+      if (isNaN(stock) || stock < 0) {
+        showError('Please enter a valid stock quantity');
+        return;
+      }
+
       if (isEditMode && selectedProduct) {
+        // Update existing product
         await updateItem(selectedProduct.id, {
-          name: formData.name,
+          name: formData.name.trim(),
           category: formData.category.toLowerCase().trim(),
-          price: parseFloat(formData.price),
-          stock: parseInt(formData.stock),
+          price: price,
+          stock: stock,
           status: formData.status,
         });
+        
+        // Explicitly refetch to ensure UI is in sync with database
+        await fetchAll();
+        
         showSuccess('Product updated successfully!');
+        closeModal();
       } else {
+        // Add new product
         await addItem({
-          name: formData.name,
+          name: formData.name.trim(),
           category: formData.category.toLowerCase().trim(),
-          price: parseFloat(formData.price),
-          stock: parseInt(formData.stock),
+          price: price,
+          stock: stock,
           status: formData.status,
         });
+        
+        // Explicitly refetch to ensure UI is in sync with database
+        await fetchAll();
+        
         const categoryName = getCategoryDisplayName(formData.category);
         showSuccess(`Product added successfully under category: ${categoryName}`);
+        closeModal();
       }
-      closeModal();
     } catch (err) {
       console.error('Error saving product:', err);
-      showError('Failed to save product. Please try again.');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to save product. Please try again.';
+      showError(errorMessage);
+      
+      // Refetch on error to ensure UI reflects current database state
+      try {
+        await fetchAll();
+      } catch (fetchErr) {
+        console.error('Error refetching products after save error:', fetchErr);
+      }
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (window.confirm('Are you sure you want to delete this product?')) {
+  const handleDeleteClick = (product: Product) => {
+    setConfirmModal({
+      isOpen: true,
+      productId: product.id,
+      productName: product.name,
+    });
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!confirmModal.productId) return;
+
+    setDeleteLoading(true);
+    try {
+      // Delete the product from Supabase
+      await deleteItem(confirmModal.productId);
+      
+      // Remove from selected IDs if it was selected
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        next.delete(confirmModal.productId!);
+        return next;
+      });
+      
+      // Explicitly refetch to ensure UI is in sync with database
+      await fetchAll();
+      
+      showSuccess(`Product "${confirmModal.productName}" deleted successfully!`);
+      setConfirmModal({ isOpen: false, productId: null, productName: '' });
+    } catch (err) {
+      console.error('Error deleting product:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to delete product. Please try again.';
+      showError(errorMessage);
+      
+      // Refetch on error to ensure UI reflects current database state
       try {
-        await deleteItem(id);
-        setSelectedIds(prev => {
-          const next = new Set(prev);
-          next.delete(id);
-          return next;
-        });
-      } catch (err) {
-        console.error('Error deleting product:', err);
-        alert('Failed to delete product. Please try again.');
+        await fetchAll();
+      } catch (fetchErr) {
+        console.error('Error refetching products after delete error:', fetchErr);
       }
+    } finally {
+      setDeleteLoading(false);
     }
+  };
+
+  const handleDeleteCancel = () => {
+    setConfirmModal({ isOpen: false, productId: null, productName: '' });
   };
 
   // Get unique categories for filter dropdown (include both standardized and existing categories for backward compatibility)
@@ -335,8 +412,9 @@ export const ProductsPage: React.FC = () => {
                           <Edit size={16} />
                         </button>
                         <button
-                          onClick={() => handleDelete(product.id)}
+                          onClick={() => handleDeleteClick(product)}
                           className="p-2 rounded hover:bg-red-500/10 text-red-400 transition"
+                          aria-label={`Delete ${product.name}`}
                         >
                           <Trash2 size={16} />
                         </button>
@@ -463,6 +541,18 @@ export const ProductsPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Confirm Delete Modal */}
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        message={`Are you sure you want to delete "${confirmModal.productName}"? This action cannot be undone.`}
+        confirmText="Delete Product"
+        cancelText="Cancel"
+        variant="danger"
+        onConfirm={handleDeleteConfirm}
+        onCancel={handleDeleteCancel}
+        loading={deleteLoading}
+      />
     </div>
   );
 };
