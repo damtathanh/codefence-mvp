@@ -157,20 +157,19 @@ export const ProductsPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-end mb-4">
-        <Button onClick={openAddModal}>
-          <Plus size={20} className="mr-2" />
-          Add Product
-        </Button>
-      </div>
-
       {/* Filters */}
       <Card>
         <CardHeader className="!pt-4 !pb-3 !px-6">
-          <CardTitle className="flex items-center gap-2">
-            <Filter size={20} />
-            Filters
-          </CardTitle>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <CardTitle className="flex items-center gap-2">
+              <Filter size={20} />
+              Filters
+            </CardTitle>
+            <Button onClick={openAddModal} className="w-full sm:w-auto">
+              <Plus size={20} className="mr-2" />
+              Add Product
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="!pt-0 !px-6 !pb-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

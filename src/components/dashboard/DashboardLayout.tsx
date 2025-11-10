@@ -384,7 +384,7 @@ export const DashboardLayout: React.FC = () => {
               className="flex items-center gap-2 px-4 py-2 bg-[#8B5CF6]/20 border border-[#8B5CF6]/30 rounded-lg text-[#E5E7EB] hover:bg-[#8B5CF6]/30 transition whitespace-nowrap"
             >
               <ArrowLeft size={18} />
-              <span className="text-sm font-medium hidden md:inline">Quay về Trang chủ</span>
+              <span className="text-sm font-medium hidden md:inline">Back to Home</span>
               <span className="text-sm font-medium md:hidden">Home</span>
             </button>
             {/* Notifications */}
