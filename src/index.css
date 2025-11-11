@@ -144,6 +144,21 @@ input[type="number"] {
 }
 
 /* ===============================
+   📋 SELECT DROPDOWN STYLE
+   Hide native dropdown arrows for consistent styling
+=================================*/
+select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+}
+
+/* Ensure select arrows are hidden in all browsers */
+select::-ms-expand {
+  display: none; /* IE and Edge */
+}
+
+/* ===============================
    🔘 GRADIENT BUTTONS
 =================================*/
 @keyframes gradientShift {
@@ -185,4 +200,30 @@ input[type="number"] {
 .footer-gradient {
   background: linear-gradient(180deg, #0B0F28, #12163A, #181C3B);
   color: #9CA3AF;
+}
+
+/* ===============================
+   📊 CUSTOM SCROLLBAR FOR TABLES
+=================================*/
+.scrollbar-thin::-webkit-scrollbar {
+  height: 6px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: #1E223D;
+  border-radius: 4px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: #2A2F4A;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Firefox */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: #1E223D transparent;
 }

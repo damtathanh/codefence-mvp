@@ -141,7 +141,7 @@ export const InvoicePage: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="w-full max-w-full space-y-6">
       {/* Filters */}
       <Card>
         <CardHeader className="!pt-4 !pb-3 !px-6">
@@ -160,16 +160,21 @@ export const InvoicePage: React.FC = () => {
             />
             <div>
               <label className="block text-sm font-medium text-[#E5E7EB]/90 mb-2">Status</label>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="w-full px-4 py-3 bg-white/10 backdrop-blur-md border border-white/20 rounded-lg text-[#E5E7EB] focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
-              >
-                <option value="all">All Status</option>
-                <option value="paid">Paid</option>
-                <option value="pending">Pending</option>
-                <option value="overdue">Overdue</option>
-              </select>
+              <div className="relative">
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="w-full pr-10 px-4 py-3 bg-white/10 backdrop-blur-md border border-white/20 rounded-lg text-[#E5E7EB] appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
+                >
+                  <option value="all">All Status</option>
+                  <option value="paid">Paid</option>
+                  <option value="pending">Pending</option>
+                  <option value="overdue">Overdue</option>
+                </select>
+                <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
             </div>
             <Input
               label="Date"
@@ -181,9 +186,9 @@ export const InvoicePage: React.FC = () => {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="overflow-hidden">
         <CardContent className="p-0">
-          <div className="px-6 pb-3 pt-0 border-b border-[#1E223D] flex items-center justify-between">
+          <div className="px-6 pb-3 pt-4 border-b border-[#1E223D] flex items-center justify-between">
             <div className="flex items-center gap-4">
               <button
                 onClick={handleSelectAll}
@@ -206,11 +211,11 @@ export const InvoicePage: React.FC = () => {
               </Button>
             )}
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
+          <div className="w-full max-w-full overflow-x-auto scrollbar-thin scrollbar-thumb-[#1E223D] scrollbar-track-transparent">
+            <table className="min-w-[1100px] w-full border-separate border-spacing-0">
               <thead>
                 <tr className="border-b border-[#1E223D]">
-                  <th className="px-6 py-5 text-left text-sm font-semibold text-[#E5E7EB] w-12">
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap w-12">
                     <input
                       type="checkbox"
                       checked={selectedIds.size === filteredInvoices.length && filteredInvoices.length > 0}
@@ -218,13 +223,13 @@ export const InvoicePage: React.FC = () => {
                       className="w-4 h-4 rounded border-white/20 bg-white/5 text-[#8B5CF6] focus:ring-[#8B5CF6] focus:ring-offset-0 cursor-pointer"
                     />
                   </th>
-                  <th className="px-6 py-5 text-left text-sm font-semibold text-[#E5E7EB]">Invoice ID</th>
-                  <th className="px-6 py-5 text-left text-sm font-semibold text-[#E5E7EB]">Order ID</th>
-                  <th className="px-6 py-5 text-left text-sm font-semibold text-[#E5E7EB]">Customer</th>
-                  <th className="px-6 py-5 text-left text-sm font-semibold text-[#E5E7EB]">Amount</th>
-                  <th className="px-6 py-5 text-left text-sm font-semibold text-[#E5E7EB]">Date</th>
-                  <th className="px-6 py-5 text-left text-sm font-semibold text-[#E5E7EB]">Status</th>
-                  <th className="px-6 py-5 text-left text-sm font-semibold text-[#E5E7EB]">Actions</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Invoice ID</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Order ID</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Customer</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Amount (VND)</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Date</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Status</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -232,7 +237,7 @@ export const InvoicePage: React.FC = () => {
                   const statusBadge = getStatusBadge(invoice.status);
                   return (
                     <tr key={invoice.id} className="border-b border-[#1E223D] hover:bg-white/5 transition">
-                      <td className="px-6 py-5">
+                      <td className="px-6 py-4 align-middle">
                         <input
                           type="checkbox"
                           checked={selectedIds.has(invoice.id)}
@@ -240,19 +245,32 @@ export const InvoicePage: React.FC = () => {
                           className="w-4 h-4 rounded border-white/20 bg-white/5 text-[#8B5CF6] focus:ring-[#8B5CF6] focus:ring-offset-0 cursor-pointer"
                         />
                       </td>
-                      <td className="px-6 py-5 text-sm text-[#E5E7EB] font-medium">{invoice.id}</td>
-                      <td className="px-6 py-5 text-sm text-[#E5E7EB]">{invoice.order_id}</td>
-                      <td className="px-6 py-5 text-sm text-[#E5E7EB]">{invoice.customer_name || 'Unknown'}</td>
-                      <td className="px-6 py-5 text-sm text-[#E5E7EB]">
-                        {invoice.amount.toLocaleString('vi-VN')} VND
+                      <td className="px-6 py-4 text-sm text-[#E5E7EB] font-medium whitespace-nowrap align-middle">
+                        {invoice.id}
                       </td>
-                      <td className="px-6 py-5 text-sm text-[#E5E7EB]">{invoice.date}</td>
-                      <td className="px-6 py-5">
-                        <span className={`px-2 py-1 rounded text-xs font-medium ${statusBadge.className}`}>
+                      <td className="px-6 py-4 text-sm text-[#E5E7EB] whitespace-nowrap align-middle">
+                        {invoice.order_id}
+                      </td>
+                      <td
+                        className="px-6 py-4 text-sm text-[#E5E7EB] align-middle"
+                        title={invoice.customer_name || undefined}
+                      >
+                        <span className="block truncate whitespace-nowrap max-w-[200px]">
+                          {invoice.customer_name || 'Unknown'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-[#E5E7EB] whitespace-nowrap align-middle">
+                        {invoice.amount.toLocaleString('vi-VN')}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-[#E5E7EB] whitespace-nowrap align-middle">
+                        {invoice.date}
+                      </td>
+                      <td className="px-6 py-4 align-middle">
+                        <span className={`px-2 py-1 rounded text-xs font-medium whitespace-nowrap ${statusBadge.className}`}>
                           {statusBadge.label}
                         </span>
                       </td>
-                      <td className="px-6 py-5">
+                      <td className="px-6 py-4 align-middle">
                         <div className="flex gap-2">
                           <button
                             onClick={() => handleDownload(invoice)}

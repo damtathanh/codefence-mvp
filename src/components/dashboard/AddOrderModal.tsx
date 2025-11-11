@@ -6,25 +6,32 @@ import { X, Upload, FileText, Loader2, AlertTriangle } from 'lucide-react';
 import { useOrders, type OrderInput, type InvalidOrderRow } from '../../hooks/useOrders';
 import { useToast } from '../ui/Toast';
 import { useSupabaseTable } from '../../hooks/useSupabaseTable';
-import type { Product } from '../../types/supabase';
+import { useAuth } from '../../features/auth';
+import { supabase } from '../../lib/supabaseClient';
+import { logUserAction } from '../../utils/logUserAction';
+import type { Product, Order } from '../../types/supabase';
 
 interface AddOrderModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  editingOrder?: Order | null;
 }
 
 export const AddOrderModal: React.FC<AddOrderModalProps> = ({
   isOpen,
   onClose,
   onSuccess,
+  editingOrder = null,
 }) => {
+  const isEditMode = !!editingOrder;
   const [activeTab, setActiveTab] = useState<'manual' | 'upload'>('manual');
   const [loading, setLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { validateOrder, insertOrder, parseFile, insertOrders, validateAndMapProducts } = useOrders();
   const { showSuccess, showError } = useToast();
+  const { user } = useAuth();
   
   // Fetch products for dropdown (only active products)
   const { data: allProducts = [] } = useSupabaseTable<Product>({ 
@@ -56,9 +63,23 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
     setFormData({ ...formData, amountDisplay: formatted });
   };
 
-  // Reset form when modal closes
+  // Initialize form data when editing
   useEffect(() => {
-    if (!isOpen) {
+    if (isOpen && editingOrder) {
+      // Populate form with existing order data
+      const formattedAmount = editingOrder.amount ? Number(editingOrder.amount).toLocaleString('en-US') : '';
+      setFormData({
+        order_id: editingOrder.order_id || '',
+        customer_name: editingOrder.customer_name || '',
+        phone: editingOrder.phone || '',
+        address: editingOrder.address || '',
+        product_id: editingOrder.product_id || '',
+        amount: editingOrder.amount || 0,
+        amountDisplay: formattedAmount,
+      });
+      setActiveTab('manual'); // Always show manual entry tab when editing
+    } else if (!isOpen) {
+      // Reset form when modal closes
       setFormData({
         order_id: '',
         customer_name: '',
@@ -77,7 +98,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
         fileInputRef.current.value = '';
       }
     }
-  }, [isOpen]);
+  }, [isOpen, editingOrder]);
 
   // Handle manual form submission
   const handleManualSubmit = async (e: React.FormEvent) => {
@@ -101,28 +122,79 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
         return;
       }
 
-      // Prepare order data with numeric amount
-      const orderData: OrderInput = {
-        order_id: formData.order_id || '',
-        customer_name: formData.customer_name || '',
-        phone: formData.phone || '',
-        address: formData.address || null,
-        product_id: formData.product_id || '',
-        amount: numericAmount,
-      };
+      if (isEditMode && editingOrder && user) {
+        // Update existing order
+        const { data: updatedOrder, error } = await supabase
+          .from('orders')
+          .update({
+            order_id: formData.order_id?.trim() || '',
+            customer_name: formData.customer_name?.trim() || '',
+            phone: formData.phone?.trim() || '',
+            address: formData.address?.trim() || null,
+            product_id: formData.product_id || '',
+            amount: numericAmount,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', editingOrder.id)
+          .eq('user_id', user.id)
+          .select()
+          .single();
 
-      // Validate order
-      const validationError = validateOrder(orderData);
-      if (validationError) {
-        showError(validationError);
-        setLoading(false);
-        return;
+        if (error) {
+          throw error;
+        }
+
+        // Log user action
+        if (user && updatedOrder) {
+          await logUserAction({
+            userId: user.id,
+            page: 'order',
+            action: 'Update Order',
+            targetId: editingOrder.id,
+            targetName: formData.order_id?.trim() || editingOrder.order_id || editingOrder.id,
+            status: 'success',
+            message: `Updated order: ${formData.order_id?.trim() || editingOrder.order_id} - Customer: ${formData.customer_name?.trim()}, Amount: ${numericAmount.toLocaleString('vi-VN')} VND`,
+          });
+        }
+
+        showSuccess('Order updated successfully!');
+      } else {
+        // Insert new order
+        const orderData: OrderInput = {
+          order_id: formData.order_id || '',
+          customer_name: formData.customer_name || '',
+          phone: formData.phone || '',
+          address: formData.address || null,
+          product_id: formData.product_id || '',
+          amount: numericAmount,
+        };
+
+        // Validate order
+        const validationError = validateOrder(orderData);
+        if (validationError) {
+          showError(validationError);
+          setLoading(false);
+          return;
+        }
+
+        // Insert order
+        const newOrder = await insertOrder(orderData);
+        
+        // Log user action
+        if (user && newOrder) {
+          await logUserAction({
+            userId: user.id,
+            page: 'order',
+            action: 'Create Order',
+            targetId: newOrder.id,
+            targetName: newOrder.order_id || newOrder.id,
+            status: 'success',
+            message: `Created order: ${newOrder.order_id} - Customer: ${newOrder.customer_name}, Amount: ${numericAmount.toLocaleString('vi-VN')} VND`,
+          });
+        }
+        
+        showSuccess('Order added successfully!');
       }
-
-      // Insert order
-      await insertOrder(orderData);
-      
-      showSuccess('Order added successfully!');
       
       // Refresh orders table
       if (onSuccess) {
@@ -131,8 +203,21 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
       
       onClose();
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to add order';
+      const errorMessage = err instanceof Error ? err.message : (isEditMode ? 'Failed to update order' : 'Failed to add order');
       showError(errorMessage);
+      
+      // Log failed action
+      if (user) {
+        await logUserAction({
+          userId: user.id,
+          page: 'order',
+          action: isEditMode ? 'Update Order' : 'Create Order',
+          targetId: isEditMode ? editingOrder?.id || null : null,
+          targetName: isEditMode ? (editingOrder?.order_id || editingOrder?.id || null) : (formData.order_id || null),
+          status: 'failed',
+          message: errorMessage,
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -173,10 +258,49 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
       } else {
         // All orders are valid, insert them
         setUploadProgress(`Inserting ${validOrders.length} orders...`);
-        const result = await insertOrders(validOrders);
+        
+        // Insert orders and log each one
+        let successCount = 0;
+        const errors: string[] = [];
+        
+        for (const orderData of validOrders) {
+          try {
+            const newOrder = await insertOrder(orderData);
+            successCount++;
+            
+            // Log user action for each successfully created order
+            if (user && newOrder) {
+              await logUserAction({
+                userId: user.id,
+                page: 'order',
+                action: 'Create Order',
+                targetId: newOrder.id,
+                targetName: newOrder.order_id || newOrder.id,
+                status: 'success',
+                message: `Created order from file upload: ${newOrder.order_id} - Customer: ${newOrder.customer_name}, Amount: ${newOrder.amount.toLocaleString('vi-VN')} VND`,
+              });
+            }
+          } catch (err) {
+            const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+            errors.push(`${orderData.customer_name}: ${errorMessage}`);
+            
+            // Log failed action
+            if (user) {
+              await logUserAction({
+                userId: user.id,
+                page: 'order',
+                action: 'Create Order',
+                targetId: null,
+                targetName: orderData.order_id || null,
+                status: 'failed',
+                message: `Failed to create order from file: ${errorMessage}`,
+              });
+            }
+          }
+        }
 
-        if (result.success > 0) {
-          showSuccess(`Successfully added ${result.success} order(s)!`);
+        if (successCount > 0) {
+          showSuccess(`Successfully added ${successCount} order(s)!${errors.length > 0 ? ` ${errors.length} failed.` : ''}`);
           
           // Refresh orders table
           if (onSuccess) {
@@ -185,7 +309,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
           
           onClose();
         } else {
-          showError(`Failed to add orders: ${result.errors.join(', ')}`);
+          showError(`Failed to add orders: ${errors.join(', ')}`);
         }
         setLoading(false);
       }
@@ -246,11 +370,48 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
       // Combine all orders
       const finalOrders = [...validOrders, ...allOrders];
 
-      // Insert all orders
-      const result = await insertOrders(finalOrders);
+      // Insert all orders and log each one
+      let successCount = 0;
+      const errors: string[] = [];
+      
+      for (const orderData of finalOrders) {
+        try {
+          const newOrder = await insertOrder(orderData);
+          successCount++;
+          
+          // Log user action for each successfully created order
+          if (user && newOrder) {
+            await logUserAction({
+              userId: user.id,
+              page: 'order',
+              action: 'Create Order',
+              targetId: newOrder.id,
+              targetName: newOrder.order_id || newOrder.id,
+              status: 'success',
+              message: `Created order from file upload (with corrections): ${newOrder.order_id} - Customer: ${newOrder.customer_name}, Amount: ${newOrder.amount.toLocaleString('vi-VN')} VND`,
+            });
+          }
+        } catch (err) {
+          const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+          errors.push(`${orderData.customer_name}: ${errorMessage}`);
+          
+          // Log failed action
+          if (user) {
+            await logUserAction({
+              userId: user.id,
+              page: 'order',
+              action: 'Create Order',
+              targetId: null,
+              targetName: orderData.order_id || null,
+              status: 'failed',
+              message: `Failed to create order from file (with corrections): ${errorMessage}`,
+            });
+          }
+        }
+      }
 
-      if (result.success > 0) {
-        showSuccess(`Successfully added ${result.success} order(s)!`);
+      if (successCount > 0) {
+        showSuccess(`Successfully added ${successCount} order(s)!${errors.length > 0 ? ` ${errors.length} failed.` : ''}`);
         
         // Refresh orders table
         if (onSuccess) {
@@ -259,7 +420,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
         
         onClose();
       } else {
-        showError(`Failed to add orders: ${result.errors.join(', ')}`);
+        showError(`Failed to add orders: ${errors.join(', ')}`);
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to process orders';
@@ -306,7 +467,9 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
       >
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
-          <h3 id="add-order-modal-title" className="text-xl font-semibold text-[#E5E7EB]">Add Order</h3>
+          <h3 id="add-order-modal-title" className="text-xl font-semibold text-[#E5E7EB]">
+            {isEditMode ? 'Edit Order' : 'Add Order'}
+          </h3>
           <button
             onClick={onClose}
             className="text-[#E5E7EB]/70 hover:text-[#E5E7EB] transition-colors"
@@ -317,33 +480,35 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
           </button>
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-2 mb-6 border-b border-[#1E223D]">
-          <button
-            onClick={() => setActiveTab('manual')}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
-              activeTab === 'manual'
-                ? 'text-[#8B5CF6] border-b-2 border-[#8B5CF6]'
-                : 'text-[#E5E7EB]/70 hover:text-[#E5E7EB]'
-            }`}
-            disabled={loading}
-          >
-            <FileText size={16} className="inline mr-2" />
-            Manual Entry
-          </button>
-          <button
-            onClick={() => setActiveTab('upload')}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
-              activeTab === 'upload'
-                ? 'text-[#8B5CF6] border-b-2 border-[#8B5CF6]'
-                : 'text-[#E5E7EB]/70 hover:text-[#E5E7EB]'
-            }`}
-            disabled={loading}
-          >
-            <Upload size={16} className="inline mr-2" />
-            Upload File
-          </button>
-        </div>
+        {/* Tabs - Only show tabs when not in edit mode */}
+        {!isEditMode && (
+          <div className="flex gap-2 mb-6 border-b border-[#1E223D]">
+            <button
+              onClick={() => setActiveTab('manual')}
+              className={`px-4 py-2 text-sm font-medium transition-colors ${
+                activeTab === 'manual'
+                  ? 'text-[#8B5CF6] border-b-2 border-[#8B5CF6]'
+                  : 'text-[#E5E7EB]/70 hover:text-[#E5E7EB]'
+              }`}
+              disabled={loading}
+            >
+              <FileText size={16} className="inline mr-2" />
+              Manual Entry
+            </button>
+            <button
+              onClick={() => setActiveTab('upload')}
+              className={`px-4 py-2 text-sm font-medium transition-colors ${
+                activeTab === 'upload'
+                  ? 'text-[#8B5CF6] border-b-2 border-[#8B5CF6]'
+                  : 'text-[#E5E7EB]/70 hover:text-[#E5E7EB]'
+              }`}
+              disabled={loading}
+            >
+              <Upload size={16} className="inline mr-2" />
+              Upload File
+            </button>
+          </div>
+        )}
 
         {/* Manual Entry Tab */}
         {activeTab === 'manual' && (
@@ -380,20 +545,25 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
               <label className="block text-sm font-medium text-[#E5E7EB]/90 mb-2">
                 Product <span className="text-red-400">*</span>
               </label>
-              <select
-                value={formData.product_id || ''}
-                onChange={(e) => setFormData({ ...formData, product_id: e.target.value })}
-                className="w-full px-4 py-3.5 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl text-[#E5E7EB] focus:outline-none focus:ring-2 focus:ring-[#8B5CF6] focus:border-[#8B5CF6]/50 focus:bg-white/10 transition-all duration-300"
-                required
-                disabled={loading}
-              >
-                <option value="">Select a product</option>
-                {products.map((product) => (
-                  <option key={product.id} value={product.id}>
-                    {product.name}
-                  </option>
-                ))}
-              </select>
+              <div className="relative">
+                <select
+                  value={formData.product_id || ''}
+                  onChange={(e) => setFormData({ ...formData, product_id: e.target.value })}
+                  className="w-full pr-10 px-4 py-3.5 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl text-[#E5E7EB] appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6] focus:border-[#8B5CF6]/50 focus:bg-white/10 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                  required
+                  disabled={loading}
+                >
+                  <option value="">Select a product</option>
+                  {products.map((product) => (
+                    <option key={product.id} value={product.id}>
+                      {product.name}
+                    </option>
+                  ))}
+                </select>
+                <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
               {products.length === 0 && (
                 <p className="mt-1 text-xs text-yellow-400">
                   No products available. Please add products first.
@@ -409,11 +579,13 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
               disabled={loading}
               placeholder="e.g., 20,000,000"
             />
-            <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3">
-              <p className="text-sm text-blue-300">
-                <strong>Note:</strong> Status will be set to "Pending" and Risk Score will be set to "N/A" automatically.
-              </p>
-            </div>
+            {!isEditMode && (
+              <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3">
+                <p className="text-sm text-blue-300">
+                  <strong>Note:</strong> Status will be set to "Pending" and Risk Score will be set to "N/A" automatically.
+                </p>
+              </div>
+            )}
             <div className="flex gap-3 justify-end mt-6 pt-4 border-t border-[#1E223D]">
               <Button
                 type="button"
@@ -427,10 +599,10 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
                 {loading ? (
                   <>
                     <Loader2 size={16} className="mr-2 animate-spin" />
-                    Adding...
+                    {isEditMode ? 'Updating...' : 'Adding...'}
                   </>
                 ) : (
-                  'Add Order'
+                  isEditMode ? 'Update Order' : 'Add Order'
                 )}
               </Button>
             </div>

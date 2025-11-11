@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
-import { CheckCircle, XCircle, Filter, Plus, AlertTriangle, Trash2 } from 'lucide-react';
+import { CheckCircle, XCircle, Filter, Plus, AlertTriangle, Trash2, MoreVertical, ChevronDown, Edit } from 'lucide-react';
 import { useSupabaseTable } from '../../hooks/useSupabaseTable';
 import { useAuth } from '../../features/auth';
 import { supabase } from '../../lib/supabaseClient';
 import { AddOrderModal } from '../../components/dashboard/AddOrderModal';
 import { ConfirmModal } from '../../components/ui/ConfirmModal';
 import { useToast } from '../../components/ui/Toast';
+import { logUserAction } from '../../utils/logUserAction';
 import type { Order, Product } from '../../types/supabase';
 
 export const OrdersPage: React.FC = () => {
@@ -23,6 +25,7 @@ export const OrdersPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [statusFilter, setStatusFilter] = useState('all');
+  const [riskScoreFilter, setRiskScoreFilter] = useState('all');
   const [deleteAllModal, setDeleteAllModal] = useState<{
     isOpen: boolean;
     selectedCount: number;
@@ -31,6 +34,10 @@ export const OrdersPage: React.FC = () => {
     selectedCount: 0,
   });
   const [deleteAllLoading, setDeleteAllLoading] = useState(false);
+  const [openActionDropdown, setOpenActionDropdown] = useState<string | null>(null);
+  const [dropdownPosition, setDropdownPosition] = useState<{ x: number; y: number; placement: 'bottom' | 'top' }>({ x: 0, y: 0, placement: 'bottom' });
+  const [editingOrder, setEditingOrder] = useState<Order | null>(null);
+  const [isEditOrderModalOpen, setIsEditOrderModalOpen] = useState(false);
 
   // Fetch orders with product joins
   const fetchOrders = async () => {
@@ -111,6 +118,30 @@ export const OrdersPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
+  // Close dropdown on outside click and scroll
+  useEffect(() => {
+    if (!openActionDropdown) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (!target.closest('.action-dropdown-container') && !target.closest('[data-dropdown-menu]')) {
+        setOpenActionDropdown(null);
+      }
+    };
+
+    const handleScroll = () => {
+      setOpenActionDropdown(null);
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    window.addEventListener('scroll', handleScroll, true);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('scroll', handleScroll, true);
+    };
+  }, [openActionDropdown]);
+
   // Update order (for status changes and product corrections)
   const updateOrder = async (orderId: string, updates: Partial<Order>) => {
     if (!user) return;
@@ -135,32 +166,98 @@ export const OrdersPage: React.FC = () => {
 
   const handleApprove = async (orderId: string) => {
     // TODO: Implement Zalo OA message flow
+    const order = orders.find(o => o.id === orderId);
+    const orderIdentifier = order?.order_id || orderId;
+    
     try {
       await updateOrder(orderId, {
         status: 'Approved',
       });
+      
+      // Log user action
+      if (user && order) {
+        await logUserAction({
+          userId: user.id,
+          page: 'order',
+          action: 'Approve Order',
+          targetId: orderId,
+          targetName: orderIdentifier,
+          status: 'success',
+          message: `Approved order: ${orderIdentifier} - Customer: ${order.customer_name}, Amount: ${order.amount.toLocaleString('vi-VN')} VND`,
+        });
+      }
+      
       showSuccess('Order approved successfully!');
     } catch (err) {
       console.error('Error approving order:', err);
-      showError('Failed to approve order. Please try again.');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to approve order. Please try again.';
+      showError(errorMessage);
+      
+      // Log failed action
+      if (user && order) {
+        await logUserAction({
+          userId: user.id,
+          page: 'order',
+          action: 'Approve Order',
+          targetId: orderId,
+          targetName: orderIdentifier,
+          status: 'failed',
+          message: errorMessage,
+        });
+      }
     }
   };
 
   const handleReject = async (orderId: string) => {
     // TODO: Implement rejection logic
+    const order = orders.find(o => o.id === orderId);
+    const orderIdentifier = order?.order_id || orderId;
+    
     try {
       await updateOrder(orderId, {
         status: 'Rejected',
       });
+      
+      // Log user action
+      if (user && order) {
+        await logUserAction({
+          userId: user.id,
+          page: 'order',
+          action: 'Reject Order',
+          targetId: orderId,
+          targetName: orderIdentifier,
+          status: 'success',
+          message: `Rejected order: ${orderIdentifier} - Customer: ${order.customer_name}, Amount: ${order.amount.toLocaleString('vi-VN')} VND`,
+        });
+      }
+      
       showSuccess('Order rejected successfully!');
     } catch (err) {
       console.error('Error rejecting order:', err);
-      showError('Failed to reject order. Please try again.');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to reject order. Please try again.';
+      showError(errorMessage);
+      
+      // Log failed action
+      if (user && order) {
+        await logUserAction({
+          userId: user.id,
+          page: 'order',
+          action: 'Reject Order',
+          targetId: orderId,
+          targetName: orderIdentifier,
+          status: 'failed',
+          message: errorMessage,
+        });
+      }
     }
   };
 
   // Handle product correction
   const handleProductCorrection = async (orderId: string, productId: string) => {
+    const order = orders.find(o => o.id === orderId);
+    const product = products.find(p => p.id === productId);
+    const orderIdentifier = order?.order_id || orderId;
+    
     try {
       await updateOrder(orderId, {
         product_id: productId,
@@ -170,10 +267,38 @@ export const OrdersPage: React.FC = () => {
         next.delete(orderId);
         return next;
       });
+      
+      // Log user action
+      if (user && order) {
+        await logUserAction({
+          userId: user.id,
+          page: 'order',
+          action: 'Update Order Product',
+          targetId: orderId,
+          targetName: orderIdentifier,
+          status: 'success',
+          message: `Updated product for order: ${orderIdentifier} - New product: ${product?.name || productId}`,
+        });
+      }
+      
       showSuccess('Product updated successfully!');
     } catch (err) {
       console.error('Error updating product:', err);
-      showError('Failed to update product. Please try again.');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to update product. Please try again.';
+      showError(errorMessage);
+      
+      // Log failed action
+      if (user && order) {
+        await logUserAction({
+          userId: user.id,
+          page: 'order',
+          action: 'Update Order Product',
+          targetId: orderId,
+          targetName: orderIdentifier,
+          status: 'failed',
+          message: errorMessage,
+        });
+      }
     }
   };
 
@@ -217,7 +342,28 @@ export const OrdersPage: React.FC = () => {
       order.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
       order.customer_name.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === 'all' || order.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    
+    // Risk Score filtering
+    const matchesRiskScore = (() => {
+      if (riskScoreFilter === 'all') return true;
+      if (order.risk_score === null || order.risk_score === undefined) {
+        // If risk_score is null/undefined, only show if "all" is selected
+        return riskScoreFilter === 'all';
+      }
+      const score = order.risk_score;
+      switch (riskScoreFilter) {
+        case 'low':
+          return score <= 30;
+        case 'medium':
+          return score > 30 && score <= 70;
+        case 'high':
+          return score > 70;
+        default:
+          return true;
+      }
+    })();
+    
+    return matchesSearch && matchesStatus && matchesRiskScore;
   });
 
   const handleSelectAll = () => {
@@ -252,9 +398,10 @@ export const OrdersPage: React.FC = () => {
     if (selectedIds.size === 0 || !user) return;
 
     setDeleteAllLoading(true);
+    const idsToDelete = Array.from(selectedIds);
+    const ordersToDelete = orders.filter(o => idsToDelete.includes(o.id));
+    
     try {
-      const idsToDelete = Array.from(selectedIds);
-      
       // Delete all selected orders in parallel
       const deletePromises = idsToDelete.map(id =>
         supabase
@@ -272,6 +419,20 @@ export const OrdersPage: React.FC = () => {
         throw new Error(`Failed to delete ${errors.length} order(s).`);
       }
       
+      // Log user actions for each deleted order
+      const logPromises = ordersToDelete.map(order =>
+        logUserAction({
+          userId: user.id,
+          page: 'order',
+          action: 'Delete Order',
+          targetId: order.id,
+          targetName: order.order_id || order.id,
+          status: 'success',
+          message: `Deleted order: ${order.order_id || order.id} - Customer: ${order.customer_name} (Bulk delete)`,
+        })
+      );
+      await Promise.all(logPromises);
+      
       // Clear selected IDs
       setSelectedIds(new Set());
       
@@ -284,6 +445,20 @@ export const OrdersPage: React.FC = () => {
       console.error('Error deleting orders:', err);
       const errorMessage = err instanceof Error ? err.message : 'Failed to delete orders. Please try again.';
       showError(errorMessage);
+      
+      // Log failed actions
+      const logPromises = ordersToDelete.map(order =>
+        logUserAction({
+          userId: user.id,
+          page: 'order',
+          action: 'Delete Order',
+          targetId: order.id,
+          targetName: order.order_id || order.id,
+          status: 'failed',
+          message: errorMessage,
+        })
+      );
+      await Promise.all(logPromises);
       
       // Refetch on error to ensure UI reflects current database state
       try {
@@ -300,35 +475,103 @@ export const OrdersPage: React.FC = () => {
     setDeleteAllModal({ isOpen: false, selectedCount: 0 });
   };
 
-  if (loading && orders.length === 0) {
-    return (
-      <div className="space-y-6">
-        <Card>
-          <CardContent className="p-12 text-center">
-            <p className="text-[#E5E7EB]/70">Loading orders...</p>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
+  // Handle action dropdown toggle with auto-flip positioning
+  const toggleActionDropdown = (orderId: string, event?: React.MouseEvent<HTMLButtonElement>) => {
+    if (openActionDropdown === orderId) {
+      setOpenActionDropdown(null);
+    } else {
+      if (event) {
+        const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+        const dropdownWidth = 192; // w-48 = 192px
+        const dropdownHeight = 144; // Approximate height of 3 menu items (48px each)
+        const padding = 8; // Space between button and dropdown
+        
+        // Calculate available space below and above
+        const spaceBelow = window.innerHeight - rect.bottom;
+        const spaceAbove = rect.top;
+        
+        // Determine placement: show below if enough space, otherwise show above
+        const placement: 'bottom' | 'top' = spaceBelow >= dropdownHeight + padding ? 'bottom' : 'top';
+        
+        // Calculate x position (align to right edge of button)
+        const x = rect.right - dropdownWidth;
+        
+        // Calculate y position based on placement
+        const y = placement === 'bottom' 
+          ? rect.bottom + padding 
+          : rect.top - dropdownHeight - padding;
+        
+        setDropdownPosition({ 
+          x: Math.max(8, Math.min(x, window.innerWidth - dropdownWidth - 8)), // Keep within viewport with 8px margin
+          y: Math.max(8, Math.min(y, window.innerHeight - dropdownHeight - 8)), // Keep within viewport with 8px margin
+          placement
+        });
+      }
+      setOpenActionDropdown(orderId);
+    }
+  };
 
-  if (error) {
-    return (
-      <div className="space-y-6">
-        <Card>
-          <CardContent className="p-12 text-center">
-            <p className="text-red-400">Error: {error}</p>
-            <Button onClick={() => window.location.reload()} className="mt-4">
-              Retry
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
+  // Handle approve from dropdown
+  const handleApproveFromDropdown = async (orderId: string) => {
+    setOpenActionDropdown(null);
+    await handleApprove(orderId);
+  };
+
+  // Handle reject from dropdown
+  const handleRejectFromDropdown = async (orderId: string) => {
+    setOpenActionDropdown(null);
+    await handleReject(orderId);
+  };
+
+  // Handle edit from dropdown
+  const handleEditFromDropdown = (order: Order) => {
+    setOpenActionDropdown(null);
+    setEditingOrder(order);
+    setIsEditOrderModalOpen(true);
+  };
+
+  // Handle edit modal close
+  const handleEditModalClose = () => {
+    setIsEditOrderModalOpen(false);
+    setEditingOrder(null);
+  };
+
+  // Handle edit modal success
+  const handleEditModalSuccess = () => {
+    fetchOrders();
+    handleEditModalClose();
+  };
+
+  // Close dropdown when clicking outside or scrolling
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      // Check if click is outside both the button container and the dropdown menu
+      const isOutsideButton = !target.closest('.action-dropdown-container');
+      const isOutsideDropdown = !target.closest('[data-dropdown-menu]');
+      
+      if (isOutsideButton && isOutsideDropdown) {
+        setOpenActionDropdown(null);
+      }
+    };
+
+    const handleScroll = () => {
+      // Close dropdown on scroll to prevent misalignment
+      setOpenActionDropdown(null);
+    };
+
+    if (openActionDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+      window.addEventListener('scroll', handleScroll, true); // Use capture phase to catch all scrolls
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+        window.removeEventListener('scroll', handleScroll, true);
+      };
+    }
+  }, [openActionDropdown]);
 
   return (
-    <div className="space-y-6">
+    <div className="w-full max-w-full space-y-6">
       {/* Filters */}
       <Card>
         <CardHeader className="!pt-4 !pb-3 !px-6">
@@ -344,7 +587,7 @@ export const OrdersPage: React.FC = () => {
           </div>
         </CardHeader>
         <CardContent className="!pt-0 !px-6 !pb-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Input
               label="Search by Order ID or Customer"
               placeholder="Enter Order ID or Customer name..."
@@ -353,28 +596,52 @@ export const OrdersPage: React.FC = () => {
             />
             <div>
               <label className="block text-sm font-medium text-[#E5E7EB]/90 mb-2">Status</label>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="w-full px-4 py-3 bg-white/10 backdrop-blur-md border border-white/20 rounded-lg text-[#E5E7EB] focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
-              >
-                <option value="all">All Status</option>
-                <option value="Pending">Pending</option>
-                <option value="Approved">Approved</option>
-                <option value="Rejected">Rejected</option>
-              </select>
+              <div className="relative">
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="w-full pr-10 px-4 py-3 bg-white/10 backdrop-blur-md border border-white/20 rounded-lg text-[#E5E7EB] appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
+                >
+                  <option value="all">All Status</option>
+                  <option value="Pending">Pending</option>
+                  <option value="Approved">Approved</option>
+                  <option value="Rejected">Rejected</option>
+                </select>
+                <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-[#E5E7EB]/90 mb-2">Risk Score</label>
+              <div className="relative">
+                <select
+                  value={riskScoreFilter}
+                  onChange={(e) => setRiskScoreFilter(e.target.value)}
+                  className="w-full pr-10 px-4 py-3 bg-white/10 backdrop-blur-md border border-white/20 rounded-lg text-[#E5E7EB] appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
+                >
+                  <option value="all">All Risk Scores</option>
+                  <option value="low">≤30</option>
+                  <option value="medium">30-70</option>
+                  <option value="high">&gt;70</option>
+                </select>
+                <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="overflow-visible">
         <CardContent className="p-0">
-          <div className="px-6 pb-3 pt-0 border-b border-[#1E223D] flex items-center justify-between">
+          <div className="px-6 pb-3 pt-4 border-b border-[#1E223D] flex items-center justify-between">
             <div className="flex items-center gap-4">
               <button
                 onClick={handleSelectAll}
                 className="text-sm text-[#E5E7EB]/70 hover:text-[#E5E7EB] transition"
+                disabled={loading}
               >
                 {selectedIds.size === filteredOrders.length && filteredOrders.length > 0
                   ? 'Deselect All'
@@ -396,130 +663,216 @@ export const OrdersPage: React.FC = () => {
               </button>
             )}
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-[#1E223D]">
-                  <th className="px-6 py-5 text-left text-sm font-semibold text-[#E5E7EB] w-12">
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.size === filteredOrders.length && filteredOrders.length > 0}
-                      onChange={handleSelectAll}
-                      className="w-4 h-4 rounded border-white/20 bg-white/5 text-[#8B5CF6] focus:ring-[#8B5CF6] focus:ring-offset-0 cursor-pointer"
-                    />
-                  </th>
-                  <th className="px-6 py-5 text-left text-sm font-semibold text-[#E5E7EB]">Order ID</th>
-                  <th className="px-6 py-5 text-left text-sm font-semibold text-[#E5E7EB]">Customer</th>
-                  <th className="px-6 py-5 text-left text-sm font-semibold text-[#E5E7EB]">Phone</th>
-                  <th className="px-6 py-5 text-left text-sm font-semibold text-[#E5E7EB]">Address</th>
-                  <th className="px-6 py-5 text-left text-sm font-semibold text-[#E5E7EB]">Product</th>
-                  <th className="px-6 py-5 text-left text-sm font-semibold text-[#E5E7EB]">Amount</th>
-                  <th className="px-6 py-5 text-left text-sm font-semibold text-[#E5E7EB]">Status</th>
-                  <th className="px-6 py-5 text-left text-sm font-semibold text-[#E5E7EB]">Risk Score</th>
-                  <th className="px-6 py-5 text-left text-sm font-semibold text-[#E5E7EB]">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredOrders.map((order) => {
-                  const statusBadge = getStatusBadge(order.status);
-                  return (
-                    <tr key={order.id} className="border-b border-[#1E223D] hover:bg-white/5 transition">
-                      <td className="px-6 py-5">
+          <div className="w-full overflow-visible">
+            {error ? (
+              <div className="p-12 text-center">
+                <p className="text-red-400 mb-4">Error: {error}</p>
+                <Button onClick={() => fetchOrders()} className="mt-2">
+                  Retry
+                </Button>
+              </div>
+            ) : loading && orders.length === 0 ? (
+              <div className="p-12 text-center text-[#E5E7EB]/70">
+                Loading orders...
+              </div>
+            ) : (
+              <>
+                <table className="w-full border-separate border-spacing-0 table-fixed">
+                  <thead>
+                    <tr className="border-b border-[#1E223D]">
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] w-12">
                         <input
                           type="checkbox"
-                          checked={selectedIds.has(order.id)}
-                          onChange={() => handleToggleSelect(order.id)}
-                          className="w-4 h-4 rounded border-white/20 bg-white/5 text-[#8B5CF6] focus:ring-[#8B5CF6] focus:ring-offset-0 cursor-pointer"
+                          checked={selectedIds.size === filteredOrders.length && filteredOrders.length > 0}
+                          onChange={handleSelectAll}
+                          disabled={loading}
+                          className="w-4 h-4 rounded border-white/20 bg-white/5 text-[#8B5CF6] focus:ring-[#8B5CF6] focus:ring-offset-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                         />
-                      </td>
-                      <td className="px-6 py-5 text-sm text-[#E5E7EB] font-medium">{order.order_id || order.id}</td>
-                      <td className="px-6 py-5 text-sm text-[#E5E7EB]">{order.customer_name}</td>
-                      <td className="px-6 py-5 text-sm text-[#E5E7EB]">{order.phone || '-'}</td>
-                      <td className="px-6 py-5 text-sm text-[#E5E7EB]">{order.address || '-'}</td>
-                      <td className="px-6 py-5">
-                        {isInvalidProduct(order) ? (
-                          <div className="space-y-2">
-                            <div className="flex items-center gap-2">
-                              <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-red-900/40 border border-red-600 text-red-300 text-xs">
-                                <AlertTriangle size={12} />
-                                {getProductName(order)}
-                              </span>
-                            </div>
-                            <select
-                              value={productCorrections.get(order.id) || ''}
-                              onChange={(e) => {
-                                if (e.target.value) {
-                                  setProductCorrections(prev => {
-                                    const next = new Map(prev);
-                                    next.set(order.id, e.target.value);
-                                    return next;
-                                  });
-                                  handleProductCorrection(order.id, e.target.value);
-                                }
-                              }}
-                              className="w-full px-2 py-1.5 text-xs bg-white/5 backdrop-blur-xl border border-white/10 rounded-lg text-[#E5E7EB] focus:outline-none focus:ring-2 focus:ring-[#8B5CF6] focus:border-[#8B5CF6]/50"
-                            >
-                              <option value="">Select product</option>
-                              {products.map((product) => (
-                                <option key={product.id} value={product.id}>
-                                  {product.name}
-                                </option>
-                              ))}
-                            </select>
-                            <p className="text-xs text-red-400">Invalid product. Please select from the list.</p>
-                          </div>
-                        ) : (
-                          <span className="text-sm text-[#E5E7EB]">{getProductName(order)}</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-5 text-sm text-[#E5E7EB]">
-                        {order.amount.toLocaleString('vi-VN')} VND
-                      </td>
-                      <td className="px-6 py-5">
-                        <span className={`px-2 py-1 rounded text-xs font-medium ${statusBadge.className}`}>
-                          {statusBadge.label}
-                        </span>
-                      </td>
-                      <td className="px-6 py-5 text-sm text-[#E5E7EB]">
-                        {order.risk_score || 'N/A'}
-                      </td>
-                      <td className="px-6 py-5">
-                        <div className="flex gap-2">
-                          <Button 
-                            size="sm" 
-                            variant="outline"
-                            onClick={() => handleApprove(order.id)}
-                            className="!px-3 !py-1.5"
-                          >
-                            <CheckCircle size={14} className="mr-1" />
-                            Approve
-                          </Button>
-                          <Button 
-                            size="sm" 
-                            variant="outline"
-                            onClick={() => handleReject(order.id)}
-                            className="!px-3 !py-1.5"
-                          >
-                            <XCircle size={14} className="mr-1" />
-                            Reject
-                          </Button>
-                        </div>
-                      </td>
+                      </th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB]">Order ID</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB]">Customer</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB]">Phone</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB]">Address</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB]">Product</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB]">Amount (VND)</th>
+                      <th className="px-6 py-4 text-center text-sm font-semibold text-[#E5E7EB]">Risk Score</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB]">Status</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB]">Actions</th>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            {filteredOrders.length === 0 && (
-              <div className="p-12 text-center text-[#E5E7EB]/70">
-                {orders.length === 0
-                  ? 'No orders found.'
-                  : 'No orders match your filters.'}
-              </div>
+                  </thead>
+                  <tbody>
+                    {filteredOrders.map((order) => {
+                      const statusBadge = getStatusBadge(order.status);
+                      return (
+                        <tr key={order.id} className="border-b border-[#1E223D] hover:bg-white/5 transition">
+                          <td className="px-6 py-4 align-middle">
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.has(order.id)}
+                              onChange={() => handleToggleSelect(order.id)}
+                              className="w-4 h-4 rounded border-white/20 bg-white/5 text-[#8B5CF6] focus:ring-[#8B5CF6] focus:ring-offset-0 cursor-pointer"
+                            />
+                          </td>
+                          <td 
+                            className="px-6 py-4 text-sm text-[#E5E7EB] font-medium align-middle truncate whitespace-nowrap overflow-hidden max-w-[120px]"
+                            title={order.order_id || order.id}
+                          >
+                            {order.order_id || order.id}
+                          </td>
+                          <td
+                            className="px-6 py-4 text-sm text-[#E5E7EB] align-middle truncate whitespace-nowrap overflow-hidden max-w-[200px]"
+                            title={order.customer_name}
+                          >
+                            {order.customer_name}
+                          </td>
+                          <td 
+                            className="px-6 py-4 text-sm text-[#E5E7EB] align-middle truncate whitespace-nowrap overflow-hidden max-w-[150px]"
+                            title={order.phone || undefined}
+                          >
+                            {order.phone || '-'}
+                          </td>
+                          <td
+                            className="px-6 py-4 text-sm text-[#E5E7EB] align-middle truncate whitespace-nowrap overflow-hidden max-w-[150px]"
+                            title={order.address || undefined}
+                          >
+                            {order.address || '-'}
+                          </td>
+                          <td className="px-6 py-4 align-middle break-words overflow-hidden">
+                            {isInvalidProduct(order) ? (
+                              <div className="space-y-2 min-w-0">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span 
+                                    className="inline-flex items-center gap-1 px-2 py-1 rounded bg-red-900/40 border border-red-600 text-red-300 text-xs break-words overflow-hidden"
+                                    title={getProductName(order)}
+                                  >
+                                    <AlertTriangle size={12} className="flex-shrink-0" />
+                                    <span className="break-words overflow-hidden">{getProductName(order)}</span>
+                                  </span>
+                                </div>
+                                <div className="relative">
+                                  <select
+                                    value={productCorrections.get(order.id) || ''}
+                                    onChange={(e) => {
+                                      if (e.target.value) {
+                                        setProductCorrections(prev => {
+                                          const next = new Map(prev);
+                                          next.set(order.id, e.target.value);
+                                          return next;
+                                        });
+                                        handleProductCorrection(order.id, e.target.value);
+                                      }
+                                    }}
+                                    className="w-full pr-10 px-2 py-1.5 text-xs bg-white/5 backdrop-blur-xl border border-white/10 rounded-lg text-[#E5E7EB] appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6] focus:border-[#8B5CF6]/50"
+                                  >
+                                    <option value="">Select product</option>
+                                    {products.map((product) => (
+                                      <option key={product.id} value={product.id}>
+                                        {product.name}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                                  </svg>
+                                </div>
+                                <p className="text-xs text-red-400">Invalid product. Please select from the list.</p>
+                              </div>
+                            ) : (
+                              <div 
+                                className="text-sm text-[#E5E7EB] break-words overflow-hidden"
+                                title={getProductName(order)}
+                              >
+                                {getProductName(order)}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 text-sm text-[#E5E7EB] align-middle break-words overflow-hidden">
+                            {order.amount.toLocaleString('vi-VN')}
+                          </td>
+                          <td className="px-6 py-4 text-sm text-[#E5E7EB] text-center align-middle break-words overflow-hidden">
+                            {order.risk_score !== null && order.risk_score !== undefined ? order.risk_score : 'N/A'}
+                          </td>
+                          <td className="px-6 py-4 align-middle">
+                            <span className={`px-2 py-1 rounded text-xs font-medium ${statusBadge.className}`}>
+                              {statusBadge.label}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 align-middle">
+                            <div className="relative action-dropdown-container">
+                              <Button
+                                onClick={(e) => toggleActionDropdown(order.id, e)}
+                                size="sm"
+                                className="!px-3 !py-1.5 !text-xs"
+                              >
+                                <span>Action</span>
+                                <ChevronDown 
+                                  size={14} 
+                                  className={`ml-1.5 transition-transform duration-200 ${openActionDropdown === order.id ? 'rotate-180' : ''}`}
+                                />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                {filteredOrders.length === 0 && !loading && (
+                  <div className="p-12 text-center text-[#E5E7EB]/70">
+                    {orders.length === 0
+                      ? 'No orders found.'
+                      : 'No orders match your filters.'}
+                  </div>
+                )}
+              </>
             )}
           </div>
         </CardContent>
       </Card>
+
+      {/* Action Dropdown Menu - Rendered via Portal */}
+      {openActionDropdown && typeof document !== 'undefined' && (() => {
+        const order = filteredOrders.find(o => o.id === openActionDropdown);
+        if (!order) return null;
+        
+        const dropdownContent = (
+          <div
+            data-dropdown-menu
+            className="fixed z-[9999] w-48 bg-[#1E223D] border border-white/20 rounded-lg shadow-xl overflow-hidden backdrop-blur-md"
+            style={{ 
+              top: `${dropdownPosition.y}px`, 
+              left: `${dropdownPosition.x}px`,
+              // Add animation based on placement
+              transformOrigin: dropdownPosition.placement === 'top' ? 'bottom center' : 'top center',
+            }}
+          >
+            <button
+              onClick={() => handleEditFromDropdown(order)}
+              className="w-full px-4 py-3 text-left text-sm text-[#E5E7EB] hover:bg-blue-500/20 hover:text-blue-400 transition-colors flex items-center gap-2"
+            >
+              <Edit size={16} className="text-blue-400 flex-shrink-0" />
+              <span>Edit</span>
+            </button>
+            <button
+              onClick={() => handleApproveFromDropdown(order.id)}
+              className="w-full px-4 py-3 text-left text-sm text-[#E5E7EB] hover:bg-green-500/20 hover:text-green-400 transition-colors flex items-center gap-2 border-t border-white/10"
+            >
+              <CheckCircle size={16} className="text-green-400 flex-shrink-0" />
+              <span>Approve</span>
+            </button>
+            <button
+              onClick={() => handleRejectFromDropdown(order.id)}
+              className="w-full px-4 py-3 text-left text-sm text-[#E5E7EB] hover:bg-red-500/20 hover:text-red-400 transition-colors flex items-center gap-2 border-t border-white/10"
+            >
+              <XCircle size={16} className="text-red-400 flex-shrink-0" />
+              <span>Reject</span>
+            </button>
+          </div>
+        );
+        
+        // Render dropdown via Portal to document.body to escape parent containers
+        return createPortal(dropdownContent, document.body);
+      })()}
 
       {/* Add Order Modal */}
       <AddOrderModal
@@ -529,6 +882,14 @@ export const OrdersPage: React.FC = () => {
           fetchOrders();
           setIsAddOrderModalOpen(false);
         }}
+      />
+
+      {/* Edit Order Modal */}
+      <AddOrderModal
+        isOpen={isEditOrderModalOpen}
+        onClose={handleEditModalClose}
+        onSuccess={handleEditModalSuccess}
+        editingOrder={editingOrder}
       />
 
       {/* Confirm Delete All Modal */}

@@ -62,7 +62,23 @@ export const DashboardLayout: React.FC = () => {
     data: supabaseNotifications,
     loading: notificationsLoading,
   } = useSupabaseTable<SupabaseNotification>({ tableName: 'notifications', enableRealtime: true });
-  const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth >= 1024);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(window.innerWidth >= 1024);
+
+  // Track window size to determine if we're on desktop
+  useEffect(() => {
+    const handleResize = () => {
+      setIsDesktop(window.innerWidth >= 1024);
+      // Reset hover state when switching between mobile and desktop
+      if (window.innerWidth < 1024) {
+        setIsHovered(false);
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showAllNotifications, setShowAllNotifications] = useState(false);
@@ -275,6 +291,9 @@ export const DashboardLayout: React.FC = () => {
     }
   };
 
+  // Determine if sidebar is expanded
+  const expanded = (isDesktop && isHovered) || sidebarOpen;
+
   return (
     <div className="flex h-screen bg-[#0B0F28] overflow-hidden">
       {/* Mobile Overlay */}
@@ -287,32 +306,48 @@ export const DashboardLayout: React.FC = () => {
 
       {/* Sidebar */}
       <aside
-        className={`${
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+        className={`fixed top-0 left-0 h-full z-40 transition-[width,background,box-shadow] duration-300 ease-in-out flex flex-col ${
+          // Mobile: slide in/out
           sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         } ${
-          sidebarOpen ? 'w-64' : 'w-20'
-        } bg-gradient-to-b from-[#12163A] to-[#181C3B] border-r border-[#1E223D] transition-all duration-300 flex flex-col fixed lg:relative h-full z-30`}
+          // Width: expanded on hover (desktop) or when open (mobile)
+          expanded ? 'w-[200px]' : 'w-20'
+        } ${
+          // Overlay styling when expanded on desktop
+          expanded && isDesktop
+            ? 'bg-[#12163A]/95 backdrop-blur-md border-r border-[#1E223D] shadow-xl'
+            : 'bg-gradient-to-b from-[#12163A] to-[#181C3B] border-r border-[#1E223D]'
+        }`}
       >
         {/* Logo */}
-        <div className="flex items-center justify-between p-6 border-b border-[#1E223D]">
-          {sidebarOpen && (
+        <div className="flex items-center justify-between h-16 px-5 border-b border-[#1E223D]">
+          {expanded ? (
             <Link
               to="/"
-              className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition"
+              className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition ml-2"
             >
               <img
                 src="/assets/logo.png"
                 alt="CodFence Logo"
                 className="w-8 h-8 object-contain"
               />
-              <span className="text-xl font-bold bg-gradient-to-r from-[#8B5CF6] to-[#6366F1] bg-clip-text text-transparent">
+              <span className="text-lg font-bold bg-gradient-to-r from-[#8B5CF6] to-[#6366F1] bg-clip-text text-transparent whitespace-nowrap transition-opacity duration-300">
                 CodFence
               </span>
             </Link>
+          ) : (
+            <img
+              src="/assets/logo.png"
+              alt="CodFence Logo"
+              className="w-8 h-8 object-contain mx-auto"
+            />
           )}
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="p-2 rounded-lg hover:bg-white/10 transition text-[#E5E7EB]"
+            className="lg:hidden p-1 rounded-lg hover:bg-white/10 transition text-[#E5E7EB] -mr-2"
+            aria-label="Toggle sidebar"
           >
             {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
@@ -328,13 +363,19 @@ export const DashboardLayout: React.FC = () => {
                 key={item.id}
                 onClick={() => handleNavigation(item.path)}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
+                  expanded ? 'justify-start' : 'justify-center'
+                } ${
                   active
                     ? 'bg-[#8B5CF6] text-white shadow-lg'
                     : 'text-[#E5E7EB]/70 hover:bg-white/10 hover:text-[#E5E7EB]'
                 }`}
               >
-                <Icon size={20} />
-                {sidebarOpen && <span className="font-medium">{item.label}</span>}
+                <Icon size={28} />
+                {expanded && (
+                  <span className="font-medium transition-opacity duration-300">
+                    {item.label}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -344,16 +385,22 @@ export const DashboardLayout: React.FC = () => {
         <div className="p-4 border-t border-[#1E223D]">
           <button
             onClick={handleLogout}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-red-400 hover:bg-red-500/10 transition-all"
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-red-400 hover:bg-red-500/10 transition-all ${
+              expanded ? 'justify-start' : 'justify-center'
+            }`}
           >
-            <LogOut size={20} />
-            {sidebarOpen && <span className="font-medium">Logout</span>}
+            <LogOut size={28} />
+            {expanded && (
+              <span className="font-medium transition-opacity duration-300">
+                Logout
+              </span>
+            )}
           </button>
         </div>
       </aside>
 
       {/* Main Content */}
-      <div className={`flex-1 flex flex-col lg:ml-0 transition-all duration-300`}>
+      <div className="flex-1 flex flex-col lg:ml-20 transition-all duration-300">
         {/* Topbar */}
         <header className="h-16 bg-gradient-to-r from-[#12163A] to-[#181C3B] border-b border-[#1E223D] flex items-center justify-between px-6 sticky top-0 z-20">
           {/* Left side: Mobile Menu Button + Breadcrumb */}
@@ -488,8 +535,8 @@ export const DashboardLayout: React.FC = () => {
         </header>
 
         {/* Page Content */}
-        <main ref={mainContentRef} className="flex-1 overflow-y-auto bg-[#0B0F28] p-6 lg:p-8">
-          <Outlet />
+        <main ref={mainContentRef} className="flex-1 overflow-y-auto bg-[#0B0F28] p-6 lg:p-8 max-w-full">
+        <Outlet />
         </main>
       </div>
 

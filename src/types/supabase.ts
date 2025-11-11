@@ -23,7 +23,7 @@ export interface Order {
   product?: string; // Legacy field (for backward compatibility during migration)
   amount: number;
   status: string; // Default: 'Pending'
-  risk_score: string; // Default: 'N/A'
+  risk_score: number | null; // Numeric value or null (displayed as 'N/A' in UI when null)
   created_at?: string;
   updated_at?: string;
   // Joined product data (when fetching with join)
@@ -48,9 +48,13 @@ export interface Invoice {
 export interface History {
   id: string;
   user_id: string;
-  order_id: string;
+  page: 'product' | 'order';
   action: string;
-  status: 'verified' | 'rejected' | 'flagged';
+  target_id: string | null;
+  target_name: string | null;
+  status: 'success' | 'failed';
+  message: string | null;
+  order_id?: string; // Legacy field (for backward compatibility)
   created_at: string;
 }
 

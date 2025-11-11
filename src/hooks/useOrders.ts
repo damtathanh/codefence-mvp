@@ -133,6 +133,32 @@ export const useOrders = () => {
   }, [fetchProducts]);
 
 
+  // Helper function to parse numeric values (handles strings, numbers, null, undefined, and 'N/A')
+  // Returns number or null (never strings like 'N/A')
+  const parseNumeric = useCallback((value: string | number | null | undefined): number | null => {
+    // Handle null/undefined
+    if (value === null || value === undefined) return null;
+    
+    // Handle string values
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      // Check for 'N/A' or empty string
+      if (trimmed === '' || trimmed === 'N/A' || trimmed.toLowerCase() === 'na') return null;
+      
+      // Remove commas and convert to number
+      const cleaned = trimmed.replace(/,/g, '');
+      const num = Number(cleaned);
+      return isNaN(num) ? null : num;
+    }
+    
+    // Handle numeric values (including 0, which is valid)
+    if (typeof value === 'number') {
+      return isNaN(value) ? null : value;
+    }
+    
+    return null;
+  }, []);
+
   // Insert a single order
   const insertOrder = useCallback(async (orderData: OrderInput): Promise<Order> => {
     if (!user) {
@@ -157,6 +183,15 @@ export const useOrders = () => {
       throw new Error('Invalid product selected. Please select a valid product.');
     }
 
+    // Parse numeric values - ensure amount and risk_score are numbers or null (never strings like 'N/A')
+    const numericAmount = parseNumeric(orderData.amount);
+    const numericRiskScore = parseNumeric('N/A'); // Will return null since 'N/A' is not a valid number
+
+    // Validate amount is not null or zero
+    if (!numericAmount || numericAmount <= 0) {
+      throw new Error('Amount must be greater than 0');
+    }
+
     // Prepare order for insertion with auto-generated Status and Risk Score
     const orderToInsert = {
       user_id: user.id,
@@ -165,9 +200,9 @@ export const useOrders = () => {
       phone: orderData.phone.trim(),
       address: orderData.address?.trim() || null,
       product_id: orderData.product_id,
-      amount: orderData.amount,
+      amount: numericAmount, // Ensure this is a number, not a string
       status: 'Pending', // Auto-generated
-      risk_score: 'N/A', // Auto-generated
+      risk_score: numericRiskScore, // null instead of 'N/A' for numeric column
     };
 
     // Insert into Supabase
@@ -190,7 +225,7 @@ export const useOrders = () => {
     }
 
     return data as Order;
-  }, [user, validateOrder]);
+  }, [user, validateOrder, parseNumeric]);
 
   // Parse CSV file (returns orders with product names, not IDs)
   const parseCSV = useCallback(async (file: File): Promise<Array<{ product: string; [key: string]: any }>> => {
@@ -259,7 +294,7 @@ export const useOrders = () => {
               phone: phone.toString(),
               address: address || null,
               product: product,
-              amount: isNaN(amount) ? 0 : amount,
+              amount: isNaN(amount) || amount <= 0 ? 0 : amount,
             };
           });
 

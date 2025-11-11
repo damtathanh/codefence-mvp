@@ -58,6 +58,31 @@ const clearStorage = () => {
   }
 };
 
+// Global state to track tab visibility changes (shared across all instances)
+let globalLastVisibilityChange = 0;
+let globalTabSwitchWindow = false;
+
+// Track visibility changes globally to detect tab switches
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    const now = Date.now();
+    if (document.visibilityState === 'hidden') {
+      globalLastVisibilityChange = now;
+    } else if (document.visibilityState === 'visible') {
+      // Check if tab was hidden recently (within last 3 seconds)
+      const timeSinceHidden = now - globalLastVisibilityChange;
+      if (timeSinceHidden < 3000 && globalLastVisibilityChange > 0) {
+        // Tab switch detected
+        globalTabSwitchWindow = true;
+        // Clear the flag after the window passes
+        setTimeout(() => {
+          globalTabSwitchWindow = false;
+        }, 3000);
+      }
+    }
+  });
+}
+
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -129,7 +154,24 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!isMounted) return;
 
-      console.log('🔄 Auth state change:', event, session?.user?.email || 'no user');
+      // Check if we're in a tab switch window (within 3 seconds of visibility change)
+      const isTabSwitch = globalTabSwitchWindow;
+      const timeSinceVisibilityChange = Date.now() - globalLastVisibilityChange;
+      const isRecentTabSwitch = isTabSwitch && timeSinceVisibilityChange < 3000;
+
+      // For TOKEN_REFRESHED events during tab switches, handle silently without state updates
+      // This prevents modals from closing due to re-renders
+      if (event === 'TOKEN_REFRESHED' && isRecentTabSwitch) {
+        // Silently update session storage but don't trigger state updates that could close modals
+        if (session?.user) {
+          saveUserToStorage(session.user, session.access_token);
+        }
+        // Don't call setUser or setLoading to avoid triggering re-renders that close modals
+        console.log('[Auth] Token refreshed during tab switch - handled silently to preserve modals');
+        return;
+      }
+
+      console.log('🔄 Auth state change:', event, session?.user?.email || 'no user', isRecentTabSwitch ? '(tab switch detected)' : '');
 
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
         if (session?.user) {
@@ -144,26 +186,38 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             return;
           }
 
-          // Valid session
-          setUser(session.user);
-          saveUserToStorage(session.user, session.access_token);
-          // Save last path for redirect after refresh
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('codfence_last_path', window.location.pathname);
-            localStorage.setItem('codfence_session_start', Date.now().toString());
+          // Valid session - only update state if not during tab switch
+          // This prevents unnecessary re-renders that could close modals
+          if (!isRecentTabSwitch) {
+            setUser(session.user);
+            saveUserToStorage(session.user, session.access_token);
+            // Save last path for redirect after refresh
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('codfence_last_path', window.location.pathname);
+              localStorage.setItem('codfence_session_start', Date.now().toString());
+            }
+            setLoading(false);
+          } else {
+            // Tab switch detected - just update storage silently to preserve modal state
+            saveUserToStorage(session.user, session.access_token);
+            console.log('[Auth] Session updated silently during tab switch to preserve UI state');
           }
-          setLoading(false);
         }
       } else if (event === 'SIGNED_OUT') {
-        // User signed out
+        // User signed out - always handle this (not related to tab switches)
         setUser(null);
         clearStorage();
         setLoading(false);
       } else if (event === 'USER_UPDATED' && session?.user) {
-        // User data updated
-        setUser(session.user);
-        saveUserToStorage(session.user, session.access_token);
-        setLoading(false);
+        // User data updated - only update if not during tab switch
+        if (!isRecentTabSwitch) {
+          setUser(session.user);
+          saveUserToStorage(session.user, session.access_token);
+          setLoading(false);
+        } else {
+          // Tab switch - update storage silently
+          saveUserToStorage(session.user, session.access_token);
+        }
       } else if (event === 'INITIAL_SESSION') {
         // Initial session event - session may be null on first load
         // This is handled by initializeAuth(), so we just set loading to false
@@ -179,18 +233,26 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     };
   }, []);
 
-  // Restore last route after refresh
+  // Restore last route after refresh (but not during tab switches)
   useEffect(() => {
     const lastPath = localStorage.getItem('codfence_last_path');
     // Only redirect if we're on home page and have a valid last path (dashboard page)
-    if (lastPath && window.location.pathname === '/' && (lastPath.includes('/dashboard') || lastPath.includes('/admin') || lastPath.includes('/user'))) {
+    // And only if it's not a recent tab switch
+    const timeSinceVisibilityChange = Date.now() - globalLastVisibilityChange;
+    const isRecentTabSwitch = globalTabSwitchWindow && timeSinceVisibilityChange < 3000;
+    
+    if (lastPath && window.location.pathname === '/' && (lastPath.includes('/dashboard') || lastPath.includes('/admin') || lastPath.includes('/user')) && !isRecentTabSwitch) {
       // Only redirect if we have a valid session
       const checkSession = async () => {
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user && session.user.email_confirmed_at) {
           // Small delay to ensure auth state is ready
           setTimeout(() => {
-            window.location.replace(lastPath);
+            // Double-check we're not in a tab switch scenario before navigating
+            const currentTimeSinceVisibilityChange = Date.now() - globalLastVisibilityChange;
+            if (!globalTabSwitchWindow || currentTimeSinceVisibilityChange >= 3000) {
+              window.location.replace(lastPath);
+            }
           }, 100);
         }
       };

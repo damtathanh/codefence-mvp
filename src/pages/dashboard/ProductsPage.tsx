@@ -1,15 +1,19 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { ConfirmModal } from '../../components/ui/ConfirmModal';
-import { Plus, Edit, Trash2, X, Filter } from 'lucide-react';
+import { Plus, Edit, Trash2, X, Filter, ChevronDown } from 'lucide-react';
 import { useSupabaseTable } from '../../hooks/useSupabaseTable';
 import { useToast } from '../../components/ui/Toast';
+import { useAuth } from '../../features/auth';
+import { logUserAction } from '../../utils/logUserAction';
 import { PRODUCT_CATEGORIES, getCategoryDisplayName, getAllCategorySlugs } from '../../constants/productCategories';
 import type { Product } from '../../types/supabase';
 
 export const ProductsPage: React.FC = () => {
+  const { user } = useAuth();
   const { showSuccess, showError } = useToast();
   const {
     data: products,
@@ -52,6 +56,8 @@ export const ProductsPage: React.FC = () => {
   });
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteAllLoading, setDeleteAllLoading] = useState(false);
+  const [openActionDropdown, setOpenActionDropdown] = useState<string | null>(null);
+  const [dropdownPosition, setDropdownPosition] = useState<{ x: number; y: number; placement: 'bottom' | 'top' }>({ x: 0, y: 0, placement: 'bottom' });
 
   // Helper function to handle formatted number input for price
   const handleFormattedNumberChange = (field: 'price' | 'stock', e: React.ChangeEvent<HTMLInputElement>) => {
@@ -140,7 +146,7 @@ export const ProductsPage: React.FC = () => {
 
       if (isEditMode && selectedProduct) {
         // Update existing product
-        await updateItem(selectedProduct.id, {
+        const updatedProduct = await updateItem(selectedProduct.id, {
           name: formData.name.trim(),
           category: formData.category.toLowerCase().trim(),
           price: numericPrice,
@@ -150,12 +156,25 @@ export const ProductsPage: React.FC = () => {
         
         // Explicitly refetch to ensure UI is in sync with database
         await fetchAll();
+        
+        // Log user action
+        if (user) {
+          await logUserAction({
+            userId: user.id,
+            page: 'product',
+            action: 'Update Product',
+            targetId: selectedProduct.id,
+            targetName: formData.name.trim(),
+            status: 'success',
+            message: `Updated product: ${formData.name.trim()} - Price: ${numericPrice.toLocaleString('vi-VN')} VND, Stock: ${stock}`,
+          });
+        }
         
         showSuccess('Product updated successfully!');
         closeModal();
       } else {
         // Add new product
-        await addItem({
+        const newProduct = await addItem({
           name: formData.name.trim(),
           category: formData.category.toLowerCase().trim(),
           price: numericPrice,
@@ -165,6 +184,19 @@ export const ProductsPage: React.FC = () => {
         
         // Explicitly refetch to ensure UI is in sync with database
         await fetchAll();
+        
+        // Log user action
+        if (user && newProduct) {
+          await logUserAction({
+            userId: user.id,
+            page: 'product',
+            action: 'Create Product',
+            targetId: newProduct.id,
+            targetName: formData.name.trim(),
+            status: 'success',
+            message: `Created product: ${formData.name.trim()} - Category: ${getCategoryDisplayName(formData.category)}, Price: ${numericPrice.toLocaleString('vi-VN')} VND, Stock: ${stock}`,
+          });
+        }
         
         const categoryName = getCategoryDisplayName(formData.category);
         showSuccess(`Product added successfully under category: ${categoryName}`);
@@ -174,6 +206,19 @@ export const ProductsPage: React.FC = () => {
       console.error('Error saving product:', err);
       const errorMessage = err instanceof Error ? err.message : 'Failed to save product. Please try again.';
       showError(errorMessage);
+      
+      // Log failed action
+      if (user) {
+        await logUserAction({
+          userId: user.id,
+          page: 'product',
+          action: isEditMode ? 'Update Product' : 'Create Product',
+          targetId: isEditMode ? selectedProduct?.id || null : null,
+          targetName: formData.name.trim() || null,
+          status: 'failed',
+          message: errorMessage,
+        });
+      }
       
       // Refetch on error to ensure UI reflects current database state
       try {
@@ -196,26 +241,55 @@ export const ProductsPage: React.FC = () => {
     if (!confirmModal.productId) return;
 
     setDeleteLoading(true);
+    const productId = confirmModal.productId;
+    const productName = confirmModal.productName;
+    
     try {
       // Delete the product from Supabase
-      await deleteItem(confirmModal.productId);
+      await deleteItem(productId);
       
       // Remove from selected IDs if it was selected
       setSelectedIds(prev => {
         const next = new Set(prev);
-        next.delete(confirmModal.productId!);
+        next.delete(productId);
         return next;
       });
       
       // Explicitly refetch to ensure UI is in sync with database
       await fetchAll();
       
-      showSuccess(`Product "${confirmModal.productName}" deleted successfully!`);
+      // Log user action
+      if (user) {
+        await logUserAction({
+          userId: user.id,
+          page: 'product',
+          action: 'Delete Product',
+          targetId: productId,
+          targetName: productName,
+          status: 'success',
+          message: `Deleted product: ${productName}`,
+        });
+      }
+      
+      showSuccess(`Product "${productName}" deleted successfully!`);
       setConfirmModal({ isOpen: false, productId: null, productName: '' });
     } catch (err) {
       console.error('Error deleting product:', err);
       const errorMessage = err instanceof Error ? err.message : 'Failed to delete product. Please try again.';
       showError(errorMessage);
+      
+      // Log failed action
+      if (user) {
+        await logUserAction({
+          userId: user.id,
+          page: 'product',
+          action: 'Delete Product',
+          targetId: productId,
+          targetName: productName,
+          status: 'failed',
+          message: errorMessage,
+        });
+      }
       
       // Refetch on error to ensure UI reflects current database state
       try {
@@ -244,12 +318,30 @@ export const ProductsPage: React.FC = () => {
     if (selectedIds.size === 0) return;
 
     setDeleteAllLoading(true);
+    const idsToDelete = Array.from(selectedIds);
+    const productsToDelete = products.filter(p => idsToDelete.includes(p.id));
+    
     try {
-      const idsToDelete = Array.from(selectedIds);
       const deletePromises = idsToDelete.map(id => deleteItem(id));
       
       // Delete all selected items in parallel
       await Promise.all(deletePromises);
+      
+      // Log user actions for each deleted product
+      if (user) {
+        const logPromises = productsToDelete.map(product =>
+          logUserAction({
+            userId: user.id,
+            page: 'product',
+            action: 'Delete Product',
+            targetId: product.id,
+            targetName: product.name,
+            status: 'success',
+            message: `Deleted product: ${product.name} (Bulk delete)`,
+          })
+        );
+        await Promise.all(logPromises);
+      }
       
       // Clear selected IDs
       setSelectedIds(new Set());
@@ -263,6 +355,22 @@ export const ProductsPage: React.FC = () => {
       console.error('Error deleting products:', err);
       const errorMessage = err instanceof Error ? err.message : 'Failed to delete products. Please try again.';
       showError(errorMessage);
+      
+      // Log failed actions
+      if (user) {
+        const logPromises = productsToDelete.map(product =>
+          logUserAction({
+            userId: user.id,
+            page: 'product',
+            action: 'Delete Product',
+            targetId: product.id,
+            targetName: product.name,
+            status: 'failed',
+            message: errorMessage,
+          })
+        );
+        await Promise.all(logPromises);
+      }
       
       // Refetch on error to ensure UI reflects current database state
       try {
@@ -313,6 +421,82 @@ export const ProductsPage: React.FC = () => {
     });
   };
 
+  // Handle action dropdown toggle with auto-flip positioning
+  const toggleActionDropdown = (productId: string, event?: React.MouseEvent<HTMLButtonElement>) => {
+    if (openActionDropdown === productId) {
+      setOpenActionDropdown(null);
+    } else {
+      if (event) {
+        const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+        const dropdownWidth = 192; // w-48 = 192px
+        const dropdownHeight = 96; // Approximate height of 2 menu items (48px each)
+        const padding = 8; // Space between button and dropdown
+        
+        // Calculate available space below and above
+        const spaceBelow = window.innerHeight - rect.bottom;
+        const spaceAbove = rect.top;
+        
+        // Determine placement: show below if enough space, otherwise show above
+        const placement: 'bottom' | 'top' = spaceBelow >= dropdownHeight + padding ? 'bottom' : 'top';
+        
+        // Calculate x position (align to right edge of button)
+        const x = rect.right - dropdownWidth;
+        
+        // Calculate y position based on placement
+        const y = placement === 'bottom' 
+          ? rect.bottom + padding 
+          : rect.top - dropdownHeight - padding;
+        
+        setDropdownPosition({ 
+          x: Math.max(8, Math.min(x, window.innerWidth - dropdownWidth - 8)), // Keep within viewport with 8px margin
+          y: Math.max(8, Math.min(y, window.innerHeight - dropdownHeight - 8)), // Keep within viewport with 8px margin
+          placement
+        });
+      }
+      setOpenActionDropdown(productId);
+    }
+  };
+
+  // Handle edit from dropdown
+  const handleEditFromDropdown = (product: Product) => {
+    setOpenActionDropdown(null);
+    openEditModal(product);
+  };
+
+  // Handle delete from dropdown
+  const handleDeleteFromDropdown = (product: Product) => {
+    setOpenActionDropdown(null);
+    handleDeleteClick(product);
+  };
+
+  // Close dropdown when clicking outside or scrolling
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      // Check if click is outside both the button container and the dropdown menu
+      const isOutsideButton = !target.closest('.action-dropdown-container');
+      const isOutsideDropdown = !target.closest('[data-dropdown-menu]');
+      
+      if (isOutsideButton && isOutsideDropdown) {
+        setOpenActionDropdown(null);
+      }
+    };
+
+    const handleScroll = () => {
+      // Close dropdown on scroll to prevent misalignment
+      setOpenActionDropdown(null);
+    };
+
+    if (openActionDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+      window.addEventListener('scroll', handleScroll, true); // Use capture phase to catch all scrolls
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+        window.removeEventListener('scroll', handleScroll, true);
+      };
+    }
+  }, [openActionDropdown]);
+
   if (loading && products.length === 0) {
     return (
       <div className="space-y-6">
@@ -341,7 +525,7 @@ export const ProductsPage: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="w-full max-w-full space-y-6">
       {/* Filters */}
       <Card>
         <CardHeader className="!pt-4 !pb-3 !px-6">
@@ -366,51 +550,61 @@ export const ProductsPage: React.FC = () => {
             />
             <div>
               <label className="block text-sm font-medium text-[#E5E7EB]/90 mb-2">Category</label>
-              <select
-                value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value)}
-                className="w-full px-4 py-3 bg-white/10 backdrop-blur-md border border-white/20 rounded-lg text-[#E5E7EB] focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
-              >
-                <option value="all">All Categories</option>
-                {PRODUCT_CATEGORIES.map(group => (
-                  <optgroup key={group.groupName} label={group.groupName}>
-                    {group.categories.map(category => (
-                      <option key={category.slug} value={category.slug}>
-                        {category.displayName}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-                {existingCategories.length > 0 && (
-                  <optgroup label="Other Categories">
-                    {existingCategories.map(category => (
-                      <option key={category} value={category}>
-                        {getCategoryDisplayName(category)}
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-              </select>
+              <div className="relative">
+                <select
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                  className="w-full pr-10 px-4 py-3 bg-white/10 backdrop-blur-md border border-white/20 rounded-lg text-[#E5E7EB] appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
+                >
+                  <option value="all">All Categories</option>
+                  {PRODUCT_CATEGORIES.map(group => (
+                    <optgroup key={group.groupName} label={group.groupName}>
+                      {group.categories.map(category => (
+                        <option key={category.slug} value={category.slug}>
+                          {category.displayName}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                  {existingCategories.length > 0 && (
+                    <optgroup label="Other Categories">
+                      {existingCategories.map(category => (
+                        <option key={category} value={category}>
+                          {getCategoryDisplayName(category)}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+                <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
             </div>
             <div>
               <label className="block text-sm font-medium text-[#E5E7EB]/90 mb-2">Status</label>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="w-full px-4 py-3 bg-white/10 backdrop-blur-md border border-white/20 rounded-lg text-[#E5E7EB] focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
-              >
-                <option value="all">All Status</option>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-              </select>
+              <div className="relative">
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="w-full pr-10 px-4 py-3 bg-white/10 backdrop-blur-md border border-white/20 rounded-lg text-[#E5E7EB] appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
+                >
+                  <option value="all">All Status</option>
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+                <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="overflow-hidden">
         <CardContent className="p-0">
-          <div className="px-6 pb-3 pt-0 border-b border-[#1E223D] flex items-center justify-between">
+          <div className="px-6 pb-3 pt-4 border-b border-[#1E223D] flex items-center justify-between">
             <div className="flex items-center gap-4">
               <button
                 onClick={handleSelectAll}
@@ -436,11 +630,11 @@ export const ProductsPage: React.FC = () => {
               </button>
             )}
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
+          <div className="w-full max-w-full overflow-x-auto scrollbar-thin scrollbar-thumb-[#1E223D] scrollbar-track-transparent">
+            <table className="min-w-[1100px] w-full border-separate border-spacing-0">
               <thead>
                 <tr className="border-b border-[#1E223D]">
-                  <th className="px-6 py-5 text-left text-sm font-semibold text-[#E5E7EB] w-12">
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap w-12">
                     <input
                       type="checkbox"
                       checked={selectedIds.size === filteredProducts.length && filteredProducts.length > 0}
@@ -448,18 +642,18 @@ export const ProductsPage: React.FC = () => {
                       className="w-4 h-4 rounded border-white/20 bg-white/5 text-[#8B5CF6] focus:ring-[#8B5CF6] focus:ring-offset-0 cursor-pointer"
                     />
                   </th>
-                  <th className="px-6 py-5 text-left text-sm font-semibold text-[#E5E7EB]">Name</th>
-                  <th className="px-6 py-5 text-left text-sm font-semibold text-[#E5E7EB]">Category</th>
-                  <th className="px-6 py-5 text-left text-sm font-semibold text-[#E5E7EB]">Price</th>
-                  <th className="px-6 py-5 text-left text-sm font-semibold text-[#E5E7EB]">Stock</th>
-                  <th className="px-6 py-5 text-left text-sm font-semibold text-[#E5E7EB]">Status</th>
-                  <th className="px-6 py-5 text-left text-sm font-semibold text-[#E5E7EB]">Actions</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Name</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Category</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Price (VND)</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Stock</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Status</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredProducts.map((product) => (
                   <tr key={product.id} className="border-b border-[#1E223D] hover:bg-white/5 transition">
-                    <td className="px-6 py-5">
+                    <td className="px-6 py-4 align-middle">
                       <input
                         type="checkbox"
                         checked={selectedIds.has(product.id)}
@@ -467,14 +661,25 @@ export const ProductsPage: React.FC = () => {
                         className="w-4 h-4 rounded border-white/20 bg-white/5 text-[#8B5CF6] focus:ring-[#8B5CF6] focus:ring-offset-0 cursor-pointer"
                       />
                     </td>
-                    <td className="px-6 py-5 text-sm text-[#E5E7EB]">{product.name}</td>
-                    <td className="px-6 py-5 text-sm text-[#E5E7EB]">{getCategoryDisplayName(product.category)}</td>
-                    <td className="px-6 py-5 text-sm text-[#E5E7EB]">
-                      {product.price.toLocaleString('vi-VN')} VND
+                    <td
+                      className="px-6 py-4 text-sm text-[#E5E7EB] align-middle"
+                      title={product.name}
+                    >
+                      <span className="block truncate whitespace-nowrap max-w-[200px]">
+                        {product.name}
+                      </span>
                     </td>
-                    <td className="px-6 py-5 text-sm text-[#E5E7EB]">{product.stock}</td>
-                    <td className="px-6 py-5">
-                      <span className={`px-2 py-1 rounded text-xs font-medium ${
+                    <td className="px-6 py-4 text-sm text-[#E5E7EB] whitespace-nowrap align-middle">
+                      {getCategoryDisplayName(product.category)}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-[#E5E7EB] whitespace-nowrap align-middle">
+                      {product.price.toLocaleString('vi-VN')}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-[#E5E7EB] whitespace-nowrap align-middle">
+                      {product.stock}
+                    </td>
+                    <td className="px-6 py-4 align-middle">
+                      <span className={`px-2 py-1 rounded text-xs font-medium whitespace-nowrap ${
                         product.status === 'active' 
                           ? 'bg-green-500/20 text-green-400' 
                           : 'bg-red-500/20 text-red-400'
@@ -482,21 +687,19 @@ export const ProductsPage: React.FC = () => {
                         {product.status}
                       </span>
                     </td>
-                    <td className="px-6 py-5">
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => openEditModal(product)}
-                          className="p-2 rounded hover:bg-white/10 text-[#E5E7EB] transition"
+                    <td className="px-6 py-4 align-middle">
+                      <div className="relative action-dropdown-container">
+                        <Button
+                          onClick={(e) => toggleActionDropdown(product.id, e)}
+                          size="sm"
+                          className="!px-3 !py-1.5 !text-xs"
                         >
-                          <Edit size={16} />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteClick(product)}
-                          className="p-2 rounded hover:bg-red-500/10 text-red-400 transition"
-                          aria-label={`Delete ${product.name}`}
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                          <span>Action</span>
+                          <ChevronDown 
+                            size={14} 
+                            className={`ml-1.5 transition-transform duration-200 ${openActionDropdown === product.id ? 'rotate-180' : ''}`}
+                          />
+                        </Button>
                       </div>
                     </td>
                   </tr>
@@ -513,6 +716,43 @@ export const ProductsPage: React.FC = () => {
           </div>
         </CardContent>
       </Card>
+
+      {/* Action Dropdown Menu - Rendered via Portal */}
+      {openActionDropdown && typeof document !== 'undefined' && (() => {
+        const product = filteredProducts.find(p => p.id === openActionDropdown);
+        if (!product) return null;
+        
+        const dropdownContent = (
+          <div
+            data-dropdown-menu
+            className="fixed z-[9999] w-48 bg-[#1E223D] border border-white/20 rounded-lg shadow-xl overflow-hidden backdrop-blur-md"
+            style={{ 
+              top: `${dropdownPosition.y}px`, 
+              left: `${dropdownPosition.x}px`,
+              // Add animation based on placement
+              transformOrigin: dropdownPosition.placement === 'top' ? 'bottom center' : 'top center',
+            }}
+          >
+            <button
+              onClick={() => handleEditFromDropdown(product)}
+              className="w-full px-4 py-3 text-left text-sm text-[#E5E7EB] hover:bg-blue-500/20 hover:text-blue-400 transition-colors flex items-center gap-2"
+            >
+              <Edit size={16} className="text-blue-400 flex-shrink-0" />
+              <span>Edit</span>
+            </button>
+            <button
+              onClick={() => handleDeleteFromDropdown(product)}
+              className="w-full px-4 py-3 text-left text-sm text-[#E5E7EB] hover:bg-red-500/20 hover:text-red-400 transition-colors flex items-center gap-2 border-t border-white/10"
+            >
+              <Trash2 size={16} className="text-red-400 flex-shrink-0" />
+              <span>Delete</span>
+            </button>
+          </div>
+        );
+        
+        // Render dropdown via Portal to document.body to escape parent containers
+        return createPortal(dropdownContent, document.body);
+      })()}
 
       {/* Add/Edit Modal */}
       {isModalOpen && (
@@ -550,32 +790,37 @@ export const ProductsPage: React.FC = () => {
                 <label className="block text-sm font-medium text-[#E5E7EB]/90 mb-2">
                   Category <span className="text-red-400">*</span>
                 </label>
-                <select
-                  value={formData.category}
-                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                  className="w-full px-4 py-3.5 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl text-[#E5E7EB] focus:outline-none focus:ring-2 focus:ring-[#8B5CF6] focus:border-[#8B5CF6]/50 focus:bg-white/10 transition-all duration-300"
-                  required
-                >
-                  <option value="">Select a category</option>
-                  {PRODUCT_CATEGORIES.map(group => (
-                    <optgroup key={group.groupName} label={group.groupName}>
-                      {group.categories.map(category => (
-                        <option key={category.slug} value={category.slug}>
-                          {category.displayName}
+                <div className="relative">
+                  <select
+                    value={formData.category}
+                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                    className="w-full pr-10 px-4 py-3.5 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl text-[#E5E7EB] appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6] focus:border-[#8B5CF6]/50 focus:bg-white/10 transition-all duration-300"
+                    required
+                  >
+                    <option value="">Select a category</option>
+                    {PRODUCT_CATEGORIES.map(group => (
+                      <optgroup key={group.groupName} label={group.groupName}>
+                        {group.categories.map(category => (
+                          <option key={category.slug} value={category.slug}>
+                            {category.displayName}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                    {/* Show current category if it's not in the standard list (for backward compatibility when editing) */}
+                    {isEditMode && selectedProduct && 
+                     !getAllCategorySlugs().includes(selectedProduct.category.toLowerCase()) && (
+                      <optgroup label="Current Category">
+                        <option value={selectedProduct.category.toLowerCase()}>
+                          {getCategoryDisplayName(selectedProduct.category)} (Current)
                         </option>
-                      ))}
-                    </optgroup>
-                  ))}
-                  {/* Show current category if it's not in the standard list (for backward compatibility when editing) */}
-                  {isEditMode && selectedProduct && 
-                   !getAllCategorySlugs().includes(selectedProduct.category.toLowerCase()) && (
-                    <optgroup label="Current Category">
-                      <option value={selectedProduct.category.toLowerCase()}>
-                        {getCategoryDisplayName(selectedProduct.category)} (Current)
-                      </option>
-                    </optgroup>
-                  )}
-                </select>
+                      </optgroup>
+                    )}
+                  </select>
+                  <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
                 {isEditMode && selectedProduct && 
                  !getAllCategorySlugs().includes(selectedProduct.category.toLowerCase()) && (
                   <p className="mt-1 text-xs text-yellow-400">
@@ -600,14 +845,19 @@ export const ProductsPage: React.FC = () => {
               />
               <div>
                 <label className="block text-sm font-medium text-[#E5E7EB]/90 mb-2">Status</label>
-                <select
-                  value={formData.status}
-                  onChange={(e) => setFormData({ ...formData, status: e.target.value as 'active' | 'inactive' })}
-                  className="w-full px-4 py-3 bg-white/10 backdrop-blur-md border border-white/20 rounded-lg text-[#E5E7EB] focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
-                >
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                </select>
+                <div className="relative">
+                  <select
+                    value={formData.status}
+                    onChange={(e) => setFormData({ ...formData, status: e.target.value as 'active' | 'inactive' })}
+                    className="w-full pr-10 px-4 py-3 bg-white/10 backdrop-blur-md border border-white/20 rounded-lg text-[#E5E7EB] appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
+                  >
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+                  <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
               </div>
               <div className="flex gap-3 justify-end mt-6">
                 <Button type="button" variant="outline" onClick={closeModal}>
