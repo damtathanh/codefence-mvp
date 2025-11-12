@@ -177,7 +177,7 @@ export const ProductsPage: React.FC = () => {
             userId: user.id,
             action: 'Update Product',
             status: 'success',
-            orderId: formData.product_id.trim(),
+            orderId: formData.product_id.trim() || "",
           });
         }
         
@@ -205,7 +205,7 @@ export const ProductsPage: React.FC = () => {
             userId: user.id,
             action: 'Create Product',
             status: 'success',
-            orderId: newProduct.product_id || newProduct.id,
+            orderId: newProduct.product_id ?? "",
           });
         }
         
@@ -224,7 +224,7 @@ export const ProductsPage: React.FC = () => {
           userId: user.id,
           action: isEditMode ? 'Update Product' : 'Create Product',
           status: 'failed',
-          orderId: isEditMode ? (selectedProduct?.product_id || selectedProduct?.id || null) : null,
+          orderId: isEditMode ? (selectedProduct?.product_id ?? "") : "",
         });
       }
       
@@ -252,6 +252,10 @@ export const ProductsPage: React.FC = () => {
     const productId = confirmModal.productId;
     const productName = confirmModal.productName;
     
+    // Find the product to get its product_id before deleting
+    const productToDelete = products.find(p => p.id === productId);
+    const customProductId = productToDelete?.product_id ?? "";
+    
     try {
       // Delete the product from Supabase
       await deleteItem(productId);
@@ -272,7 +276,7 @@ export const ProductsPage: React.FC = () => {
           userId: user.id,
           action: 'Delete Product',
           status: 'success',
-          orderId: productId,
+          orderId: customProductId,
         });
       }
       
@@ -289,7 +293,7 @@ export const ProductsPage: React.FC = () => {
           userId: user.id,
           action: 'Delete Product',
           status: 'failed',
-          orderId: productId,
+          orderId: customProductId,
         });
       }
       
@@ -336,7 +340,7 @@ export const ProductsPage: React.FC = () => {
             userId: user.id,
             action: 'Delete Product',
             status: 'success',
-            orderId: product.id,
+            orderId: product.product_id ?? "",
           })
         );
         await Promise.all(logPromises);
@@ -362,7 +366,7 @@ export const ProductsPage: React.FC = () => {
             userId: user.id,
             action: 'Delete Product',
             status: 'failed',
-            orderId: product.id,
+            orderId: product.product_id ?? "",
           })
         );
         await Promise.all(logPromises);

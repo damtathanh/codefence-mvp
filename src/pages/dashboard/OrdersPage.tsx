@@ -180,7 +180,7 @@ export const OrdersPage: React.FC = () => {
           userId: user.id,
           action: 'Approve Order',
           status: 'success',
-          orderId: orderId,
+          orderId: order.order_id ?? "",
         });
       }
       
@@ -196,7 +196,7 @@ export const OrdersPage: React.FC = () => {
           userId: user.id,
           action: 'Approve Order',
           status: 'failed',
-          orderId: orderId,
+          orderId: order.order_id ?? "",
         });
       }
     }
@@ -218,7 +218,7 @@ export const OrdersPage: React.FC = () => {
           userId: user.id,
           action: 'Reject Order',
           status: 'success',
-          orderId: orderId,
+          orderId: order.order_id ?? "",
         });
       }
       
@@ -234,7 +234,7 @@ export const OrdersPage: React.FC = () => {
           userId: user.id,
           action: 'Reject Order',
           status: 'failed',
-          orderId: orderId,
+          orderId: order.order_id ?? "",
         });
       }
     }
@@ -262,7 +262,7 @@ export const OrdersPage: React.FC = () => {
           userId: user.id,
           action: 'Update Order Product',
           status: 'success',
-          orderId: orderId,
+          orderId: order.order_id ?? "",
         });
       }
       
@@ -278,7 +278,7 @@ export const OrdersPage: React.FC = () => {
           userId: user.id,
           action: 'Update Order Product',
           status: 'failed',
-          orderId: orderId,
+          orderId: order.order_id ?? "",
         });
       }
     }
@@ -407,7 +407,7 @@ export const OrdersPage: React.FC = () => {
           userId: user.id,
           action: 'Delete Order',
           status: 'success',
-          orderId: order.id,
+          orderId: order.order_id ?? "",
         })
       );
       await Promise.all(logPromises);
@@ -431,7 +431,7 @@ export const OrdersPage: React.FC = () => {
           userId: user.id,
           action: 'Delete Order',
           status: 'failed',
-          orderId: order.id,
+          orderId: order.order_id ?? "",
         })
       );
       await Promise.all(logPromises);
