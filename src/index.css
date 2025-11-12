@@ -161,6 +161,17 @@ select::-ms-expand {
 /* ===============================
    🔘 GRADIENT BUTTONS
 =================================*/
+@keyframes modalEnter {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
 @keyframes gradientShift {
   0% {
     background-position: 0% 50%;
@@ -203,27 +214,64 @@ select::-ms-expand {
 }
 
 /* ===============================
-   📊 CUSTOM SCROLLBAR FOR TABLES
+   📊 CUSTOM SCROLLBAR (GLOBAL)
+=================================*/
+/* Webkit browsers (Chrome, Safari, Edge) */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(90deg, #3B82F6 0%, #8B5CF6 50%, #06B6D4 100%);
+  border-radius: 8px;
+  transition: background 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(90deg, #60A5FA 0%, #A78BFA 50%, #22D3EE 100%);
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #8B5CF6 rgba(255, 255, 255, 0.05);
+}
+
+/* Firefox hover effect (limited support) */
+*:hover {
+  scrollbar-color: #A78BFA rgba(255, 255, 255, 0.05);
+}
+
+/* ===============================
+   📊 CUSTOM SCROLLBAR FOR TABLES (Legacy - kept for compatibility)
 =================================*/
 .scrollbar-thin::-webkit-scrollbar {
   height: 6px;
+  width: 6px;
 }
 
 .scrollbar-thin::-webkit-scrollbar-thumb {
-  background: #1E223D;
+  background: linear-gradient(90deg, #3B82F6 0%, #8B5CF6 50%, #06B6D4 100%);
   border-radius: 4px;
 }
 
 .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-  background: #2A2F4A;
+  background: linear-gradient(90deg, #60A5FA 0%, #A78BFA 50%, #22D3EE 100%);
 }
 
 .scrollbar-thin::-webkit-scrollbar-track {
-  background: transparent;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
 }
 
 /* Firefox */
 .scrollbar-thin {
   scrollbar-width: thin;
-  scrollbar-color: #1E223D transparent;
+  scrollbar-color: #8B5CF6 rgba(255, 255, 255, 0.05);
 }

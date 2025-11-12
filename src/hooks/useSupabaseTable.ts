@@ -80,14 +80,15 @@ export function useSupabaseTable<T extends { id: string; user_id: string }>(
 
   // Add new item
   const addItem = useCallback(
-    async (item: Omit<T, 'id' | 'user_id' | 'created_at' | 'updated_at'>) => {
+    async (item: Omit<T, 'id' | 'user_id' | 'created_at' | 'updated_at'> & { id?: string }) => {
       try {
         // Get authenticated user ID
         const userId = await getCurrentUserId();
         console.log(`[${tableName}] Adding item for user ${userId}:`, item);
 
         // Prepare item with user_id and timestamps
-        const itemToInsert = {
+        // Include id if provided (Supabase supports custom IDs)
+        const itemToInsert: any = {
           ...item,
           user_id: userId,
           created_at: new Date().toISOString(),

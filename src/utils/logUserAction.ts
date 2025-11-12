@@ -1,13 +1,10 @@
 import { supabase } from '../lib/supabaseClient';
 
-export interface LogUserActionParams {
+interface LogParams {
   userId: string;
-  page: 'product' | 'order';
   action: string;
-  targetId: string | null;
-  targetName: string | null;
-  status?: 'success' | 'failed';
-  message?: string;
+  status: 'success' | 'failed';
+  orderId?: string | null;
 }
 
 /**
@@ -16,28 +13,23 @@ export interface LogUserActionParams {
  * 
  * @param params - The parameters for logging the user action
  */
-export async function logUserAction(params: LogUserActionParams): Promise<void> {
+export async function logUserAction({ userId, action, status, orderId = null }: LogParams): Promise<void> {
   try {
-    const { userId, page, action, targetId, targetName, status = 'success', message = '' } = params;
-
     const { error } = await supabase.from('history').insert([
       {
         user_id: userId,
-        page,
+        order_id: orderId,
         action,
-        target_id: targetId,
-        target_name: targetName,
         status,
-        message: message || null,
       },
     ]);
 
     if (error) {
-      console.error('Failed to log user action:', error.message);
+      console.error('[History] Failed to log user action:', error.message);
     }
   } catch (err) {
     // Silently fail to avoid disrupting user workflows
-    console.error('Error logging action:', err);
+    console.error('[History] Unexpected error logging action:', err);
   }
 }
 

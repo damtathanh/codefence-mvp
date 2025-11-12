@@ -1,8 +1,9 @@
 // TypeScript types for Supabase tables
 
 export interface Product {
-  id: string;
+  id: string; // UUID primary key (never editable)
   user_id: string;
+  product_id?: string | null; // Custom business ID (editable TEXT)
   name: string;
   category: string;
   price: number;
@@ -48,13 +49,9 @@ export interface Invoice {
 export interface History {
   id: string;
   user_id: string;
-  page: 'product' | 'order';
+  order_id: string | null; // Used for both product IDs and order IDs
   action: string;
-  target_id: string | null;
-  target_name: string | null;
   status: 'success' | 'failed';
-  message: string | null;
-  order_id?: string; // Legacy field (for backward compatibility)
   created_at: string;
 }
 

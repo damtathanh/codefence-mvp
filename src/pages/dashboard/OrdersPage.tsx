@@ -178,12 +178,9 @@ export const OrdersPage: React.FC = () => {
       if (user && order) {
         await logUserAction({
           userId: user.id,
-          page: 'order',
           action: 'Approve Order',
-          targetId: orderId,
-          targetName: orderIdentifier,
           status: 'success',
-          message: `Approved order: ${orderIdentifier} - Customer: ${order.customer_name}, Amount: ${order.amount.toLocaleString('vi-VN')} VND`,
+          orderId: orderId,
         });
       }
       
@@ -197,12 +194,9 @@ export const OrdersPage: React.FC = () => {
       if (user && order) {
         await logUserAction({
           userId: user.id,
-          page: 'order',
           action: 'Approve Order',
-          targetId: orderId,
-          targetName: orderIdentifier,
           status: 'failed',
-          message: errorMessage,
+          orderId: orderId,
         });
       }
     }
@@ -222,12 +216,9 @@ export const OrdersPage: React.FC = () => {
       if (user && order) {
         await logUserAction({
           userId: user.id,
-          page: 'order',
           action: 'Reject Order',
-          targetId: orderId,
-          targetName: orderIdentifier,
           status: 'success',
-          message: `Rejected order: ${orderIdentifier} - Customer: ${order.customer_name}, Amount: ${order.amount.toLocaleString('vi-VN')} VND`,
+          orderId: orderId,
         });
       }
       
@@ -241,12 +232,9 @@ export const OrdersPage: React.FC = () => {
       if (user && order) {
         await logUserAction({
           userId: user.id,
-          page: 'order',
           action: 'Reject Order',
-          targetId: orderId,
-          targetName: orderIdentifier,
           status: 'failed',
-          message: errorMessage,
+          orderId: orderId,
         });
       }
     }
@@ -272,12 +260,9 @@ export const OrdersPage: React.FC = () => {
       if (user && order) {
         await logUserAction({
           userId: user.id,
-          page: 'order',
           action: 'Update Order Product',
-          targetId: orderId,
-          targetName: orderIdentifier,
           status: 'success',
-          message: `Updated product for order: ${orderIdentifier} - New product: ${product?.name || productId}`,
+          orderId: orderId,
         });
       }
       
@@ -291,12 +276,9 @@ export const OrdersPage: React.FC = () => {
       if (user && order) {
         await logUserAction({
           userId: user.id,
-          page: 'order',
           action: 'Update Order Product',
-          targetId: orderId,
-          targetName: orderIdentifier,
           status: 'failed',
-          message: errorMessage,
+          orderId: orderId,
         });
       }
     }
@@ -423,12 +405,9 @@ export const OrdersPage: React.FC = () => {
       const logPromises = ordersToDelete.map(order =>
         logUserAction({
           userId: user.id,
-          page: 'order',
           action: 'Delete Order',
-          targetId: order.id,
-          targetName: order.order_id || order.id,
           status: 'success',
-          message: `Deleted order: ${order.order_id || order.id} - Customer: ${order.customer_name} (Bulk delete)`,
+          orderId: order.id,
         })
       );
       await Promise.all(logPromises);
@@ -450,12 +429,9 @@ export const OrdersPage: React.FC = () => {
       const logPromises = ordersToDelete.map(order =>
         logUserAction({
           userId: user.id,
-          page: 'order',
           action: 'Delete Order',
-          targetId: order.id,
-          targetName: order.order_id || order.id,
           status: 'failed',
-          message: errorMessage,
+          orderId: order.id,
         })
       );
       await Promise.all(logPromises);

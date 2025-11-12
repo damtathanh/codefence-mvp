@@ -6,6 +6,7 @@ import { Send, Bot } from 'lucide-react';
 import { useSupabaseTable } from '../../hooks/useSupabaseTable';
 import { supabase } from '../../lib/supabaseClient';
 import { useAuth } from '../../features/auth';
+import { formatTimeToGMT7 } from '../../utils/formatTimezone';
 import type { Message } from '../../types/supabase';
 
 interface FormattedMessage extends Message {
@@ -26,11 +27,10 @@ export const MessagePage: React.FC = () => {
 
   // Format messages for display
   const formattedMessages: FormattedMessage[] = messages.map(msg => {
-    const date = new Date(msg.created_at);
     const isUser = msg.sender === 'user' || msg.sender === user?.id;
     return {
       ...msg,
-      formattedTime: date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+      formattedTime: formatTimeToGMT7(msg.created_at),
       isUser,
     };
   });

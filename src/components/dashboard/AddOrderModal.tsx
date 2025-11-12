@@ -148,12 +148,9 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
         if (user && updatedOrder) {
           await logUserAction({
             userId: user.id,
-            page: 'order',
             action: 'Update Order',
-            targetId: editingOrder.id,
-            targetName: formData.order_id?.trim() || editingOrder.order_id || editingOrder.id,
             status: 'success',
-            message: `Updated order: ${formData.order_id?.trim() || editingOrder.order_id} - Customer: ${formData.customer_name?.trim()}, Amount: ${numericAmount.toLocaleString('vi-VN')} VND`,
+            orderId: editingOrder.id,
           });
         }
 
@@ -184,12 +181,9 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
         if (user && newOrder) {
           await logUserAction({
             userId: user.id,
-            page: 'order',
             action: 'Create Order',
-            targetId: newOrder.id,
-            targetName: newOrder.order_id || newOrder.id,
             status: 'success',
-            message: `Created order: ${newOrder.order_id} - Customer: ${newOrder.customer_name}, Amount: ${numericAmount.toLocaleString('vi-VN')} VND`,
+            orderId: newOrder.id,
           });
         }
         
@@ -210,12 +204,9 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
       if (user) {
         await logUserAction({
           userId: user.id,
-          page: 'order',
           action: isEditMode ? 'Update Order' : 'Create Order',
-          targetId: isEditMode ? editingOrder?.id || null : null,
-          targetName: isEditMode ? (editingOrder?.order_id || editingOrder?.id || null) : (formData.order_id || null),
           status: 'failed',
-          message: errorMessage,
+          orderId: isEditMode ? editingOrder?.id || null : null,
         });
       }
     } finally {
@@ -272,12 +263,9 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
             if (user && newOrder) {
               await logUserAction({
                 userId: user.id,
-                page: 'order',
                 action: 'Create Order',
-                targetId: newOrder.id,
-                targetName: newOrder.order_id || newOrder.id,
                 status: 'success',
-                message: `Created order from file upload: ${newOrder.order_id} - Customer: ${newOrder.customer_name}, Amount: ${newOrder.amount.toLocaleString('vi-VN')} VND`,
+                orderId: newOrder.id,
               });
             }
           } catch (err) {
@@ -288,12 +276,9 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
             if (user) {
               await logUserAction({
                 userId: user.id,
-                page: 'order',
                 action: 'Create Order',
-                targetId: null,
-                targetName: orderData.order_id || null,
                 status: 'failed',
-                message: `Failed to create order from file: ${errorMessage}`,
+                orderId: null,
               });
             }
           }
@@ -383,12 +368,9 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
           if (user && newOrder) {
             await logUserAction({
               userId: user.id,
-              page: 'order',
               action: 'Create Order',
-              targetId: newOrder.id,
-              targetName: newOrder.order_id || newOrder.id,
               status: 'success',
-              message: `Created order from file upload (with corrections): ${newOrder.order_id} - Customer: ${newOrder.customer_name}, Amount: ${newOrder.amount.toLocaleString('vi-VN')} VND`,
+              orderId: newOrder.id,
             });
           }
         } catch (err) {
@@ -399,12 +381,9 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
           if (user) {
             await logUserAction({
               userId: user.id,
-              page: 'order',
               action: 'Create Order',
-              targetId: null,
-              targetName: orderData.order_id || null,
               status: 'failed',
-              message: `Failed to create order from file (with corrections): ${errorMessage}`,
+              orderId: null,
             });
           }
         }

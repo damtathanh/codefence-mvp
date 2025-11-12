@@ -32,6 +32,7 @@ export const ProductsPage: React.FC = () => {
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [formData, setFormData] = useState({
+    product_id: '',
     name: '',
     category: '',
     price: '',
@@ -59,6 +60,7 @@ export const ProductsPage: React.FC = () => {
   const [openActionDropdown, setOpenActionDropdown] = useState<string | null>(null);
   const [dropdownPosition, setDropdownPosition] = useState<{ x: number; y: number; placement: 'bottom' | 'top' }>({ x: 0, y: 0, placement: 'bottom' });
 
+
   // Helper function to handle formatted number input for price
   const handleFormattedNumberChange = (field: 'price' | 'stock', e: React.ChangeEvent<HTMLInputElement>) => {
     if (field === 'price') {
@@ -75,7 +77,7 @@ export const ProductsPage: React.FC = () => {
   const openAddModal = () => {
     setIsEditMode(false);
     setSelectedProduct(null);
-    setFormData({ name: '', category: '', price: '', stock: '', status: 'active' });
+    setFormData({ product_id: '', name: '', category: '', price: '', stock: '', status: 'active' });
     setIsModalOpen(true);
   };
 
@@ -86,6 +88,7 @@ export const ProductsPage: React.FC = () => {
     // Format price with commas for display
     const formattedPrice = product.price ? Number(product.price).toLocaleString('en-US') : '';
     setFormData({
+      product_id: product.product_id || '',
       name: product.name,
       category: product.category.toLowerCase(),
       price: formattedPrice,
@@ -97,7 +100,7 @@ export const ProductsPage: React.FC = () => {
 
   const closeModal = () => {
     setIsModalOpen(false);
-    setFormData({ name: '', category: '', price: '', stock: '', status: 'active' });
+    setFormData({ product_id: '', name: '', category: '', price: '', stock: '', status: 'active' });
   };
 
   // Handle ESC key to close modal
@@ -124,6 +127,12 @@ export const ProductsPage: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      // Validate Product ID is required
+      if (!formData.product_id.trim()) {
+        showError('Please enter a Product ID');
+        return;
+      }
+
       // Validate category is selected
       if (!formData.category) {
         showError('Please select a category');
@@ -146,27 +155,29 @@ export const ProductsPage: React.FC = () => {
 
       if (isEditMode && selectedProduct) {
         // Update existing product
-        const updatedProduct = await updateItem(selectedProduct.id, {
+        // Use UUID (product.id) for WHERE condition, update product_id field
+        const updateData: any = {
+          product_id: formData.product_id.trim(),
           name: formData.name.trim(),
           category: formData.category.toLowerCase().trim(),
           price: numericPrice,
           stock: stock,
           status: formData.status,
-        });
+        };
+
+        // updateItem uses UUID (selectedProduct.id) for WHERE condition
+        const updatedProduct = await updateItem(selectedProduct.id, updateData);
         
         // Explicitly refetch to ensure UI is in sync with database
         await fetchAll();
         
-        // Log user action
+        // Log user action (use product_id for logging)
         if (user) {
           await logUserAction({
             userId: user.id,
-            page: 'product',
             action: 'Update Product',
-            targetId: selectedProduct.id,
-            targetName: formData.name.trim(),
             status: 'success',
-            message: `Updated product: ${formData.name.trim()} - Price: ${numericPrice.toLocaleString('vi-VN')} VND, Stock: ${stock}`,
+            orderId: formData.product_id.trim(),
           });
         }
         
@@ -174,27 +185,27 @@ export const ProductsPage: React.FC = () => {
         closeModal();
       } else {
         // Add new product
-        const newProduct = await addItem({
+        const productData: any = {
+          product_id: formData.product_id.trim(), // Custom business ID (TEXT)
           name: formData.name.trim(),
           category: formData.category.toLowerCase().trim(),
           price: numericPrice,
           stock: stock,
           status: formData.status,
-        });
+        };
+
+        const newProduct = await addItem(productData);
         
         // Explicitly refetch to ensure UI is in sync with database
         await fetchAll();
         
-        // Log user action
+        // Log user action (use product_id for logging)
         if (user && newProduct) {
           await logUserAction({
             userId: user.id,
-            page: 'product',
             action: 'Create Product',
-            targetId: newProduct.id,
-            targetName: formData.name.trim(),
             status: 'success',
-            message: `Created product: ${formData.name.trim()} - Category: ${getCategoryDisplayName(formData.category)}, Price: ${numericPrice.toLocaleString('vi-VN')} VND, Stock: ${stock}`,
+            orderId: newProduct.product_id || newProduct.id,
           });
         }
         
@@ -211,12 +222,9 @@ export const ProductsPage: React.FC = () => {
       if (user) {
         await logUserAction({
           userId: user.id,
-          page: 'product',
           action: isEditMode ? 'Update Product' : 'Create Product',
-          targetId: isEditMode ? selectedProduct?.id || null : null,
-          targetName: formData.name.trim() || null,
           status: 'failed',
-          message: errorMessage,
+          orderId: isEditMode ? (selectedProduct?.product_id || selectedProduct?.id || null) : null,
         });
       }
       
@@ -262,12 +270,9 @@ export const ProductsPage: React.FC = () => {
       if (user) {
         await logUserAction({
           userId: user.id,
-          page: 'product',
           action: 'Delete Product',
-          targetId: productId,
-          targetName: productName,
           status: 'success',
-          message: `Deleted product: ${productName}`,
+          orderId: productId,
         });
       }
       
@@ -282,12 +287,9 @@ export const ProductsPage: React.FC = () => {
       if (user) {
         await logUserAction({
           userId: user.id,
-          page: 'product',
           action: 'Delete Product',
-          targetId: productId,
-          targetName: productName,
           status: 'failed',
-          message: errorMessage,
+          orderId: productId,
         });
       }
       
@@ -332,12 +334,9 @@ export const ProductsPage: React.FC = () => {
         const logPromises = productsToDelete.map(product =>
           logUserAction({
             userId: user.id,
-            page: 'product',
             action: 'Delete Product',
-            targetId: product.id,
-            targetName: product.name,
             status: 'success',
-            message: `Deleted product: ${product.name} (Bulk delete)`,
+            orderId: product.id,
           })
         );
         await Promise.all(logPromises);
@@ -361,12 +360,9 @@ export const ProductsPage: React.FC = () => {
         const logPromises = productsToDelete.map(product =>
           logUserAction({
             userId: user.id,
-            page: 'product',
             action: 'Delete Product',
-            targetId: product.id,
-            targetName: product.name,
             status: 'failed',
-            message: errorMessage,
+            orderId: product.id,
           })
         );
         await Promise.all(logPromises);
@@ -642,7 +638,8 @@ export const ProductsPage: React.FC = () => {
                       className="w-4 h-4 rounded border-white/20 bg-white/5 text-[#8B5CF6] focus:ring-[#8B5CF6] focus:ring-offset-0 cursor-pointer"
                     />
                   </th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Name</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Product ID</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Product Name</th>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Category</th>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Price (VND)</th>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Stock</th>
@@ -660,6 +657,11 @@ export const ProductsPage: React.FC = () => {
                         onChange={() => handleToggleSelect(product.id)}
                         className="w-4 h-4 rounded border-white/20 bg-white/5 text-[#8B5CF6] focus:ring-[#8B5CF6] focus:ring-offset-0 cursor-pointer"
                       />
+                    </td>
+                    <td className="px-6 py-4 text-sm text-[#E5E7EB] font-medium align-middle" title={product.product_id || product.id}>
+                      <span className="block truncate whitespace-nowrap max-w-[200px]">
+                        {product.product_id || product.id}
+                      </span>
                     </td>
                     <td
                       className="px-6 py-4 text-sm text-[#E5E7EB] align-middle"
@@ -757,117 +759,143 @@ export const ProductsPage: React.FC = () => {
       {/* Add/Edit Modal */}
       {isModalOpen && (
         <div 
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 transition-opacity duration-200"
           onClick={handleOverlayClick}
           role="dialog"
           aria-modal="true"
           aria-labelledby="product-modal-title"
         >
           <div 
-            className="bg-gradient-to-br from-[#12163A] to-[#181C3B] rounded-lg border border-[#1E223D] p-6 lg:p-8 max-w-md w-full"
+            className="bg-gradient-to-br from-[#12163A] to-[#181C3B] rounded-lg border border-[#1E223D] max-w-[550px] w-full shadow-2xl transition-all duration-200 ease-out"
             onClick={(e) => e.stopPropagation()}
+            style={{ 
+              maxHeight: '90vh',
+              animation: 'modalEnter 0.2s ease-out',
+            }}
           >
-            <div className="flex items-center justify-between mb-6">
+            {/* Header - Fixed */}
+            <div className="flex items-center justify-between p-6 border-b border-[#1E223D] flex-shrink-0">
               <h3 id="product-modal-title" className="text-xl font-semibold text-[#E5E7EB]">
                 {isEditMode ? 'Edit Product' : 'Add Product'}
               </h3>
               <button 
                 onClick={closeModal} 
-                className="text-[#E5E7EB]/70 hover:text-[#E5E7EB] transition-colors"
+                className="text-[#E5E7EB]/70 hover:text-[#E5E7EB] transition-colors p-1 rounded hover:bg-white/10"
                 aria-label="Close modal"
               >
                 <X size={20} />
               </button>
             </div>
-            <form onSubmit={handleSubmit} className="space-y-5">
-              <Input
-                label="Product Name"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                required
-              />
-              <div>
-                <label className="block text-sm font-medium text-[#E5E7EB]/90 mb-2">
-                  Category <span className="text-red-400">*</span>
-                </label>
-                <div className="relative">
-                  <select
-                    value={formData.category}
-                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                    className="w-full pr-10 px-4 py-3.5 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl text-[#E5E7EB] appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6] focus:border-[#8B5CF6]/50 focus:bg-white/10 transition-all duration-300"
-                    required
-                  >
-                    <option value="">Select a category</option>
-                    {PRODUCT_CATEGORIES.map(group => (
-                      <optgroup key={group.groupName} label={group.groupName}>
-                        {group.categories.map(category => (
-                          <option key={category.slug} value={category.slug}>
-                            {category.displayName}
+
+            {/* Content - Scrollable */}
+            <div 
+              className="overflow-y-auto"
+              style={{ 
+                maxHeight: 'calc(90vh - 80px)',
+                paddingRight: '6px'
+              }}
+            >
+              <form onSubmit={handleSubmit} className="p-6 space-y-5">
+                <Input
+                  label="Product ID"
+                  value={formData.product_id}
+                  onChange={(e) => setFormData({ ...formData, product_id: e.target.value })}
+                  placeholder="e.g., PROD-2024-001"
+                  required
+                  className="w-full"
+                />
+                <Input
+                  label="Product Name"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  required
+                  className="w-full"
+                />
+                <div className="w-full">
+                  <label className="block text-sm font-medium text-[#E5E7EB]/90 mb-2">
+                    Category <span className="text-red-400">*</span>
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={formData.category}
+                      onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                      className="w-full pr-10 px-4 py-3.5 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl text-[#E5E7EB] appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6] focus:border-[#8B5CF6]/50 focus:bg-white/10 transition-all duration-300"
+                      required
+                    >
+                      <option value="">Select a category</option>
+                      {PRODUCT_CATEGORIES.map(group => (
+                        <optgroup key={group.groupName} label={group.groupName}>
+                          {group.categories.map(category => (
+                            <option key={category.slug} value={category.slug}>
+                              {category.displayName}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ))}
+                      {/* Show current category if it's not in the standard list (for backward compatibility when editing) */}
+                      {isEditMode && selectedProduct && 
+                       !getAllCategorySlugs().includes(selectedProduct.category.toLowerCase()) && (
+                        <optgroup label="Current Category">
+                          <option value={selectedProduct.category.toLowerCase()}>
+                            {getCategoryDisplayName(selectedProduct.category)} (Current)
                           </option>
-                        ))}
-                      </optgroup>
-                    ))}
-                    {/* Show current category if it's not in the standard list (for backward compatibility when editing) */}
-                    {isEditMode && selectedProduct && 
-                     !getAllCategorySlugs().includes(selectedProduct.category.toLowerCase()) && (
-                      <optgroup label="Current Category">
-                        <option value={selectedProduct.category.toLowerCase()}>
-                          {getCategoryDisplayName(selectedProduct.category)} (Current)
-                        </option>
-                      </optgroup>
-                    )}
-                  </select>
-                  <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                  </svg>
+                        </optgroup>
+                      )}
+                    </select>
+                    <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </div>
+                  {isEditMode && selectedProduct && 
+                   !getAllCategorySlugs().includes(selectedProduct.category.toLowerCase()) && (
+                    <p className="mt-1 text-xs text-yellow-400">
+                      This product uses a legacy category. Consider updating to a standardized category.
+                    </p>
+                  )}
                 </div>
-                {isEditMode && selectedProduct && 
-                 !getAllCategorySlugs().includes(selectedProduct.category.toLowerCase()) && (
-                  <p className="mt-1 text-xs text-yellow-400">
-                    This product uses a legacy category. Consider updating to a standardized category.
-                  </p>
-                )}
-              </div>
-              <Input
-                label="Price (VND)"
-                type="text"
-                value={formData.price}
-                onChange={(e) => handleFormattedNumberChange('price', e)}
-                required
-                placeholder="e.g., 20,000,000"
-              />
-              <Input
-                label="Stock"
-                type="number"
-                value={formData.stock}
-                onChange={(e) => setFormData({ ...formData, stock: e.target.value })}
-                required
-              />
-              <div>
-                <label className="block text-sm font-medium text-[#E5E7EB]/90 mb-2">Status</label>
-                <div className="relative">
-                  <select
-                    value={formData.status}
-                    onChange={(e) => setFormData({ ...formData, status: e.target.value as 'active' | 'inactive' })}
-                    className="w-full pr-10 px-4 py-3 bg-white/10 backdrop-blur-md border border-white/20 rounded-lg text-[#E5E7EB] appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
-                  >
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                  </select>
-                  <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                  </svg>
+                <Input
+                  label="Price (VND)"
+                  type="text"
+                  value={formData.price}
+                  onChange={(e) => handleFormattedNumberChange('price', e)}
+                  required
+                  placeholder="e.g., 20,000,000"
+                  className="w-full"
+                />
+                <Input
+                  label="Stock"
+                  type="number"
+                  value={formData.stock}
+                  onChange={(e) => setFormData({ ...formData, stock: e.target.value })}
+                  required
+                  className="w-full"
+                />
+                <div className="w-full">
+                  <label className="block text-sm font-medium text-[#E5E7EB]/90 mb-2">Status</label>
+                  <div className="relative">
+                    <select
+                      value={formData.status}
+                      onChange={(e) => setFormData({ ...formData, status: e.target.value as 'active' | 'inactive' })}
+                      className="w-full pr-10 px-4 py-3 bg-white/10 backdrop-blur-md border border-white/20 rounded-lg text-[#E5E7EB] appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
+                    >
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
+                    </select>
+                    <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </div>
                 </div>
-              </div>
-              <div className="flex gap-3 justify-end mt-6">
-                <Button type="button" variant="outline" onClick={closeModal}>
-                  Cancel
-                </Button>
-                <Button type="submit">
-                  {isEditMode ? 'Update' : 'Add'} Product
-                </Button>
-              </div>
-            </form>
+                <div className="flex gap-3 justify-end pt-4 border-t border-[#1E223D]">
+                  <Button type="button" variant="outline" onClick={closeModal}>
+                    Cancel
+                  </Button>
+                  <Button type="submit">
+                    {isEditMode ? 'Update' : 'Add'} Product
+                  </Button>
+                </div>
+              </form>
+            </div>
           </div>
         </div>
       )}
