@@ -108,12 +108,13 @@ export const HistoryPage: React.FC = () => {
               </div>
             ) : (
               <>
-                <table className="min-w-[800px] w-full border-separate border-spacing-0">
+                <table className="min-w-[1000px] w-full border-separate border-spacing-0">
                   <thead>
                     <tr className="border-b border-[#1E223D]">
                       <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Date & Time</th>
                       <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Action</th>
                       <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Order/Product ID</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Changes</th>
                       <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Status</th>
                     </tr>
                   </thead>
@@ -131,6 +132,20 @@ export const HistoryPage: React.FC = () => {
                             <span className="block truncate whitespace-nowrap max-w-[200px]" title={log.order_id || 'N/A'}>
                               {log.order_id || 'N/A'}
                             </span>
+                          </td>
+                          <td className="px-6 py-4 text-sm text-[#E5E7EB] align-middle">
+                            {log.details && Object.keys(log.details).length > 0 ? (
+                              <div className="space-y-1">
+                                {Object.entries(log.details).map(([key, value]) => (
+                                  <div key={key} className="text-xs">
+                                    <span className="font-medium text-[#E5E7EB]/90">{key}:</span>{' '}
+                                    <span className="text-[#E5E7EB]/70">{value}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-[#E5E7EB]/50 text-xs">—</span>
+                            )}
                           </td>
                           <td className="px-6 py-4 align-middle">
                             <Badge variant={statusBadge.variant}>{statusBadge.label}</Badge>

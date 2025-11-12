@@ -9,6 +9,7 @@ import { useSupabaseTable } from '../../hooks/useSupabaseTable';
 import { useAuth } from '../../features/auth';
 import { supabase } from '../../lib/supabaseClient';
 import { logUserAction } from '../../utils/logUserAction';
+import { generateChanges } from '../../utils/generateChanges';
 import type { Product, Order } from '../../types/supabase';
 
 interface AddOrderModalProps {
@@ -123,6 +124,31 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
       }
 
       if (isEditMode && editingOrder && user) {
+        // Capture previous data for change tracking
+        const previousProduct = products.find(p => p.id === editingOrder.product_id);
+        const newProduct = products.find(p => p.id === formData.product_id);
+        
+        const previousData = {
+          order_id: editingOrder.order_id || '',
+          customer_name: editingOrder.customer_name || '',
+          phone: editingOrder.phone || '',
+          address: editingOrder.address || '',
+          product: previousProduct?.name || editingOrder.product || 'N/A',
+          amount: editingOrder.amount || 0,
+        };
+        
+        const updateData = {
+          order_id: formData.order_id?.trim() || '',
+          customer_name: formData.customer_name?.trim() || '',
+          phone: formData.phone?.trim() || '',
+          address: formData.address?.trim() || '',
+          product: newProduct?.name || 'N/A',
+          amount: numericAmount,
+        };
+        
+        // Generate changes before updating
+        const changes = generateChanges(previousData, updateData);
+        
         // Update existing order
         const { data: updatedOrder, error } = await supabase
           .from('orders')
@@ -150,7 +176,8 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
             userId: user.id,
             action: 'Update Order',
             status: 'success',
-            orderId: editingOrder.id,
+            orderId: updatedOrder.order_id ?? "",
+            details: Object.keys(changes).length > 0 ? changes : null,
           });
         }
 
@@ -183,7 +210,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
             userId: user.id,
             action: 'Create Order',
             status: 'success',
-            orderId: newOrder.id,
+            orderId: newOrder.order_id ?? "",
           });
         }
         
@@ -206,7 +233,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
           userId: user.id,
           action: isEditMode ? 'Update Order' : 'Create Order',
           status: 'failed',
-          orderId: isEditMode ? editingOrder?.id || null : null,
+          orderId: isEditMode ? (editingOrder?.order_id ?? "") : "",
         });
       }
     } finally {
@@ -265,7 +292,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
                 userId: user.id,
                 action: 'Create Order',
                 status: 'success',
-                orderId: newOrder.id,
+                orderId: newOrder.order_id ?? "",
               });
             }
           } catch (err) {
@@ -278,7 +305,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
                 userId: user.id,
                 action: 'Create Order',
                 status: 'failed',
-                orderId: null,
+                orderId: orderData.order_id ?? "",
               });
             }
           }
@@ -370,7 +397,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
               userId: user.id,
               action: 'Create Order',
               status: 'success',
-              orderId: newOrder.id,
+              orderId: newOrder.order_id ?? "",
             });
           }
         } catch (err) {
@@ -383,7 +410,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
               userId: user.id,
               action: 'Create Order',
               status: 'failed',
-              orderId: null,
+              orderId: orderData.order_id ?? "",
             });
           }
         }

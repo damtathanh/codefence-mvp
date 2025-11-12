@@ -11,6 +11,7 @@ import { AddOrderModal } from '../../components/dashboard/AddOrderModal';
 import { ConfirmModal } from '../../components/ui/ConfirmModal';
 import { useToast } from '../../components/ui/Toast';
 import { logUserAction } from '../../utils/logUserAction';
+import { generateChanges } from '../../utils/generateChanges';
 import type { Order, Product } from '../../types/supabase';
 
 export const OrdersPage: React.FC = () => {
@@ -170,9 +171,19 @@ export const OrdersPage: React.FC = () => {
     const orderIdentifier = order?.order_id || orderId;
     
     try {
-      await updateOrder(orderId, {
+      // Capture previous data for change tracking
+      const previousData = order ? {
+        status: order.status,
+      } : {};
+      
+      const updateData = {
         status: 'Approved',
-      });
+      };
+      
+      // Generate changes
+      const changes = generateChanges(previousData, updateData);
+      
+      await updateOrder(orderId, updateData);
       
       // Log user action
       if (user && order) {
@@ -181,6 +192,7 @@ export const OrdersPage: React.FC = () => {
           action: 'Approve Order',
           status: 'success',
           orderId: order.order_id ?? "",
+          details: Object.keys(changes).length > 0 ? changes : null,
         });
       }
       
@@ -208,9 +220,19 @@ export const OrdersPage: React.FC = () => {
     const orderIdentifier = order?.order_id || orderId;
     
     try {
-      await updateOrder(orderId, {
+      // Capture previous data for change tracking
+      const previousData = order ? {
+        status: order.status,
+      } : {};
+      
+      const updateData = {
         status: 'Rejected',
-      });
+      };
+      
+      // Generate changes
+      const changes = generateChanges(previousData, updateData);
+      
+      await updateOrder(orderId, updateData);
       
       // Log user action
       if (user && order) {
@@ -219,6 +241,7 @@ export const OrdersPage: React.FC = () => {
           action: 'Reject Order',
           status: 'success',
           orderId: order.order_id ?? "",
+          details: Object.keys(changes).length > 0 ? changes : null,
         });
       }
       
@@ -247,6 +270,22 @@ export const OrdersPage: React.FC = () => {
     const orderIdentifier = order?.order_id || orderId;
     
     try {
+      // Capture previous data for change tracking
+      const previousProduct = order?.products || null;
+      const previousProductName = previousProduct?.name || order?.product || 'N/A';
+      const newProductName = product?.name || 'N/A';
+      
+      const previousData = {
+        product: previousProductName,
+      };
+      
+      const updateData = {
+        product: newProductName,
+      };
+      
+      // Generate changes
+      const changes = generateChanges(previousData, updateData);
+      
       await updateOrder(orderId, {
         product_id: productId,
       });
@@ -263,6 +302,7 @@ export const OrdersPage: React.FC = () => {
           action: 'Update Order Product',
           status: 'success',
           orderId: order.order_id ?? "",
+          details: Object.keys(changes).length > 0 ? changes : null,
         });
       }
       

@@ -9,6 +9,7 @@ import { useSupabaseTable } from '../../hooks/useSupabaseTable';
 import { useToast } from '../../components/ui/Toast';
 import { useAuth } from '../../features/auth';
 import { logUserAction } from '../../utils/logUserAction';
+import { generateChanges } from '../../utils/generateChanges';
 import { PRODUCT_CATEGORIES, getCategoryDisplayName, getAllCategorySlugs } from '../../constants/productCategories';
 import type { Product } from '../../types/supabase';
 
@@ -155,15 +156,31 @@ export const ProductsPage: React.FC = () => {
 
       if (isEditMode && selectedProduct) {
         // Update existing product
+        // Capture previous data for change tracking
+        const previousData = {
+          product_id: selectedProduct.product_id || '',
+          name: selectedProduct.name,
+          category: getCategoryDisplayName(selectedProduct.category),
+          price: selectedProduct.price,
+          stock: selectedProduct.stock,
+          status: selectedProduct.status,
+        };
+
         // Use UUID (product.id) for WHERE condition, update product_id field
         const updateData: any = {
           product_id: formData.product_id.trim(),
           name: formData.name.trim(),
-          category: formData.category.toLowerCase().trim(),
+          category: formData.category.toLowerCase().trim(), // Store as slug in DB
           price: numericPrice,
           stock: stock,
           status: formData.status,
         };
+
+        // Generate changes before updating (use display names for better readability)
+        const changes = generateChanges(previousData, {
+          ...updateData,
+          category: getCategoryDisplayName(formData.category), // Use display name for change tracking
+        });
 
         // updateItem uses UUID (selectedProduct.id) for WHERE condition
         const updatedProduct = await updateItem(selectedProduct.id, updateData);
@@ -178,6 +195,7 @@ export const ProductsPage: React.FC = () => {
             action: 'Update Product',
             status: 'success',
             orderId: formData.product_id.trim() || "",
+            details: Object.keys(changes).length > 0 ? changes : null,
           });
         }
         

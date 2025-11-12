@@ -52,6 +52,7 @@ export interface History {
   order_id: string | null; // Used for both product IDs and order IDs
   action: string;
   status: 'success' | 'failed';
+  details: Record<string, string> | null; // JSONB field for change tracking
   created_at: string;
 }
 

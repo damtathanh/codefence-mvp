@@ -5,12 +5,13 @@ interface LogParams {
   action: string;
   status: 'success' | 'failed';
   orderId?: string | null;   // <-- chứa TEXT: B-2025-001 / ORD-1001
+  details?: Record<string, string> | null; // Change tracking details
 }
 
 /**
  * Logs a user action to the history table in Supabase.
  */
-export async function logUserAction({ userId, action, status, orderId = null }: LogParams): Promise<void> {
+export async function logUserAction({ userId, action, status, orderId = null, details = null }: LogParams): Promise<void> {
   try {
     const { error } = await supabase.from('history').insert([
       {
@@ -18,6 +19,7 @@ export async function logUserAction({ userId, action, status, orderId = null }: 
         order_id: orderId,   // <-- giờ lưu TEXT
         action,
         status,
+        details: details || null, // JSONB field for change tracking
       },
     ]);
 
