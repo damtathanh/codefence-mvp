@@ -4,6 +4,7 @@ import { useAuth } from '../hooks/useAuth';
 import { authService } from '../services/authService';
 import { Input } from '../../../components/ui/Input';
 import { useUserProfile } from '../../../hooks/useUserProfile';
+import { isAdminByEmail } from '../../../utils/isAdmin';
 
 export const Login: React.FC = () => {
   const navigate = useNavigate();
@@ -38,10 +39,11 @@ export const Login: React.FC = () => {
     // Wait for auth to finish loading
     if (authLoading) return;
 
-    // If user is already authenticated, redirect to dashboard
+    // If user is already authenticated, redirect based on role
     if (user && !isRedirecting) {
       setIsRedirecting(true);
-      navigate('/dashboard', { replace: true });
+      const redirectPath = isAdminByEmail(user) ? '/admin/dashboard' : '/dashboard';
+      navigate(redirectPath, { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, authLoading, isRedirecting]); // navigate is stable
@@ -66,9 +68,9 @@ export const Login: React.FC = () => {
         console.error('Error refreshing profile after login:', err);
       });
       
-      // User is now available and verified, redirect to dashboard
-      // Role-based routing will be handled by DashboardRouter
-      navigate('/dashboard', { replace: true });
+      // User is now available and verified, redirect based on role
+      const redirectPath = isAdminByEmail(user) ? '/admin/dashboard' : '/dashboard';
+      navigate(redirectPath, { replace: true });
       // Clear the flag after redirect
       setTimeout(() => {
         justLoggedInRef.current = false;

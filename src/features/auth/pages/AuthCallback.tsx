@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../../lib/supabaseClient';
 import { useAuth } from '../hooks/useAuth';
+import { isAdminByEmail } from '../../../utils/isAdmin';
 
 export const AuthCallback: React.FC = () => {
   const navigate = useNavigate();
@@ -33,10 +34,11 @@ export const AuthCallback: React.FC = () => {
             return;
           }
 
-          // Valid session found - redirect to dashboard
+          // Valid session found - redirect based on role
           // The AuthProvider will handle updating the user state
           window.history.replaceState({}, document.title, '/auth/callback');
-          navigate('/dashboard', { replace: true });
+          const redirectPath = isAdminByEmail(session.user) ? '/admin/dashboard' : '/dashboard';
+          navigate(redirectPath, { replace: true });
           return;
         }
 
@@ -79,9 +81,10 @@ export const AuthCallback: React.FC = () => {
               return;
             }
 
-            // Session set successfully - redirect
+            // Session set successfully - redirect based on role
             window.history.replaceState({}, document.title, '/auth/callback');
-            navigate('/dashboard', { replace: true });
+            const redirectPath = isAdminByEmail(sessionData.session.user) ? '/admin/dashboard' : '/dashboard';
+            navigate(redirectPath, { replace: true });
             return;
           }
         }
@@ -98,7 +101,8 @@ export const AuthCallback: React.FC = () => {
 
     // If user is already authenticated via AuthProvider, redirect immediately
     if (user?.email_confirmed_at) {
-      navigate('/dashboard', { replace: true });
+      const redirectPath = isAdminByEmail(user) ? '/admin/dashboard' : '/dashboard';
+      navigate(redirectPath, { replace: true });
       return;
     }
 

@@ -4,6 +4,8 @@ import { useAuth } from '../../features/auth';
 import { useUserProfile } from '../../hooks/useUserProfile';
 import { useSupabaseTable } from '../../hooks/useSupabaseTable';
 import { supabase } from '../../lib/supabaseClient';
+import { useRole } from '../../hooks/useRole';
+import { isAdminByEmail } from '../../utils/isAdmin';
 import type { Notification as SupabaseNotification } from '../../types/supabase';
 import {
   LayoutDashboard,
@@ -58,6 +60,8 @@ export const DashboardLayout: React.FC = () => {
   const location = useLocation();
   const { logout, user } = useAuth();
   const { profile, refreshProfile } = useUserProfile();
+  const { role } = useRole();
+  const isAdmin = isAdminByEmail(user);
   const {
     data: supabaseNotifications,
     loading: notificationsLoading,
@@ -65,6 +69,37 @@ export const DashboardLayout: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [isDesktop, setIsDesktop] = useState(window.innerWidth >= 1024);
+  const [unreadMessageCount, setUnreadMessageCount] = useState(0);
+  
+  // Filter sidebar items based on role
+  const filteredSidebarItems = React.useMemo(() => {
+    if (isAdmin || role === 'admin') {
+      // Admin sees: Dashboard (admin), History, Message, Settings
+      return sidebarItems.filter(item => 
+        item.id === 'dashboard' || 
+        item.id === 'history' || 
+        item.id === 'message' ||
+        item.id === 'settings'
+      ).map(item => {
+        // Update paths for admin routes
+        if (item.id === 'dashboard') {
+          return { ...item, path: '/admin/dashboard', label: 'Dashboard (admin)' };
+        }
+        if (item.id === 'history') {
+          return { ...item, path: '/admin/history' };
+        }
+        if (item.id === 'message') {
+          return { ...item, path: '/admin/message' };
+        }
+        if (item.id === 'settings') {
+          return { ...item, path: '/admin/settings' };
+        }
+        return item;
+      });
+    }
+    // Regular users see all items
+    return sidebarItems;
+  }, [isAdmin, role]);
 
   // Track window size to determine if we're on desktop
   useEffect(() => {
@@ -79,6 +114,49 @@ export const DashboardLayout: React.FC = () => {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  // Fetch unread message count for admin
+  useEffect(() => {
+    if (!isAdmin || !user) return;
+
+    const fetchUnreadCount = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('messages')
+          .select('id', { count: 'exact' })
+          .eq('receiver_id', user.id)
+          .eq('read', false);
+
+        if (error) throw error;
+        setUnreadMessageCount(data?.length || 0);
+      } catch (err) {
+        console.error('Error fetching unread messages:', err);
+      }
+    };
+
+    fetchUnreadCount();
+
+    // Set up real-time subscription for unread messages
+    const channel = supabase
+      .channel('admin_unread_messages')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'messages',
+          filter: `receiver_id=eq.${user.id}`,
+        },
+        () => {
+          fetchUnreadCount();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [isAdmin, user]);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showAllNotifications, setShowAllNotifications] = useState(false);
@@ -227,11 +305,19 @@ export const DashboardLayout: React.FC = () => {
         title: 'Dashboard',
         subtitle: userName ? `Welcome back, ${userName}! Here's your overview` : "Welcome back! Here's your overview"
       },
+      '/admin/dashboard': {
+        title: 'Admin Dashboard',
+        subtitle: userName ? `Welcome back, ${userName}! Here's your overview` : "Welcome back! Here's your overview"
+      },
       '/dashboard/analytics': {
         title: 'Analytics',
         subtitle: 'Detailed insights and performance metrics'
       },
       '/dashboard/settings': {
+        title: 'Settings',
+        subtitle: 'Manage your account settings'
+      },
+      '/admin/settings': {
         title: 'Settings',
         subtitle: 'Manage your account settings'
       },
@@ -251,7 +337,15 @@ export const DashboardLayout: React.FC = () => {
         title: 'History',
         subtitle: 'Verification logs and activity history'
       },
+      '/admin/history': {
+        title: 'History',
+        subtitle: 'Verification logs and activity history'
+      },
       '/dashboard/message': {
+        title: 'Message',
+        subtitle: 'Chat with CodFence support team'
+      },
+      '/admin/message': {
         title: 'Message',
         subtitle: 'Chat with CodFence support team'
       }
@@ -275,6 +369,14 @@ export const DashboardLayout: React.FC = () => {
   const pageInfo = getPageInfo();
 
   const isActive = (path: string) => {
+    // Handle admin routes
+    if (path === '/admin/dashboard') {
+      return location.pathname === '/admin/dashboard';
+    }
+    if (path.startsWith('/admin/')) {
+      return location.pathname.startsWith(path);
+    }
+    // Handle regular dashboard routes
     if (path === '/dashboard') {
       return location.pathname === '/dashboard';
     }
@@ -355,9 +457,10 @@ export const DashboardLayout: React.FC = () => {
 
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto p-4 space-y-2">
-          {sidebarItems.map((item) => {
+          {filteredSidebarItems.map((item) => {
             const Icon = item.icon;
             const active = isActive(item.path);
+            const showUnreadBadge = item.id === 'message' && isAdmin && unreadMessageCount > 0;
             return (
               <button
                 key={item.id}
@@ -372,8 +475,13 @@ export const DashboardLayout: React.FC = () => {
               >
                 <Icon size={28} />
                 {expanded && (
-                  <span className="font-medium transition-opacity duration-300">
+                  <span className="font-medium transition-opacity duration-300 flex-1">
                     {item.label}
+                  </span>
+                )}
+                {showUnreadBadge && (
+                  <span className="bg-red-500 text-white text-xs rounded-full px-2 py-0.5 shadow-md flex-shrink-0">
+                    {unreadMessageCount}
                   </span>
                 )}
               </button>

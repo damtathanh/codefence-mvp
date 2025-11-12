@@ -24,6 +24,7 @@ import { HistoryPage } from "./pages/dashboard/HistoryPage";
 import { MessagePage } from "./pages/dashboard/MessagePage";
 import { SettingsPage } from "./pages/dashboard/SettingsPage";
 import { AdminDashboard } from "./pages/admin/AdminDashboard";
+import { AdminMessagePage } from "./pages/admin/MessagePage";
 import { ToastProvider } from "./components/ui";
 import { ThemeProvider } from "./context/ThemeContext";
 
@@ -71,12 +72,7 @@ const DashboardRouter: React.FC = () => {
     return <Navigate to="/login" replace state={{ error: 'Please verify your email before accessing the dashboard.' }} />;
   }
 
-  // If role is admin, render AdminDashboard
-  if (role === 'admin') {
-    return <AdminDashboard />;
-  }
-
-  // Otherwise, render regular DashboardLayout (for user role)
+  // Both admin and user roles use DashboardLayout (admin sees filtered menu items)
   return <DashboardLayout />;
 };
 
@@ -123,15 +119,21 @@ function App() {
                   <Route path="settings" element={<SettingsPage />} />
                 </Route>
 
-                {/* Admin dashboard route - redirects to /dashboard (role-based rendering handles the rest) */}
+                {/* Admin dashboard routes */}
                 <Route
-                  path="/admin/dashboard"
+                  path="/admin/*"
                   element={
                     <ProtectedRoute>
-                      <Navigate to="/dashboard" replace />
+                      <DashboardRouter />
                     </ProtectedRoute>
                   }
-                />
+                >
+                  <Route index element={<Navigate to="/admin/dashboard" replace />} />
+                  <Route path="dashboard" element={<DashboardPage />} />
+                  <Route path="history" element={<HistoryPage />} />
+                  <Route path="message" element={<AdminMessagePage />} />
+                  <Route path="settings" element={<SettingsPage />} />
+                </Route>
 
                 {/* User dashboard route - redirects to /dashboard (role-based rendering handles the rest) */}
                 <Route

@@ -1,7 +1,8 @@
 // src/hooks/useRole.ts
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
-import { useAuth } from '../features/auth'; // Giữ nguyên nếu AuthContext có file này
+import { useAuth } from '../features/auth';
+import { isAdminByEmail } from '../utils/isAdmin';
 
 export type UserRole = 'admin' | 'user' | null;
 
@@ -18,6 +19,14 @@ export function useRole() {
       return;
     }
 
+    // Check email domain first (primary method)
+    if (isAdminByEmail(user)) {
+      setRole('admin');
+      setLoading(false);
+      return;
+    }
+
+    // If not admin by email, check database (fallback)
     const fetchRole = async () => {
       try {
         setLoading(true);

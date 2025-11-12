@@ -58,9 +58,13 @@ export interface History {
 
 export interface Message {
   id: string;
-  user_id: string;
-  sender: string;
-  content: string;
+  sender_id: string;
+  receiver_id: string;
+  message: string;
+  attachment_url: string | null;
+  read: boolean;
+  system_message: boolean;
+  broadcast: boolean;
   created_at: string;
 }
 
