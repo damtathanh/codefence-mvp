@@ -36,10 +36,10 @@ export const AdminDashboard: React.FC = () => {
             >
               <img
                 src="/assets/logo.png"
-                alt="CodFence Logo"
-                className="h-8 w-8 object-contain"
+                alt="CodFence"
+                className="h-7 w-auto object-contain transition-transform duration-200 hover:scale-105"
               />
-              <span className="text-xl font-bold bg-gradient-to-r from-[#8B5CF6] to-[#6366F1] bg-clip-text text-transparent hidden sm:block">
+              <span className="text-xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-cyan-400 text-transparent bg-clip-text hidden sm:block">
                 CodFence
               </span>
             </Link>

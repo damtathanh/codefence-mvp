@@ -24,7 +24,7 @@ import { HistoryPage } from "./pages/dashboard/HistoryPage";
 import { MessagePage } from "./pages/dashboard/MessagePage";
 import { SettingsPage } from "./pages/dashboard/SettingsPage";
 import { AdminDashboard } from "./pages/admin/AdminDashboard";
-import { AdminMessagePage } from "./pages/admin/MessagePage";
+import { AdminMessagePage } from "./pages/admin/AdminMessagePage";
 import { ToastProvider } from "./components/ui";
 import { ThemeProvider } from "./context/ThemeContext";
 
