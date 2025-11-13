@@ -58,8 +58,8 @@ export interface History {
 
 export interface Message {
   id: string;
-  sender_id: string;
-  receiver_id: string;
+  sender_id: string; // UUID
+  receiver_id: string | null; // UUID, nullable
   message: string;
   attachment_url: string | null;
   read: boolean;

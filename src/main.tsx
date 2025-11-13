@@ -11,8 +11,4 @@ if (typeof window !== 'undefined') {
   (window as any).supabase = supabase // so you can use it in console
 }
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-)
+ReactDOM.createRoot(document.getElementById('root')!).render(<App />)
