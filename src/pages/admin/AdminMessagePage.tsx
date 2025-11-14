@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "../../components/ui/Card";
 import { Input } from "../../components/ui/Input";
 import { Button } from "../../components/ui/Button";
@@ -48,9 +48,30 @@ export const AdminMessagePage: React.FC = () => {
   const [broadcastFile, setBroadcastFile] = useState<File | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const inboxDebounceRef = useRef<NodeJS.Timeout | null>(null);
+  const shouldAutoScroll = useRef(true);
 
+  const scrollToBottom = (behavior: ScrollBehavior = "auto") => {
+    const c = messagesContainerRef.current;
+    if (c) {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          try {
+            c.scrollTo({ top: c.scrollHeight, behavior });
+          } catch {
+            c.scrollTop = c.scrollHeight;
+          }
+        });
+      });
+    } else {
+      requestAnimationFrame(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior });
+      });
+    }
+  };
+  
   // Load admin ids & profiles
   useEffect(() => {
     const loadAdmins = async () => {
@@ -256,6 +277,8 @@ export const AdminMessagePage: React.FC = () => {
       all.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
       setMessages(all);
       messagesCache.current[userId] = all;
+      shouldAutoScroll.current = true;
+      scrollToBottom("auto");
 
       // mark unread user->admin messages as read (admin opened)
       const { error: markErr } = await supabase
@@ -281,8 +304,6 @@ export const AdminMessagePage: React.FC = () => {
         prev.map((c) => (c.id === userId ? { ...c, unreadCount: 0 } : c))
       );
 
-      await new Promise((res) => setTimeout(res, 100)); // wait for database sync
-      debouncedFetchInbox();
     } catch (err) {
       console.error("fetchMessagesForUser error", err);
       showError("Failed to load messages.");
@@ -344,7 +365,9 @@ export const AdminMessagePage: React.FC = () => {
       (convoLast && (!cachedLast || cachedLast.id !== convoLast.id));
 
     if (cached) {
+      shouldAutoScroll.current = true;
       setMessages(cached);
+      scrollToBottom("auto");
     }
 
     if (needsRefresh) {
@@ -426,9 +449,19 @@ export const AdminMessagePage: React.FC = () => {
   }, [debouncedFetchInbox]);
 
   // auto-scroll on messages change
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  useLayoutEffect(() => {
+    if (!shouldAutoScroll.current) return;
+  
+    const c = messagesContainerRef.current;
+    if (!c) return;
+  
+    // Scroll to bottom AFTER DOM fully painted
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        c.scrollTop = c.scrollHeight;
+      });
+    });
+  }, [messages]);  
 
   useEffect(() => {
     return () => {
@@ -437,6 +470,43 @@ export const AdminMessagePage: React.FC = () => {
       }
     };
   }, []);
+
+  useEffect(() => {
+    const images = document.querySelectorAll<HTMLImageElement>(".chat-image");
+    if (images.length === 0) return;
+
+    let loaded = 0;
+    const maybeScroll = () => {
+      loaded += 1;
+      if (loaded === images.length && shouldAutoScroll.current) {
+        const container = messagesContainerRef.current;
+        if (container) {
+          container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+        } else {
+          messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+        }
+      }
+    };
+
+    const cleanups: Array<() => void> = [];
+
+    images.forEach((img) => {
+      if (img.complete) {
+        maybeScroll();
+      } else {
+        const handleLoad = () => {
+          maybeScroll();
+          img.removeEventListener("load", handleLoad);
+        };
+        img.addEventListener("load", handleLoad);
+        cleanups.push(() => img.removeEventListener("load", handleLoad));
+      }
+    });
+
+    return () => {
+      cleanups.forEach((cleanup) => cleanup());
+    };
+  }, [messages]);
 
   // send admin reply
   const handleSend = async (e?: React.FormEvent) => {
@@ -475,6 +545,7 @@ export const AdminMessagePage: React.FC = () => {
         created_at: new Date().toISOString(),
       } as unknown as Message;
 
+      shouldAutoScroll.current = true;
       setMessages((prev) => {
         const next = [...prev, optimisticMessage] as Message[];
         messagesCache.current[selectedUser] = next;
@@ -568,6 +639,7 @@ export const AdminMessagePage: React.FC = () => {
                     <button
                       key={c.id}
                       onClick={() => {
+                        shouldAutoScroll.current = true;
                         setSelectedUser(c.id);
                         setSelectedDisplayName(c.displayName);
                         setConversations((prev) =>
@@ -617,7 +689,15 @@ export const AdminMessagePage: React.FC = () => {
               </CardTitle>
             </CardHeader>
             <CardContent className="flex-1 flex flex-col !p-0 min-h-0">
-              <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-[#0B0F28]">
+              <div
+                className="flex-1 overflow-y-auto p-4 space-y-3 bg-[#0B0F28]"
+                ref={messagesContainerRef}
+                onScroll={(e) => {
+                  const el = e.currentTarget;
+                  shouldAutoScroll.current =
+                    el.scrollTop + el.clientHeight >= el.scrollHeight - 20;
+                }}
+              >
                 {messagesLoading ? (
                   <div className="text-center text-[#E5E7EB]/70 py-8">Loading messages...</div>
                 ) : messages.length === 0 ? (
@@ -633,10 +713,17 @@ export const AdminMessagePage: React.FC = () => {
                         <div className={`max-w-[70%] rounded-2xl px-4 py-2 ${isSystem ? "bg-[#2A2E45] text-[#9CA3AF] italic" : isAdmin ? "bg-gradient-to-r from-[#8B5CF6] to-[#6D28D9] text-white" : "bg-gradient-to-r from-[#2563EB] to-[#1E3A8A] text-white"}`}>
                           {m.attachment_url && (
                             <div className="mb-2">
-                              {isImage ? <img src={m.attachment_url} alt="att" className="max-w-[200px] max-h-[200px] rounded-lg object-cover" /> :
+                              {isImage ? (
+                                <img
+                                  src={m.attachment_url}
+                                  alt="att"
+                                  className="chat-image max-w-[200px] max-h-[200px] rounded-lg object-cover"
+                                />
+                              ) : (
                                 <a href={m.attachment_url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-white/90 hover:text-white">
                                   <File size={16} /><span className="text-sm truncate">{m.attachment_url.split("/").pop()}</span> <Download size={14} />
-                                </a>}
+                                </a>
+                              )}
                             </div>
                           )}
                           {m.message && <p className="text-sm">{m.message}</p>}
