@@ -30,7 +30,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { validateOrder, insertOrder, parseFile, insertOrders, validateAndMapProducts } = useOrders();
+  const { parseFile, insertOrders, validateAndMapProducts } = useOrders();
   const { showSuccess, showError } = useToast();
   const { user } = useAuth();
   
@@ -100,6 +100,16 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
       }
     }
   }, [isOpen, editingOrder]);
+
+  // Local validator function
+  const validateManualOrder = (o: OrderInput) => {
+    if (!o.order_id?.trim()) return "Order ID is required";
+    if (!o.customer_name?.trim()) return "Customer Name is required";
+    if (!o.phone?.trim()) return "Phone is required";
+    if (!o.product_id) return "Product is required";
+    if (!o.amount || o.amount <= 0) return "Amount is invalid";
+    return null;
+  };
 
   // Handle manual form submission
   const handleManualSubmit = async (e: React.FormEvent) => {
@@ -194,15 +204,26 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
         };
 
         // Validate order
-        const validationError = validateOrder(orderData);
+        const validationError = validateManualOrder(orderData);
         if (validationError) {
           showError(validationError);
           setLoading(false);
           return;
         }
 
-        // Insert order
-        const newOrder = await insertOrder(orderData);
+        // Insert order directly via Supabase
+        const { data: newOrder, error: insertError } = await supabase
+          .from("orders")
+          .insert({
+            user_id: user?.id,
+            ...orderData,
+            status: "Pending",
+            risk_score: null,
+          })
+          .select()
+          .single();
+
+        if (insertError) throw insertError;
         
         // Log user action
         if (user && newOrder) {
@@ -283,7 +304,19 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
         
         for (const orderData of validOrders) {
           try {
-            const newOrder = await insertOrder(orderData);
+            // Insert order directly via Supabase
+            const { data: newOrder, error: insertError } = await supabase
+              .from("orders")
+              .insert({
+                user_id: user?.id,
+                ...orderData,
+                status: "Pending",
+                risk_score: null,
+              })
+              .select()
+              .single();
+
+            if (insertError) throw insertError;
             successCount++;
             
             // Log user action for each successfully created order
@@ -388,7 +421,19 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
       
       for (const orderData of finalOrders) {
         try {
-          const newOrder = await insertOrder(orderData);
+          // Insert order directly via Supabase
+          const { data: newOrder, error: insertError } = await supabase
+            .from("orders")
+            .insert({
+              user_id: user?.id,
+              ...orderData,
+              status: "Pending",
+              risk_score: null,
+            })
+            .select()
+            .single();
+
+          if (insertError) throw insertError;
           successCount++;
           
           // Log user action for each successfully created order

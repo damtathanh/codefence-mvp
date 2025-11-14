@@ -68,6 +68,9 @@ export const DashboardLayout: React.FC = () => {
   const { profile, refreshProfile } = useUserProfile();
   const { role } = useRole();
   const isAdmin = isAdminByEmail(user);
+  
+  // Detect if current page is Message page (user or admin)
+  const isMessagePage = location.pathname.includes('/message');
   const {
     data: supabaseNotifications,
     loading: notificationsLoading,
@@ -676,13 +679,20 @@ export const DashboardLayout: React.FC = () => {
         </header>
 
         {/* Page Content */}
-        <main ref={mainContentRef} className="flex-1 overflow-y-auto bg-[#0B0F28]">
-          <div className="min-h-full bg-gradient-to-br from-[#0B0F28] via-[#12163A] to-[#181C3B]">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-              <Outlet context={outletContext} />
-            </div>
+        <main ref={mainContentRef} className="flex-1 flex flex-col overflow-hidden bg-[#0B0F28]">
+          <div className="flex-1 flex flex-col bg-gradient-to-br from-[#0B0F28] via-[#12163A] to-[#181C3B]">
+            {isMessagePage ? (
+              <div className="flex-1 flex w-full max-w-screen-xl mx-auto px-4 py-4 md:py-6">
+                <Outlet context={outletContext} />
+              </div>
+            ) : (
+              <div className="flex-1 w-full max-w-screen-xl mx-auto px-4 py-6">
+                <Outlet context={outletContext} />
+              </div>
+            )}
           </div>
         </main>
+
       </div>
 
       <AddOrderModal

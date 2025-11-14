@@ -1,5 +1,5 @@
 import React from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { TrendingUp, ShoppingCart, ShieldCheck, DollarSign, BarChart3 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
@@ -65,21 +65,8 @@ const analyticsKeyMetrics = [
 ];
 
 export const AdminDashboard: React.FC = () => {
-  const navigate = useNavigate();
   const location = useLocation();
-  const activeTab = location.pathname.includes('/admin/analytics') ? 'analytics' : 'dashboard';
-  const isAnalytics = activeTab === 'analytics';
-  const headerTitle = isAnalytics ? 'Admin Analytics' : 'Admin Dashboard';
-  const headerSubtitle = isAnalytics
-    ? 'Detailed insights and performance metrics'
-    : 'System analytics and administration';
-
-  const handleTabChange = (tab: 'dashboard' | 'analytics') => {
-    const target = tab === 'analytics' ? '/admin/analytics' : '/admin/dashboard';
-    if (location.pathname !== target) {
-      navigate(target);
-    }
-  };
+  const isAnalytics = location.pathname.includes('/admin/analytics');
 
   const renderDashboardContent = () => (
     <div className="space-y-6">
@@ -293,31 +280,6 @@ export const AdminDashboard: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="inline-flex items-center rounded-full bg-white/5 p-1 border border-white/10">
-          <button
-            onClick={() => handleTabChange('dashboard')}
-            className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 ${
-              activeTab === 'dashboard'
-                ? 'bg-white text-[#0B0F28] shadow-lg'
-                : 'text-white/80 hover:text-white'
-            }`}
-          >
-            Dashboard
-          </button>
-          <button
-            onClick={() => handleTabChange('analytics')}
-            className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 ${
-              activeTab === 'analytics'
-                ? 'bg-white text-[#0B0F28] shadow-lg'
-                : 'text-white/80 hover:text-white'
-            }`}
-          >
-            Analytics
-          </button>
-        </div>
-      </div>
-
       {isAnalytics ? renderAnalyticsContent() : renderDashboardContent()}
     </div>
   );

@@ -15,13 +15,19 @@ import { generateChanges } from '../../utils/generateChanges';
 import type { Order, Product } from '../../types/supabase';
 import type { DashboardOutletContext } from '../../components/dashboard/DashboardLayout';
 
+interface SimpleProduct {
+  id: string;
+  name: string;
+  status: string;
+}
+
 export const OrdersPage: React.FC = () => {
   const { user } = useAuth();
   const { showSuccess, showError } = useToast();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useState<SimpleProduct[]>([]);
   const [productCorrections, setProductCorrections] = useState<Map<string, string>>(new Map()); // orderId -> product_id
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
