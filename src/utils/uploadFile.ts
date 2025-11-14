@@ -1,39 +1,65 @@
-import { supabase } from '../lib/supabaseClient';
+// src/utils/uploadFile.ts
+import { supabase } from "../lib/supabaseClient";
+import type { MinimalProfile } from "./getUserFolderName";
+import { getUserFolderName } from "./getUserFolderName";
 
 /**
- * Uploads a file to Supabase Storage
- * @param file - File to upload
- * @param folder - Folder path in storage (e.g., 'messages', 'attachments')
- * @returns Public URL of uploaded file
+ * Build filename with timestamp + unique suffix
  */
-export async function uploadFile(file: File, folder: string = 'messages'): Promise<string> {
-  try {
-    const fileExt = file.name.split('.').pop();
-    const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
-    const filePath = `${folder}/${fileName}`;
+const buildFileName = (fileName: string) => {
+  const parts = fileName.split(".");
+  const ext = parts.length > 1 ? `.${parts.pop()!.toLowerCase()}` : "";
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const uniqueSuffix = Math.random().toString(36).slice(2, 8);
+  return `${timestamp}-${uniqueSuffix}${ext}`;
+};
 
-    const { error: uploadError, data } = await supabase.storage
-      .from('attachments')
+const BUCKET = "attachments"; // CHANGE THIS IF YOUR BUCKET NAME IS DIFFERENT
+
+/**
+ * Uploads a file to Supabase Storage and returns a public URL.
+ */
+export async function uploadFile(file: File, profile?: MinimalProfile): Promise<string> {
+  if (!file) throw new Error("No file provided to uploadFile.");
+
+  const folderName = getUserFolderName(profile);
+  const fileName = buildFileName(file.name);
+  const filePath = `${folderName}/${fileName}`;
+
+  try {
+    // UPLOAD
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from(BUCKET)
       .upload(filePath, file, {
-        cacheControl: '3600',
+        cacheControl: "3600",
         upsert: false,
       });
 
-    if (uploadError) throw uploadError;
+    if (uploadError) {
+      console.error("[uploadFile] Upload error:", uploadError);
+      throw new Error(uploadError.message);
+    }
 
-    // Get public URL
+    if (!uploadData) {
+      throw new Error("Upload failed: no data returned.");
+    }
+
+    // PUBLIC URL
     const { data: urlData } = supabase.storage
-      .from('attachments')
+      .from(BUCKET)
       .getPublicUrl(filePath);
 
-    if (!urlData?.publicUrl) {
-      throw new Error('Failed to get public URL');
+    if (!urlData || !urlData.publicUrl) {
+      console.error("[uploadFile] Missing publicUrl:", urlData);
+      throw new Error("Failed to get public URL for uploaded file.");
     }
 
     return urlData.publicUrl;
-  } catch (err) {
-    console.error('Error uploading file:', err);
-    throw err;
+
+  } catch (err: any) {
+    console.error("[uploadFile] Caught error:", err);
+    throw new Error(err?.message ?? "Unknown upload error");
   }
 }
 
+export default uploadFile;

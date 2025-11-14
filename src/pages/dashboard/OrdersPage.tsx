@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { useOutletContext } from 'react-router-dom';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -7,12 +8,12 @@ import { CheckCircle, XCircle, Filter, Plus, AlertTriangle, Trash2, MoreVertical
 import { useSupabaseTable } from '../../hooks/useSupabaseTable';
 import { useAuth } from '../../features/auth';
 import { supabase } from '../../lib/supabaseClient';
-import { AddOrderModal } from '../../components/dashboard/AddOrderModal';
 import { ConfirmModal } from '../../components/ui/ConfirmModal';
 import { useToast } from '../../components/ui/Toast';
 import { logUserAction } from '../../utils/logUserAction';
 import { generateChanges } from '../../utils/generateChanges';
 import type { Order, Product } from '../../types/supabase';
+import type { DashboardOutletContext } from '../../components/dashboard/DashboardLayout';
 
 export const OrdersPage: React.FC = () => {
   const { user } = useAuth();
@@ -22,7 +23,6 @@ export const OrdersPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [productCorrections, setProductCorrections] = useState<Map<string, string>>(new Map()); // orderId -> product_id
-  const [isAddOrderModalOpen, setIsAddOrderModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [statusFilter, setStatusFilter] = useState('all');
@@ -37,8 +37,7 @@ export const OrdersPage: React.FC = () => {
   const [deleteAllLoading, setDeleteAllLoading] = useState(false);
   const [openActionDropdown, setOpenActionDropdown] = useState<string | null>(null);
   const [dropdownPosition, setDropdownPosition] = useState<{ x: number; y: number; placement: 'bottom' | 'top' }>({ x: 0, y: 0, placement: 'bottom' });
-  const [editingOrder, setEditingOrder] = useState<Order | null>(null);
-  const [isEditOrderModalOpen, setIsEditOrderModalOpen] = useState(false);
+  const { openAddOrderModal } = useOutletContext<DashboardOutletContext>();
 
   // Fetch orders with product joins
   const fetchOrders = async () => {
@@ -78,19 +77,26 @@ export const OrdersPage: React.FC = () => {
         .eq('status', 'active');
 
       if (productsError) {
-        console.error('Error fetching products:', productsError);
-      } else {
-        setProducts((productsData as Product[]) || []);
+        throw productsError;
       }
 
-      setOrders((ordersData as Order[]) || []);
-    } catch (err) {
+      setOrders(ordersData || []);
+      setProducts(productsData || []);
+    } catch (err: any) {
       console.error('Error fetching orders:', err);
-      setError(err instanceof Error ? err.message : 'Failed to fetch orders');
-      setOrders([]);
+      setError(err.message || 'Failed to load orders. Please try again.');
     } finally {
       setLoading(false);
     }
+  };
+
+  const openOrderModal = (order?: Order | null) => {
+    openAddOrderModal({
+      order: order ?? null,
+      onSuccess: () => {
+        fetchOrders();
+      },
+    });
   };
 
   // Fetch orders on mount and when user changes
@@ -542,20 +548,7 @@ export const OrdersPage: React.FC = () => {
   // Handle edit from dropdown
   const handleEditFromDropdown = (order: Order) => {
     setOpenActionDropdown(null);
-    setEditingOrder(order);
-    setIsEditOrderModalOpen(true);
-  };
-
-  // Handle edit modal close
-  const handleEditModalClose = () => {
-    setIsEditOrderModalOpen(false);
-    setEditingOrder(null);
-  };
-
-  // Handle edit modal success
-  const handleEditModalSuccess = () => {
-    fetchOrders();
-    handleEditModalClose();
+    openOrderModal(order);
   };
 
   // Close dropdown when clicking outside or scrolling
@@ -596,7 +589,7 @@ export const OrdersPage: React.FC = () => {
               <Filter size={20} />
               Filters
             </CardTitle>
-            <Button onClick={() => setIsAddOrderModalOpen(true)} className="w-full sm:w-auto">
+            <Button onClick={() => openOrderModal(null)} className="w-full sm:w-auto">
               <Plus size={20} className="mr-2" />
               Add Order
             </Button>
@@ -889,24 +882,6 @@ export const OrdersPage: React.FC = () => {
         // Render dropdown via Portal to document.body to escape parent containers
         return createPortal(dropdownContent, document.body);
       })()}
-
-      {/* Add Order Modal */}
-      <AddOrderModal
-        isOpen={isAddOrderModalOpen}
-        onClose={() => setIsAddOrderModalOpen(false)}
-        onSuccess={() => {
-          fetchOrders();
-          setIsAddOrderModalOpen(false);
-        }}
-      />
-
-      {/* Edit Order Modal */}
-      <AddOrderModal
-        isOpen={isEditOrderModalOpen}
-        onClose={handleEditModalClose}
-        onSuccess={handleEditModalSuccess}
-        editingOrder={editingOrder}
-      />
 
       {/* Confirm Delete All Modal */}
       <ConfirmModal

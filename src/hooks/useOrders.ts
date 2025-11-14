@@ -1,31 +1,25 @@
-import { useCallback } from 'react';
-import { supabase } from '../lib/supabaseClient';
-import { useAuth } from '../features/auth';
-import type { Order, Product } from '../types/supabase';
-import * as XLSX from 'xlsx';
-import Papa from 'papaparse';
+import { useCallback } from "react";
+import { supabase } from "../lib/supabaseClient";
+import { useAuth } from "../features/auth";
+import type { Order, Product } from "../types/supabase";
+import * as XLSX from "xlsx";
+import Papa from "papaparse";
+
+// Smart header mapping
+import { buildHeaderMapping, normalize } from "../utils/smartColumnMapper";
 
 export interface OrderInput {
   order_id: string;
   customer_name: string;
   phone: string;
   address: string | null;
-  product_id: string; // Product ID (UUID)
-  product_name?: string; // Optional product name for display/validation
+  product_id: string;
+  product_name?: string;
   amount: number;
 }
 
 export interface InvalidOrderRow {
-  order: {
-    order_id: string;
-    customer_name: string;
-    phone: string;
-    address: string | null;
-    product: string;
-    product_name?: string;
-    amount: number;
-    [key: string]: any;
-  };
+  order: any;
   rowIndex: number;
   reason: string;
 }
@@ -33,330 +27,189 @@ export interface InvalidOrderRow {
 export const useOrders = () => {
   const { user } = useAuth();
 
-  // Fetch all products for the current user
+  /** LOAD PRODUCTS */
   const fetchProducts = useCallback(async (): Promise<Product[]> => {
-    if (!user) {
-      return [];
-    }
+    if (!user) return [];
     const { data, error } = await supabase
-      .from('products')
-      .select('id, name, user_id')
-      .eq('user_id', user.id)
-      .eq('status', 'active');
-    
-    if (error) {
-      console.error('Error fetching products:', error);
-      return [];
-    }
-    return (data as Product[]) || [];
+      .from("products")
+      .select("*")
+      .eq("user_id", user.id)
+      .eq("status", "active");
+
+    return error ? [] : (data ?? []);
   }, [user]);
 
-  // Find product by name (case-insensitive)
-  const findProductByName = useCallback(async (productName: string): Promise<Product | null> => {
-    if (!user || !productName) {
-      return null;
-    }
-    const products = await fetchProducts();
-    const found = products.find(p => 
-      p.name.toLowerCase().trim() === productName.toLowerCase().trim()
-    );
-    return found || null;
-  }, [user, fetchProducts]);
+  /** CLEAN NUMBER */
+  const parseNumeric = (v: any): number | null => {
+    if (v === null || v === undefined) return null;
+    const cleaned = v.toString().replace(/,/g, "").trim();
+    const num = Number(cleaned);
+    return isNaN(num) ? null : num;
+  };
 
-  // Validate order data
-  const validateOrder = useCallback((order: Partial<OrderInput>): string | null => {
-    if (!order.order_id || order.order_id.trim() === '') {
-      return 'Order ID is required';
-    }
-    if (!order.customer_name || order.customer_name.trim() === '') {
-      return 'Customer name is required';
-    }
-    if (!order.phone || order.phone.trim() === '') {
-      return 'Phone number is required';
-    }
-    if (!order.product_id || order.product_id.trim() === '') {
-      return 'Product is required. Please select a valid product.';
-    }
-    if (!order.amount || order.amount <= 0) {
-      return 'Amount must be greater than 0';
-    }
+  /** VALIDATE */
+  const validateOrder = (o: Partial<OrderInput>) => {
+    if (!o.order_id) return "Order ID missing";
+    if (!o.customer_name) return "Customer name missing";
+    if (!o.phone) return "Phone missing";
+    if (!o.product_id) return "Product not mapped";
+    if (!o.amount || o.amount <= 0) return "Amount invalid";
     return null;
-  }, []);
+  };
 
-  // Validate and map product names to product IDs
-  const validateAndMapProducts = useCallback(async (
-    orders: Array<{ product: string; [key: string]: any }>
-  ): Promise<{
-    validOrders: OrderInput[];
-    invalidOrders: InvalidOrderRow[];
-  }> => {
-    const products = await fetchProducts();
-    const productMap = new Map<string, Product>();
-    products.forEach(p => {
-      productMap.set(p.name.toLowerCase().trim(), p);
-    });
+  /** MAP PRODUCT NAME → ID */
+  const validateAndMapProducts = useCallback(
+    async (rows: any[]) => {
+      const products = await fetchProducts();
+      const productMap = new Map(
+        products.map((p) => [normalize(p.name), p])
+      );
 
-    const validOrders: OrderInput[] = [];
-    const invalidOrders: InvalidOrderRow[] = [];
+      const valid: OrderInput[] = [];
+      const invalid: InvalidOrderRow[] = [];
 
-    orders.forEach((order, index) => {
-      const productName = (order.product || '').trim();
-      if (!productName) {
-        invalidOrders.push({
-          order: order as any,
-          rowIndex: index + 1,
-          reason: 'Product name is empty',
-        });
-        return;
-      }
+      rows.forEach((row, idx) => {
+        const prod = productMap.get(normalize(row.product || ""));
 
-      const product = productMap.get(productName.toLowerCase());
-      if (!product) {
-        invalidOrders.push({
-          order: { ...order, product_name: productName } as any,
-          rowIndex: index + 1,
-          reason: `Product "${productName}" not found in products list`,
-        });
-        return;
-      }
+        if (!prod) {
+          invalid.push({
+            rowIndex: idx + 1,
+            order: row,
+            reason: `Product "${row.product}" not found`,
+          });
+        } else {
+          valid.push({
+            order_id: row.order_id,
+            customer_name: row.customer_name,
+            phone: row.phone,
+            address: row.address,
+            product_id: prod.id,
+            product_name: prod.name,
+            amount: parseNumeric(row.amount) ?? 0,
+          });
+        }
+      });
 
-      // Map to OrderInput with product_id
-      const { product: _, ...rest } = order;
-      validOrders.push({
-        ...rest,
-        product_id: product.id,
-        product_name: product.name,
-      } as OrderInput);
-    });
+      return { validOrders: valid, invalidOrders: invalid };
+    },
+    [fetchProducts]
+  );
 
-    return { validOrders, invalidOrders };
-  }, [fetchProducts]);
-
-
-  // Helper function to parse numeric values (handles strings, numbers, null, undefined, and 'N/A')
-  // Returns number or null (never strings like 'N/A')
-  const parseNumeric = useCallback((value: string | number | null | undefined): number | null => {
-    // Handle null/undefined
-    if (value === null || value === undefined) return null;
-    
-    // Handle string values
-    if (typeof value === 'string') {
-      const trimmed = value.trim();
-      // Check for 'N/A' or empty string
-      if (trimmed === '' || trimmed === 'N/A' || trimmed.toLowerCase() === 'na') return null;
-      
-      // Remove commas and convert to number
-      const cleaned = trimmed.replace(/,/g, '');
-      const num = Number(cleaned);
-      return isNaN(num) ? null : num;
-    }
-    
-    // Handle numeric values (including 0, which is valid)
-    if (typeof value === 'number') {
-      return isNaN(value) ? null : value;
-    }
-    
-    return null;
-  }, []);
-
-  // Insert a single order
-  const insertOrder = useCallback(async (orderData: OrderInput): Promise<Order> => {
-    if (!user) {
-      throw new Error('User must be authenticated');
-    }
-
-    // Validate order
-    const validationError = validateOrder(orderData);
-    if (validationError) {
-      throw new Error(validationError);
-    }
-
-    // Verify product exists
-    const { data: product, error: productError } = await supabase
-      .from('products')
-      .select('id, name')
-      .eq('id', orderData.product_id)
-      .eq('user_id', user.id)
-      .single();
-
-    if (productError || !product) {
-      throw new Error('Invalid product selected. Please select a valid product.');
-    }
-
-    // Parse numeric values - ensure amount and risk_score are numbers or null (never strings like 'N/A')
-    const numericAmount = parseNumeric(orderData.amount);
-    const numericRiskScore = parseNumeric('N/A'); // Will return null since 'N/A' is not a valid number
-
-    // Validate amount is not null or zero
-    if (!numericAmount || numericAmount <= 0) {
-      throw new Error('Amount must be greater than 0');
-    }
-
-    // Prepare order for insertion with auto-generated Status and Risk Score
-    const orderToInsert = {
-      user_id: user.id,
-      order_id: orderData.order_id.trim(),
-      customer_name: orderData.customer_name.trim(),
-      phone: orderData.phone.trim(),
-      address: orderData.address?.trim() || null,
-      product_id: orderData.product_id,
-      amount: numericAmount, // Ensure this is a number, not a string
-      status: 'Pending', // Auto-generated
-      risk_score: numericRiskScore, // null instead of 'N/A' for numeric column
-    };
-
-    // Insert into Supabase
-    const { data, error } = await supabase
-      .from('orders')
-      .insert([orderToInsert])
-      .select(`
-        *,
-        products:product_id (
-          id,
-          name,
-          category
-        )
-      `)
-      .single();
-
-    if (error) {
-      console.error('Error inserting order:', error);
-      throw new Error(`Failed to insert order: ${error.message}`);
-    }
-
-    return data as Order;
-  }, [user, validateOrder, parseNumeric]);
-
-  // Parse CSV file (returns orders with product names, not IDs)
-  const parseCSV = useCallback(async (file: File): Promise<Array<{ product: string; [key: string]: any }>> => {
-    return new Promise((resolve, reject) => {
+  /** CSV PARSE */
+  const parseCSV = useCallback((file: File) => {
+    return new Promise<any[]>((resolve, reject) => {
       Papa.parse(file, {
         header: true,
         skipEmptyLines: true,
-        complete: (results) => {
+        complete: (res) => {
           try {
-            const orders = results.data.map((row: any) => {
-              // Map CSV columns to order fields (case-insensitive, flexible mapping)
-              const orderId = row['Order ID'] || row['order_id'] || row['OrderID'] || row['OrderId'] || '';
-              const customerName = row['Customer Name'] || row['customer_name'] || row['Customer'] || row['customer'] || '';
-              const phone = row['Phone'] || row['phone'] || row['Phone Number'] || row['phone_number'] || row['Customer Phone'] || row['customer_phone'] || '';
-              const address = row['Address'] || row['address'] || row['Customer Address'] || row['customer_address'] || null;
-              const product = row['Product'] || row['product'] || row['Product Name'] || row['product_name'] || '';
-              const amount = parseFloat(row['Amount'] || row['amount'] || row['Price'] || row['price'] || '0');
+            const headers = res.meta.fields || [];
+            const map = buildHeaderMapping(headers);
 
-              return {
-                order_id: orderId.toString(),
-                customer_name: customerName,
-                phone: phone.toString(),
-                address: address || null,
-                product: product,
-                amount: isNaN(amount) ? 0 : amount,
-              };
-            });
+            const rows = res.data.map((r: any) => ({
+              order_id: r[map.order_id] || "",
+              customer_name: r[map.customer_name] || "",
+              phone: r[map.phone] || "",
+              address: r[map.address] || "",
+              product: r[map.product] || "",
+              amount: parseNumeric(r[map.amount]) ?? 0,
+            }));
 
-            resolve(orders);
+            resolve(rows);
           } catch (err) {
-            reject(new Error(`Failed to parse CSV: ${err instanceof Error ? err.message : 'Unknown error'}`));
+            reject(err);
           }
         },
-        error: (error) => {
-          reject(new Error(`CSV parsing error: ${error.message}`));
-        },
+        error: reject,
       });
     });
   }, []);
 
-  // Parse XLSX file (returns orders with product names, not IDs)
-  const parseXLSX = useCallback(async (file: File): Promise<Array<{ product: string; [key: string]: any }>> => {
-    return new Promise((resolve, reject) => {
+  /** XLSX PARSE */
+  const parseXLSX = useCallback((file: File) => {
+    return new Promise<any[]>((resolve, reject) => {
       const reader = new FileReader();
-
       reader.onload = (e) => {
         try {
-          const data = new Uint8Array(e.target?.result as ArrayBuffer);
-          const workbook = XLSX.read(data, { type: 'array' });
-          const sheetName = workbook.SheetNames[0];
-          const worksheet = workbook.Sheets[sheetName];
-          const jsonData = XLSX.utils.sheet_to_json(worksheet);
+          const wb = XLSX.read(e.target?.result, { type: "array" });
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          const json = XLSX.utils.sheet_to_json(sheet);
+          const headers = Object.keys(json[0]);
+          const map = buildHeaderMapping(headers);
 
-          const orders = jsonData.map((row: any) => {
-            // Map XLSX columns to order fields (case-insensitive, flexible mapping)
-            const orderId = row['Order ID'] || row['order_id'] || row['OrderID'] || row['OrderId'] || '';
-            const customerName = row['Customer Name'] || row['customer_name'] || row['Customer'] || row['customer'] || '';
-            const phone = row['Phone'] || row['phone'] || row['Phone Number'] || row['phone_number'] || row['Customer Phone'] || row['customer_phone'] || '';
-            const address = row['Address'] || row['address'] || row['Customer Address'] || row['customer_address'] || null;
-            const product = row['Product'] || row['product'] || row['Product Name'] || row['product_name'] || '';
-            const amount = parseFloat(row['Amount'] || row['amount'] || row['Price'] || row['price'] || '0');
+          const rows = json.map((r: any) => ({
+            order_id: r[map.order_id] || "",
+            customer_name: r[map.customer_name] || "",
+            phone: r[map.phone] || "",
+            address: r[map.address] || "",
+            product: r[map.product] || "",
+            amount: parseNumeric(r[map.amount]) ?? 0,
+          }));
 
-            return {
-              order_id: orderId.toString(),
-              customer_name: customerName,
-              phone: phone.toString(),
-              address: address || null,
-              product: product,
-              amount: isNaN(amount) || amount <= 0 ? 0 : amount,
-            };
-          });
-
-          resolve(orders);
+          resolve(rows);
         } catch (err) {
-          reject(new Error(`Failed to parse XLSX: ${err instanceof Error ? err.message : 'Unknown error'}`));
+          reject(err);
         }
       };
-
-      reader.onerror = () => {
-        reject(new Error('Failed to read file'));
-      };
-
       reader.readAsArrayBuffer(file);
     });
   }, []);
 
-  // Parse uploaded file (CSV or XLSX) - returns orders with product names
-  const parseFile = useCallback(async (file: File): Promise<Array<{ product: string; [key: string]: any }>> => {
-    const fileName = file.name.toLowerCase();
-    
-    if (fileName.endsWith('.csv')) {
-      return parseCSV(file);
-    } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
-      return parseXLSX(file);
-    } else {
-      throw new Error('Unsupported file format. Please upload a CSV or XLSX file.');
-    }
-  }, [parseCSV, parseXLSX]);
+  /** UNIVERSAL PARSER */
+  const parseFile = useCallback(
+    async (file: File) => {
+      const name = file.name.toLowerCase();
+      if (name.endsWith(".csv")) return parseCSV(file);
+      if (name.endsWith(".xls") || name.endsWith(".xlsx")) return parseXLSX(file);
+      throw new Error("Unsupported file");
+    },
+    [parseCSV, parseXLSX]
+  );
 
-  // Insert multiple orders
-  const insertOrders = useCallback(async (orders: OrderInput[]): Promise<{ success: number; failed: number; errors: string[] }> => {
-    if (!user) {
-      throw new Error('User must be authenticated');
-    }
+  /** DATABASE INSERT */
+  const insertOrders = useCallback(
+    async (orders: OrderInput[]) => {
+      let success = 0,
+        failed = 0,
+        errors: string[] = [];
 
-    let success = 0;
-    let failed = 0;
-    const errors: string[] = [];
+      for (const order of orders) {
+        try {
+          const validation = validateOrder(order);
+          if (validation) throw new Error(validation);
 
-    for (const order of orders) {
-      try {
-        await insertOrder(order);
-        success++;
-      } catch (err) {
-        failed++;
-        const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-        errors.push(`${order.customer_name}: ${errorMessage}`);
+          const amount = parseNumeric(order.amount);
+          if (!amount) throw new Error("Amount invalid");
+
+          const { error } = await supabase.from("orders").insert({
+            user_id: user?.id,
+            order_id: order.order_id,
+            customer_name: order.customer_name,
+            phone: order.phone,
+            address: order.address,
+            product_id: order.product_id,
+            amount,
+            status: "Pending",
+            risk_score: null,
+          });
+
+          if (error) throw error;
+
+          success++;
+        } catch (err: any) {
+          failed++;
+          errors.push(err.message);
+        }
       }
-    }
 
-    return { success, failed, errors };
-  }, [user, insertOrder]);
+      return { success, failed, errors };
+    },
+    [user]
+  );
 
   return {
-    validateOrder,
-    insertOrder,
-    insertOrders,
     parseFile,
     validateAndMapProducts,
-    fetchProducts,
-    findProductByName,
+    insertOrders,
   };
 };
-

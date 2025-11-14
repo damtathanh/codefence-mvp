@@ -129,8 +129,8 @@ function App() {
                   }
                 >
                   <Route index element={<Navigate to="/admin/dashboard" replace />} />
-                  <Route path="dashboard" element={<DashboardPage />} />
-                  <Route path="history" element={<HistoryPage />} />
+                  <Route path="dashboard" element={<AdminDashboard />} />
+                  <Route path="analytics" element={<AdminDashboard />} />
                   <Route path="message" element={<AdminMessagePage />} />
                   <Route path="settings" element={<SettingsPage />} />
                 </Route>

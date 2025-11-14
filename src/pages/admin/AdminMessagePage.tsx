@@ -3,6 +3,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "../../components/ui/Ca
 import { Input } from "../../components/ui/Input";
 import { Button } from "../../components/ui/Button";
 import { FileUploader } from "../../components/ui/FileUploader";
+import ImageModal from "../../components/ImageModal";
 import { Send, Download, File } from "lucide-react";
 import { useAuth } from "../../features/auth";
 import { formatMessageTimestamp, formatMessageTimestampWithName } from "../../utils/formatTimestamp";
@@ -46,6 +47,7 @@ export const AdminMessagePage: React.FC = () => {
 
   const [broadcastMessage, setBroadcastMessage] = useState("");
   const [broadcastFile, setBroadcastFile] = useState<File | null>(null);
+  const [previewSrc, setPreviewSrc] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
@@ -53,11 +55,12 @@ export const AdminMessagePage: React.FC = () => {
   const inboxDebounceRef = useRef<NodeJS.Timeout | null>(null);
   const shouldAutoScroll = useRef(true);
 
-  const scrollToBottom = (behavior: ScrollBehavior = "auto") => {
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
     const c = messagesContainerRef.current;
     if (c) {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
+      const raf = typeof requestAnimationFrame === "function" ? requestAnimationFrame : ((cb: FrameRequestCallback) => setTimeout(cb, 0));
+      raf(() => {
+        raf(() => {
           try {
             c.scrollTo({ top: c.scrollHeight, behavior });
           } catch {
@@ -66,11 +69,12 @@ export const AdminMessagePage: React.FC = () => {
         });
       });
     } else {
-      requestAnimationFrame(() => {
+      const raf = typeof requestAnimationFrame === "function" ? requestAnimationFrame : ((cb: FrameRequestCallback) => setTimeout(cb, 0));
+      raf(() => {
         messagesEndRef.current?.scrollIntoView({ behavior });
       });
     }
-  };
+  }, []);
   
   // Load admin ids & profiles
   useEffect(() => {
@@ -180,7 +184,6 @@ export const AdminMessagePage: React.FC = () => {
 
       // 5) load user profiles
       const userIdsArray = Array.from(userMap.keys());
-      console.log(">>> userIdsArray:", userIdsArray);
 
       let profiles: any[] = [];
       if (userIdsArray.length > 0) {
@@ -193,7 +196,6 @@ export const AdminMessagePage: React.FC = () => {
           console.error("fetchInbox: error loading profiles", profilesErr);
         }
         profiles = profilesData || [];
-        console.log(">>> profilesData:", profiles);
       }
 
       // build profileMap
@@ -454,17 +456,8 @@ export const AdminMessagePage: React.FC = () => {
   // auto-scroll on messages change
   useLayoutEffect(() => {
     if (!shouldAutoScroll.current) return;
-  
-    const c = messagesContainerRef.current;
-    if (!c) return;
-  
-    // Scroll to bottom AFTER DOM fully painted
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        c.scrollTop = c.scrollHeight;
-      });
-    });
-  }, [messages]);  
+    scrollToBottom("auto");
+  }, [messages, scrollToBottom]);
 
   useEffect(() => {
     return () => {
@@ -482,12 +475,7 @@ export const AdminMessagePage: React.FC = () => {
     const maybeScroll = () => {
       loaded += 1;
       if (loaded === images.length && shouldAutoScroll.current) {
-        const container = messagesContainerRef.current;
-        if (container) {
-          container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
-        } else {
-          messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-        }
+        scrollToBottom("smooth");
       }
     };
 
@@ -509,7 +497,7 @@ export const AdminMessagePage: React.FC = () => {
     return () => {
       cleanups.forEach((cleanup) => cleanup());
     };
-  }, [messages]);
+  }, [messages, scrollToBottom]);
 
   // send admin reply
   const handleSend = async (e?: React.FormEvent) => {
@@ -521,7 +509,12 @@ export const AdminMessagePage: React.FC = () => {
     try {
       let attachmentUrl: string | null = null;
       if (selectedFile) {
-        attachmentUrl = await uploadFile(selectedFile);
+        const receiverProfile = conversations.find((c) => c.id === selectedUser);
+        attachmentUrl = await uploadFile(selectedFile, {
+          id: receiverProfile?.id || selectedUser,
+          company_name: receiverProfile?.company_name || null,
+          full_name: receiverProfile?.full_name || null,
+        });
       }
 
       const { error } = await supabase.from("messages").insert({
@@ -573,7 +566,16 @@ export const AdminMessagePage: React.FC = () => {
     try {
       let attachmentUrl: string | null = null;
       if (broadcastFile) {
-        attachmentUrl = await uploadFile(broadcastFile);
+        const adminProfile =
+          adminProfiles.get(adminUser.id) ?? {
+            id: adminUser.id,
+            company_name: null,
+            full_name:
+              typeof adminUser.user_metadata?.full_name === "string"
+                ? adminUser.user_metadata.full_name
+                : adminUser.email ?? null,
+          };
+        attachmentUrl = await uploadFile(broadcastFile, adminProfile);
       }
 
       const { data: allUsers, error: usersErr } = await supabase.from("users_profile").select("id,email,role");
@@ -643,6 +645,7 @@ export const AdminMessagePage: React.FC = () => {
                       key={c.id}
                       onClick={() => {
                         shouldAutoScroll.current = true;
+                        setPreviewSrc(null);
                         setSelectedUser(c.id);
                         setSelectedDisplayName(c.displayName);
                         setConversations((prev) =>
@@ -719,8 +722,9 @@ export const AdminMessagePage: React.FC = () => {
                               {isImage ? (
                                 <img
                                   src={m.attachment_url}
-                                  alt="att"
-                                  className="chat-image max-w-[200px] max-h-[200px] rounded-lg object-cover"
+                                  alt="attachment"
+                                  className="chat-image max-w-[200px] max-h-[200px] rounded-lg object-cover cursor-pointer"
+                                  onClick={() => setPreviewSrc(m.attachment_url || null)}
                                 />
                               ) : (
                                 <a href={m.attachment_url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-white/90 hover:text-white">
@@ -758,6 +762,13 @@ export const AdminMessagePage: React.FC = () => {
       </div>
 
       {/* Broadcast panel removed - functionality kept in handleBroadcast for future use */}
+      {previewSrc && (
+        <ImageModal
+          src={previewSrc}
+          alt="preview"
+          onClose={() => setPreviewSrc(null)}
+        />
+      )}
     </div>
   );
 };

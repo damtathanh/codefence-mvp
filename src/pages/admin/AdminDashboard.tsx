@@ -1,185 +1,324 @@
 import React from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { BarChart3, Users, Package, TrendingUp, ArrowLeft, LogOut } from 'lucide-react';
-import { useAuth } from '../../features/auth';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { TrendingUp, ShoppingCart, ShieldCheck, DollarSign, BarChart3 } from 'lucide-react';
+import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
+import { Badge } from '../../components/ui/Badge';
+import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+
+const dashboardSummary = [
+  { label: 'Total Orders', value: '12,458', change: '+12.5%', trend: 'up', icon: ShoppingCart, color: 'text-blue-400' },
+  { label: 'Verified Orders', value: '11,234', change: '+8.2%', trend: 'up', icon: ShieldCheck, color: 'text-green-400' },
+  { label: 'Fraud Detected', value: '1,224', change: '-5.3%', trend: 'down', icon: TrendingUp, color: 'text-red-400' },
+  { label: 'Revenue', value: '$2.4M', change: '+15.8%', trend: 'up', icon: DollarSign, color: 'text-purple-400' },
+];
+
+const adminTrendData = [
+  { month: 'Jan', rate: 12.5 },
+  { month: 'Feb', rate: 11.8 },
+  { month: 'Mar', rate: 10.2 },
+  { month: 'Apr', rate: 9.5 },
+  { month: 'May', rate: 8.9 },
+  { month: 'Jun', rate: 9.2 },
+];
+
+const adminVerificationData = [
+  { day: 'Mon', verified: 450, flagged: 45 },
+  { day: 'Tue', verified: 520, flagged: 38 },
+  { day: 'Wed', verified: 480, flagged: 52 },
+  { day: 'Thu', verified: 610, flagged: 42 },
+  { day: 'Fri', verified: 580, flagged: 48 },
+  { day: 'Sat', verified: 420, flagged: 35 },
+  { day: 'Sun', verified: 390, flagged: 32 },
+];
+
+const analyticsTrendData = [
+  { month: 'Jan', fraud: 152, verified: 1240 },
+  { month: 'Feb', fraud: 138, verified: 1350 },
+  { month: 'Mar', fraud: 125, verified: 1420 },
+  { month: 'Apr', fraud: 118, verified: 1580 },
+  { month: 'May', fraud: 108, verified: 1650 },
+  { month: 'Jun', fraud: 112, verified: 1720 },
+];
+
+const analyticsSalesData = [
+  { month: 'Jan', sales: 45000 },
+  { month: 'Feb', sales: 52000 },
+  { month: 'Mar', sales: 48000 },
+  { month: 'Apr', sales: 61000 },
+  { month: 'May', sales: 68000 },
+  { month: 'Jun', sales: 75000 },
+];
+
+const analyticsRegionsData = [
+  { name: 'Ho Chi Minh', value: 35, color: '#8B5CF6' },
+  { name: 'Hanoi', value: 28, color: '#6366F1' },
+  { name: 'Da Nang', value: 15, color: '#8B5CF6' },
+  { name: 'Can Tho', value: 12, color: '#6366F1' },
+  { name: 'Others', value: 10, color: '#8B5CF6' },
+];
+
+const analyticsKeyMetrics = [
+  { label: 'Verification Rate', value: '94.2%', variant: 'success' as const, progress: 94.2 },
+  { label: 'Average Risk Score', value: '42.5', variant: 'info' as const, progress: 42.5 },
+  { label: 'Flagged Orders', value: '11.7%', variant: 'warning' as const, progress: 11.7 },
+  { label: 'Success Rate', value: '96.8%', variant: 'success' as const, progress: 96.8 },
+];
 
 export const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
-  const { logout } = useAuth();
+  const location = useLocation();
+  const activeTab = location.pathname.includes('/admin/analytics') ? 'analytics' : 'dashboard';
+  const isAnalytics = activeTab === 'analytics';
+  const headerTitle = isAnalytics ? 'Admin Analytics' : 'Admin Dashboard';
+  const headerSubtitle = isAnalytics
+    ? 'Detailed insights and performance metrics'
+    : 'System analytics and administration';
 
-  const handleLogout = async () => {
-    try {
-      await logout();
-      navigate('/');
-    } catch (error) {
-      console.error('Error logging out:', error);
-      // Still redirect even if logout fails
-      navigate('/');
+  const handleTabChange = (tab: 'dashboard' | 'analytics') => {
+    const target = tab === 'analytics' ? '/admin/analytics' : '/admin/dashboard';
+    if (location.pathname !== target) {
+      navigate(target);
     }
   };
 
+  const renderDashboardContent = () => (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {dashboardSummary.map((item, index) => {
+          const Icon = item.icon;
+          return (
+            <Card key={index}>
+              <CardContent className="p-6 lg:p-8">
+                <div className="flex items-center justify-between mb-5">
+                  <div className={`p-3 rounded-lg bg-white/5 ${item.color}`}>
+                    <Icon size={24} />
+                  </div>
+                  <span
+                    className={`text-sm font-medium ${
+                      item.trend === 'up' ? 'text-green-400' : 'text-red-400'
+                    }`}
+                  >
+                    {item.change}
+                  </span>
+                </div>
+                <h3 className="text-2xl font-bold text-[#E5E7EB] mb-2">{item.value}</h3>
+                <p className="text-sm text-[#E5E7EB]/70">{item.label}</p>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Fraud Rate Trend</CardTitle>
+            <p className="text-sm text-[#E5E7EB]/70 mt-2">Monthly fraud detection rate</p>
+          </CardHeader>
+          <CardContent className="pt-6">
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={adminTrendData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
+                <XAxis dataKey="month" stroke="#E5E7EB" />
+                <YAxis stroke="#E5E7EB" />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: '#12163A',
+                    border: '1px solid #1E223D',
+                    borderRadius: '8px',
+                    color: '#E5E7EB',
+                  }}
+                />
+                <Legend />
+                <Line
+                  type="monotone"
+                  dataKey="rate"
+                  stroke="#8B5CF6"
+                  strokeWidth={2}
+                  name="Fraud Rate (%)"
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Verification Activity</CardTitle>
+            <p className="text-sm text-[#E5E7EB]/70 mt-2">Daily verification statistics</p>
+          </CardHeader>
+          <CardContent className="pt-6">
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={adminVerificationData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
+                <XAxis dataKey="day" stroke="#E5E7EB" />
+                <YAxis stroke="#E5E7EB" />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: '#12163A',
+                    border: '1px solid #1E223D',
+                    borderRadius: '8px',
+                    color: '#E5E7EB',
+                  }}
+                />
+                <Legend />
+                <Bar dataKey="verified" fill="#6366F1" name="Verified" />
+                <Bar dataKey="flagged" fill="#EF4444" name="Flagged" />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+
+  const renderAnalyticsContent = () => (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Fraud Rate Trends</CardTitle>
+            <p className="text-sm text-[#E5E7EB]/70 mt-1">Monthly fraud vs verified orders</p>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={analyticsTrendData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
+                <XAxis dataKey="month" stroke="#E5E7EB" />
+                <YAxis stroke="#E5E7EB" />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: '#12163A',
+                    border: '1px solid #1E223D',
+                    borderRadius: '8px',
+                    color: '#E5E7EB',
+                  }}
+                />
+                <Legend />
+                <Line type="monotone" dataKey="fraud" stroke="#EF4444" strokeWidth={2} name="Fraud Cases" />
+                <Line type="monotone" dataKey="verified" stroke="#10B981" strokeWidth={2} name="Verified Orders" />
+              </LineChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Sales Growth</CardTitle>
+            <p className="text-sm text-[#E5E7EB]/70 mt-1">Monthly revenue trends</p>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={analyticsSalesData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
+                <XAxis dataKey="month" stroke="#E5E7EB" />
+                <YAxis stroke="#E5E7EB" />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: '#12163A',
+                    border: '1px solid #1E223D',
+                    borderRadius: '8px',
+                    color: '#E5E7EB',
+                  }}
+                />
+                <Legend />
+                <Bar dataKey="sales" fill="#6366F1" name="Sales ($)" />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle>Top Regions</CardTitle>
+            <p className="text-sm text-[#E5E7EB]/70 mt-1">Order distribution by region</p>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={300}>
+              <PieChart>
+                <Pie
+                  data={analyticsRegionsData}
+                  cx="50%"
+                  cy="50%"
+                  labelLine={false}
+                  label={({ name, percent }) => {
+                    const percentage = typeof percent === 'number' ? (percent * 100).toFixed(0) : '0';
+                    return `${name} ${percentage}%`;
+                  }}
+                  outerRadius={100}
+                  fill="#8884d8"
+                  dataKey="value"
+                >
+                  {analyticsRegionsData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: '#12163A',
+                    border: '1px solid #1E223D',
+                    borderRadius: '8px',
+                    color: '#E5E7EB',
+                  }}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle>Key Metrics</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {analyticsKeyMetrics.map((metric) => (
+              <div key={metric.label} className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[#E5E7EB]/70">{metric.label}</span>
+                  <Badge variant={metric.variant}>{metric.value}</Badge>
+                </div>
+                <div className="w-full bg-white/10 rounded-full h-2 overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-[#6366F1] via-[#7C3AED] to-[#8B5CF6] rounded-full"
+                    style={{ width: `${metric.progress}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+
   return (
-    <div 
-      className="min-h-screen relative"
-      style={{
-        background: 'linear-gradient(to bottom right, #0B0F28 0%, #232a6b 20%, #3184b1 70%, #4B3087 100%)',
-      }}
-    >
-      {/* Fixed Top Navigation Bar */}
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-white/5 backdrop-blur-md border-b border-white/10 shadow-lg">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            {/* Left: CodFence Logo */}
-            <Link
-              to="/"
-              className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition"
-            >
-              <img
-                src="/assets/logo.png"
-                alt="CodFence"
-                className="h-7 w-auto object-contain transition-transform duration-200 hover:scale-105"
-              />
-              <span className="text-xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-cyan-400 text-transparent bg-clip-text hidden sm:block">
-                CodFence
-              </span>
-            </Link>
-
-            {/* Center: Admin Dashboard Title */}
-            <h1 className="text-xl font-bold text-white hidden md:block">Admin Dashboard</h1>
-
-            {/* Right: Back to Home + Logout */}
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => navigate('/')}
-                className="flex items-center gap-2 px-4 py-2 bg-[#8B5CF6]/20 border border-[#8B5CF6]/30 rounded-lg text-white hover:bg-[#8B5CF6]/30 transition whitespace-nowrap"
-              >
-                <ArrowLeft size={18} />
-                <span className="text-sm font-medium hidden md:inline">Quay về Trang chủ</span>
-                <span className="text-sm font-medium md:hidden">Home</span>
-              </button>
-              <button
-                onClick={handleLogout}
-                className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white font-medium px-4 py-2 rounded-lg transition-all duration-200"
-              >
-                <LogOut className="w-4 h-4" />
-                <span className="hidden sm:inline">Logout</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </nav>
-
-      {/* Main Content */}
-      <div className="pt-24 pb-8 px-6 lg:px-8">
-        <div className="max-w-7xl mx-auto space-y-8">
-          {/* Header Section */}
-          <div className="mb-8">
-            <h1 className="text-4xl font-bold text-white mb-3">Admin Dashboard</h1>
-            <p className="text-white/80 text-lg">System analytics and administration</p>
-          </div>
-
-          {/* Stats Grid - 2x2 on mobile, 4x1 on desktop */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
-            {/* Total Users Card */}
-            <div className="bg-white/20 backdrop-blur-sm rounded-xl p-6 border border-white/30 shadow-lg hover:shadow-xl hover:bg-white/25 transition-all duration-300 hover:scale-105 cursor-pointer">
-              <div className="flex items-center justify-between mb-4">
-                <div className="p-3 rounded-lg bg-blue-500/30 backdrop-blur-sm">
-                  <Users className="w-6 h-6 text-blue-300" />
-                </div>
-              </div>
-              <div>
-                <p className="text-white/70 text-sm mb-1">Total Users</p>
-                <p className="text-3xl font-bold text-white">1,234</p>
-              </div>
-            </div>
-
-            {/* Total Orders Card */}
-            <div className="bg-white/20 backdrop-blur-sm rounded-xl p-6 border border-white/30 shadow-lg hover:shadow-xl hover:bg-white/25 transition-all duration-300 hover:scale-105 cursor-pointer">
-              <div className="flex items-center justify-between mb-4">
-                <div className="p-3 rounded-lg bg-green-500/30 backdrop-blur-sm">
-                  <Package className="w-6 h-6 text-green-300" />
-                </div>
-              </div>
-              <div>
-                <p className="text-white/70 text-sm mb-1">Total Orders</p>
-                <p className="text-3xl font-bold text-white">5,678</p>
-              </div>
-            </div>
-
-            {/* Revenue Card */}
-            <div className="bg-white/20 backdrop-blur-sm rounded-xl p-6 border border-white/30 shadow-lg hover:shadow-xl hover:bg-white/25 transition-all duration-300 hover:scale-105 cursor-pointer">
-              <div className="flex items-center justify-between mb-4">
-                <div className="p-3 rounded-lg bg-purple-500/30 backdrop-blur-sm">
-                  <TrendingUp className="w-6 h-6 text-purple-300" />
-                </div>
-              </div>
-              <div>
-                <p className="text-white/70 text-sm mb-1">Revenue</p>
-                <p className="text-3xl font-bold text-white">$123.4K</p>
-              </div>
-            </div>
-
-            {/* Analytics Card */}
-            <div className="bg-white/20 backdrop-blur-sm rounded-xl p-6 border border-white/30 shadow-lg hover:shadow-xl hover:bg-white/25 transition-all duration-300 hover:scale-105 cursor-pointer">
-              <div className="flex items-center justify-between mb-4">
-                <div className="p-3 rounded-lg bg-yellow-500/30 backdrop-blur-sm">
-                  <BarChart3 className="w-6 h-6 text-yellow-300" />
-                </div>
-              </div>
-              <div>
-                <p className="text-white/70 text-sm mb-1">Analytics</p>
-                <p className="text-3xl font-bold text-white">98.5%</p>
-              </div>
-            </div>
-          </div>
-
-          {/* System Analytics Section */}
-          <div className="bg-white/20 backdrop-blur-sm rounded-xl p-6 lg:p-8 border border-white/30 shadow-lg">
-            <div className="mb-6">
-              <h2 className="text-2xl font-bold text-white mb-2 flex items-center gap-3">
-                <BarChart3 className="w-6 h-6 text-blue-300" />
-                System Analytics
-              </h2>
-            </div>
-            
-            <div className="space-y-4">
-              <p className="text-white/80 text-base mb-4">
-                This section will display comprehensive system-wide analytics including:
-              </p>
-              
-              <ul className="space-y-3 text-white/70">
-                <li className="flex items-start gap-3">
-                  <span className="text-blue-300 mt-1">•</span>
-                  <span>User activity and engagement metrics</span>
-                </li>
-                <li className="flex items-start gap-3">
-                  <span className="text-blue-300 mt-1">•</span>
-                  <span>Platform-wide order statistics</span>
-                </li>
-                <li className="flex items-start gap-3">
-                  <span className="text-blue-300 mt-1">•</span>
-                  <span>Revenue and financial analytics</span>
-                </li>
-                <li className="flex items-start gap-3">
-                  <span className="text-blue-300 mt-1">•</span>
-                  <span>System performance and health monitoring</span>
-                </li>
-                <li className="flex items-start gap-3">
-                  <span className="text-blue-300 mt-1">•</span>
-                  <span>Risk assessment trends across all merchants</span>
-                </li>
-              </ul>
-            </div>
-
-            {/* Footer Note */}
-            <div className="mt-8 pt-6 border-t border-white/20">
-              <p className="text-white/50 text-sm italic text-center">
-                Admin analytics dashboard - Coming soon with detailed charts and insights
-              </p>
-            </div>
-          </div>
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="inline-flex items-center rounded-full bg-white/5 p-1 border border-white/10">
+          <button
+            onClick={() => handleTabChange('dashboard')}
+            className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 ${
+              activeTab === 'dashboard'
+                ? 'bg-white text-[#0B0F28] shadow-lg'
+                : 'text-white/80 hover:text-white'
+            }`}
+          >
+            Dashboard
+          </button>
+          <button
+            onClick={() => handleTabChange('analytics')}
+            className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 ${
+              activeTab === 'analytics'
+                ? 'bg-white text-[#0B0F28] shadow-lg'
+                : 'text-white/80 hover:text-white'
+            }`}
+          >
+            Analytics
+          </button>
         </div>
       </div>
+
+      {isAnalytics ? renderAnalyticsContent() : renderDashboardContent()}
     </div>
   );
 };

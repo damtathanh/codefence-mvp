@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Outlet, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../../features/auth';
 import { useUserProfile } from '../../hooks/useUserProfile';
@@ -7,6 +7,8 @@ import { supabase } from '../../lib/supabaseClient';
 import { useRole } from '../../hooks/useRole';
 import { isAdminByEmail } from '../../utils/isAdmin';
 import type { Notification as SupabaseNotification } from '../../types/supabase';
+import { AddOrderModal } from './AddOrderModal';
+import type { Order } from '../../types/supabase';
 import {
   LayoutDashboard,
   BarChart3,
@@ -33,6 +35,10 @@ interface SidebarItem {
   label: string;
   path: string;
   id: string;
+}
+
+export interface DashboardOutletContext {
+  openAddOrderModal: (options?: { order?: Order | null; onSuccess?: () => void }) => void;
 }
 
 const sidebarItems: SidebarItem[] = [
@@ -70,23 +76,50 @@ export const DashboardLayout: React.FC = () => {
   const [isHovered, setIsHovered] = useState(false);
   const [isDesktop, setIsDesktop] = useState(window.innerWidth >= 1024);
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
+  const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
+  const [orderModalEditingOrder, setOrderModalEditingOrder] = useState<Order | null>(null);
+  const orderModalSuccessRef = useRef<(() => void) | null>(null);
+
+  const openAddOrderModal = useCallback((options?: { order?: Order | null; onSuccess?: () => void }) => {
+    setOrderModalEditingOrder(options?.order ?? null);
+    orderModalSuccessRef.current = options?.onSuccess ?? null;
+    setIsOrderModalOpen(true);
+  }, []);
+
+  const closeAddOrderModal = useCallback(() => {
+    setIsOrderModalOpen(false);
+    setOrderModalEditingOrder(null);
+    orderModalSuccessRef.current = null;
+  }, []);
+
+  const handleOrderModalSuccess = useCallback(() => {
+    orderModalSuccessRef.current?.();
+    closeAddOrderModal();
+  }, [closeAddOrderModal]);
+
+  const outletContext = useMemo<DashboardOutletContext>(
+    () => ({
+      openAddOrderModal,
+    }),
+    [openAddOrderModal]
+  );
   
   // Filter sidebar items based on role
-  const filteredSidebarItems = React.useMemo(() => {
+  const filteredSidebarItems = useMemo(() => {
     if (isAdmin || role === 'admin') {
       // Admin sees: Dashboard (admin), History, Message, Settings
       return sidebarItems.filter(item => 
         item.id === 'dashboard' || 
-        item.id === 'history' || 
+        item.id === 'analytics' ||
         item.id === 'message' ||
         item.id === 'settings'
       ).map(item => {
         // Update paths for admin routes
         if (item.id === 'dashboard') {
-          return { ...item, path: '/admin/dashboard', label: 'Dashboard (admin)' };
+          return { ...item, path: '/admin/dashboard', label: 'Dashboard' };
         }
-        if (item.id === 'history') {
-          return { ...item, path: '/admin/history' };
+        if (item.id === 'analytics') {
+          return { ...item, path: '/admin/analytics', label: 'Analytics' };
         }
         if (item.id === 'message') {
           return { ...item, path: '/admin/message' };
@@ -313,6 +346,10 @@ export const DashboardLayout: React.FC = () => {
         title: 'Analytics',
         subtitle: 'Detailed insights and performance metrics'
       },
+      '/admin/analytics': {
+        title: 'Analytics',
+        subtitle: 'Detailed insights and performance metrics'
+      },
       '/dashboard/settings': {
         title: 'Settings',
         subtitle: 'Manage your account settings'
@@ -334,10 +371,6 @@ export const DashboardLayout: React.FC = () => {
         subtitle: 'View and download billing and payment details'
       },
       '/dashboard/history': {
-        title: 'History',
-        subtitle: 'Verification logs and activity history'
-      },
-      '/admin/history': {
         title: 'History',
         subtitle: 'Verification logs and activity history'
       },
@@ -643,10 +676,21 @@ export const DashboardLayout: React.FC = () => {
         </header>
 
         {/* Page Content */}
-        <main ref={mainContentRef} className="flex-1 overflow-y-auto bg-[#0B0F28] p-6 lg:p-8 max-w-full">
-        <Outlet />
+        <main ref={mainContentRef} className="flex-1 overflow-y-auto bg-[#0B0F28]">
+          <div className="min-h-full bg-gradient-to-br from-[#0B0F28] via-[#12163A] to-[#181C3B]">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+              <Outlet context={outletContext} />
+            </div>
+          </div>
         </main>
       </div>
+
+      <AddOrderModal
+        isOpen={isOrderModalOpen}
+        onClose={closeAddOrderModal}
+        onSuccess={handleOrderModalSuccess}
+        editingOrder={orderModalEditingOrder ?? undefined}
+      />
 
       {/* All Notifications Modal */}
       {showAllNotifications && (

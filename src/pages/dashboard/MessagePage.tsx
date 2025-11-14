@@ -1,15 +1,16 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "../../components/ui/Card";
 import { Input } from "../../components/ui/Input";
 import { Button } from "../../components/ui/Button";
 import { FileUploader } from "../../components/ui/FileUploader";
+import ImageModal from "../../components/ImageModal";
 import { Send, Bot, Download, File as FileIcon } from "lucide-react";
 import { useAuth } from "../../features/auth";
 import { formatMessageTimestamp } from "../../utils/formatTimestamp";
 import { uploadFile } from "../../utils/uploadFile";
 import { supabase } from "../../lib/supabaseClient";
 import { useToast } from "../../components/ui/Toast";
-import type { Message } from "../../types/supabase";
+import type { Message, UserProfile } from "../../types/supabase";
 
 const SYSTEM_BOT_ID = "75ece53b-1a93-451d-87ee-5e19427eb741";
 const SYSTEM_REPLY_TEXT = "Thanks for reaching out! Our support team will reply soon.";
@@ -17,7 +18,7 @@ const SYSTEM_COOLDOWN_MINUTES = 15;
 
 export const MessagePage: React.FC = () => {
   const { user } = useAuth();
-  const { showSuccess, showError } = useToast();
+  const { showError } = useToast();
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -26,6 +27,110 @@ export const MessagePage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+  const shouldAutoScroll = useRef(true);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [previewSrc, setPreviewSrc] = useState<string | null>(null);
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
+    const raf =
+      typeof requestAnimationFrame === "function"
+        ? requestAnimationFrame
+        : (cb: FrameRequestCallback) => setTimeout(cb, 0);
+
+    const container = messagesContainerRef.current;
+    if (container) {
+      raf(() => {
+        raf(() => {
+          try {
+            container.scrollTo({ top: container.scrollHeight, behavior });
+          } catch {
+            container.scrollTop = container.scrollHeight;
+          }
+        });
+      });
+    } else {
+      raf(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior });
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!user) {
+      setUserProfile(null);
+      return;
+    }
+    let isMounted = true;
+    const loadProfile = async () => {
+      try {
+        const { data, error } = await supabase
+          .from("users_profile")
+          .select("id, company_name, full_name")
+          .eq("id", user.id)
+          .maybeSingle();
+
+        if (!isMounted) return;
+
+        if (error) {
+          console.error("load user profile error", error);
+          setUserProfile({
+            id: user.id,
+            company_name: null,
+            full_name: null,
+            email: user.email ?? "",
+            role: "user",
+            phone: null,
+            avatar_url: null,
+            created_at: new Date().toISOString(),
+          } as UserProfile);
+          return;
+        }
+
+        if (data) {
+          setUserProfile({
+            id: data.id,
+            company_name: data.company_name ?? null,
+            full_name: data.full_name ?? null,
+            email: user.email ?? "",
+            role: "user",
+            phone: null,
+            avatar_url: null,
+            created_at: new Date().toISOString(),
+          } as UserProfile);
+        } else {
+          setUserProfile({
+            id: user.id,
+            company_name: null,
+            full_name: null,
+            email: user.email ?? "",
+            role: "user",
+            phone: null,
+            avatar_url: null,
+            created_at: new Date().toISOString(),
+          } as UserProfile);
+        }
+      } catch (err) {
+        console.error("load user profile error", err);
+        if (!isMounted) return;
+        setUserProfile({
+          id: user.id,
+          company_name: null,
+          full_name: null,
+          email: user.email ?? "",
+          role: "user",
+          phone: null,
+          avatar_url: null,
+          created_at: new Date().toISOString(),
+        } as UserProfile);
+      }
+    };
+
+    loadProfile();
+    return () => {
+      isMounted = false;
+    };
+  }, [user]);
 
   // fetch messages for user
   const fetchMessages = useCallback(async () => {
@@ -40,6 +145,8 @@ export const MessagePage: React.FC = () => {
 
       if (error) throw error;
       setMessages(data || []);
+      shouldAutoScroll.current = true;
+      scrollToBottom("auto");
 
       // mark admin->user messages as read (including system-bot messages)
       await supabase
@@ -111,9 +218,43 @@ export const MessagePage: React.FC = () => {
     };
   }, [fetchMessages]);
 
+  useLayoutEffect(() => {
+    if (!shouldAutoScroll.current) return;
+    scrollToBottom("auto");
+  }, [messages, scrollToBottom]);
+
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const images = container.querySelectorAll<HTMLImageElement>(".chat-image");
+    if (images.length === 0) return;
+
+    let loaded = 0;
+    const maybeScroll = () => {
+      loaded += 1;
+      if (loaded === images.length && shouldAutoScroll.current) {
+        scrollToBottom("smooth");
+      }
+    };
+
+    const cleanups: Array<() => void> = [];
+    images.forEach((img) => {
+      if (img.complete) {
+        maybeScroll();
+      } else {
+        const handleLoad = () => {
+          maybeScroll();
+          img.removeEventListener("load", handleLoad);
+        };
+        img.addEventListener("load", handleLoad);
+        cleanups.push(() => img.removeEventListener("load", handleLoad));
+      }
+    });
+
+    return () => {
+      cleanups.forEach((cleanup) => cleanup());
+    };
+  }, [messages, scrollToBottom]);
 
   // helper: check admin replies since timestamp
   const hasAdminReplySince = async (sinceIso: string) => {
@@ -202,7 +343,16 @@ export const MessagePage: React.FC = () => {
     try {
       let attachmentUrl: string | null = null;
       if (selectedFile) {
-        attachmentUrl = await uploadFile(selectedFile);
+        const profileForUpload =
+          userProfile ?? {
+            id: user.id,
+            company_name: null,
+            full_name:
+              typeof user.user_metadata?.full_name === "string"
+                ? user.user_metadata.full_name
+                : user.email ?? null,
+          };
+        attachmentUrl = await uploadFile(selectedFile, profileForUpload);
       }
 
       const nowIso = new Date().toISOString();
@@ -221,20 +371,25 @@ export const MessagePage: React.FC = () => {
       if (error) throw error;
 
       // optimistic append
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `temp-${Date.now()}`,
-          sender_id: user.id,
-          receiver_id: null,
-          message: newMessage.trim() || null,
-          attachment_url: attachmentUrl,
-          read: false,
-          system_message: false,
-          broadcast: false,
-          created_at: nowIso,
-        } as unknown as Message,
-      ]);
+      setMessages((prev) => {
+        const next = [
+          ...prev,
+          {
+            id: `temp-${Date.now()}`,
+            sender_id: user.id,
+            receiver_id: null,
+            message: newMessage.trim() || null,
+            attachment_url: attachmentUrl,
+            read: false,
+            system_message: false,
+            broadcast: false,
+            created_at: nowIso,
+          } as unknown as Message,
+        ];
+        return next;
+      });
+      shouldAutoScroll.current = true;
+      scrollToBottom("smooth");
 
       // After sending: maybe insert system reply (immediate, but subject to cooldown and if admin hasn't replied)
       await maybeInsertSystemReply(nowIso);
@@ -274,7 +429,15 @@ export const MessagePage: React.FC = () => {
             <CardTitle className="flex items-center gap-2 text-base"><Bot size={18} />Chat with CodFence Support Team</CardTitle>
           </CardHeader>
           <CardContent className="flex-1 flex flex-col !p-0 min-h-0">
-            <div className="flex-1 overflow-y-auto p-4 lg:p-5 space-y-3 bg-[#0B0F28]">
+            <div
+              className="flex-1 overflow-y-auto p-4 lg:p-5 space-y-3 bg-[#0B0F28]"
+              ref={messagesContainerRef}
+              onScroll={(e) => {
+                const el = e.currentTarget;
+                shouldAutoScroll.current =
+                  el.scrollTop + el.clientHeight >= el.scrollHeight - 20;
+              }}
+            >
               {messages.length === 0 ? (
                 <div className="text-center text-[#E5E7EB]/70 py-8">No messages yet. Start a conversation!</div>
               ) : (
@@ -289,7 +452,12 @@ export const MessagePage: React.FC = () => {
                         {m.attachment_url && (
                           <div className="mb-2">
                             {isImage ? (
-                              <img src={m.attachment_url} alt="att" className="max-w-[200px] max-h-[200px] rounded-lg object-cover" />
+                              <img
+                                src={m.attachment_url}
+                                alt="attachment"
+                                className="chat-image max-w-[200px] max-h-[200px] rounded-lg object-cover cursor-pointer"
+                                onClick={() => setPreviewSrc(m.attachment_url || null)}
+                              />
                             ) : (
                               <a href={m.attachment_url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-white/90 hover:text-white">
                                 <FileIcon size={16} /><span className="text-sm truncate">{m.attachment_url.split("/").pop()}</span><Download size={14} />
@@ -317,6 +485,13 @@ export const MessagePage: React.FC = () => {
           </CardContent>
         </Card>
       </div>
+      {previewSrc && (
+        <ImageModal
+          src={previewSrc}
+          alt="preview"
+          onClose={() => setPreviewSrc(null)}
+        />
+      )}
     </div>
   );
 };
