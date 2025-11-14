@@ -680,13 +680,13 @@ export const DashboardLayout: React.FC = () => {
 
         {/* Page Content */}
         <main ref={mainContentRef} className="flex-1 flex flex-col overflow-hidden bg-[#0B0F28]">
-          <div className="flex-1 flex flex-col bg-gradient-to-br from-[#0B0F28] via-[#12163A] to-[#181C3B]">
+          <div className="flex-1 flex flex-col w-full min-w-0 bg-gradient-to-br from-[#0B0F28] via-[#12163A] to-[#181C3B]">
             {isMessagePage ? (
-              <div className="flex-1 flex w-full max-w-screen-xl mx-auto px-4 py-4 md:py-6">
+              <div className="flex-1 flex w-full min-w-0">
                 <Outlet context={outletContext} />
               </div>
             ) : (
-              <div className="flex-1 w-full max-w-screen-xl mx-auto px-4 py-6">
+              <div className="flex-1 w-full max-w-screen-xl mx-auto px-6 py-6">
                 <Outlet context={outletContext} />
               </div>
             )}

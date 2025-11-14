@@ -422,9 +422,9 @@ export const MessagePage: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col h-full w-full">
-      <div className="flex-1 flex justify-center w-full min-h-0">
-          <Card className="flex flex-col h-full w-full overflow-hidden rounded-2xl shadow-2xl border-2 border-[#1E223D]/50">
+    <div className="flex flex-col h-full w-full min-w-0">
+      <div className="flex-1 flex w-full min-h-0 min-w-0">
+        <Card className="flex flex-col h-full w-full overflow-hidden rounded-2xl shadow-2xl border-2 border-[#1E223D]/50">
           <CardHeader className="!pt-2 !pb-2 !px-4 lg:!px-6 border-b border-[#1E223D]/30">
             <CardTitle className="flex items-center gap-2 text-base"><Bot size={18} />Chat with CodFence Support Team</CardTitle>
           </CardHeader>
@@ -483,7 +483,7 @@ export const MessagePage: React.FC = () => {
               </form>
             </div>
           </CardContent>
-          </Card>
+        </Card>
       </div>
       {previewSrc && (
         <ImageModal

@@ -622,7 +622,7 @@ export const AdminMessagePage: React.FC = () => {
   };
 
   return (
-    <div className="flex h-full gap-4">
+    <div className="flex h-full w-full min-w-0">
       {/* Left: Inbox */}
       <div className="w-80 flex-shrink-0 border-r border-[#1E223D]">
         <Card className="h-full rounded-none border-0">
