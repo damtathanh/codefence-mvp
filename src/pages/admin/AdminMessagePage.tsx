@@ -180,6 +180,8 @@ export const AdminMessagePage: React.FC = () => {
 
       // 5) load user profiles
       const userIdsArray = Array.from(userMap.keys());
+      console.log(">>> userIdsArray:", userIdsArray);
+
       let profiles: any[] = [];
       if (userIdsArray.length > 0) {
         const { data: profilesData, error: profilesErr } = await supabase
@@ -191,6 +193,7 @@ export const AdminMessagePage: React.FC = () => {
           console.error("fetchInbox: error loading profiles", profilesErr);
         }
         profiles = profilesData || [];
+        console.log(">>> profilesData:", profiles);
       }
 
       // build profileMap
