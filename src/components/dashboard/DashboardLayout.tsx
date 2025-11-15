@@ -8,7 +8,9 @@ import { useRole } from '../../hooks/useRole';
 import { isAdminByEmail } from '../../utils/isAdmin';
 import type { Notification as SupabaseNotification } from '../../types/supabase';
 import { AddOrderModal } from './AddOrderModal';
-import type { Order } from '../../types/supabase';
+import { AddProductModal } from './AddProductModal';
+import { BulkCreateProductsModal } from './BulkCreateProductsModal';
+import type { Order, Product } from '../../types/supabase';
 import {
   LayoutDashboard,
   BarChart3,
@@ -39,6 +41,8 @@ interface SidebarItem {
 
 export interface DashboardOutletContext {
   openAddOrderModal: (options?: { order?: Order | null; onSuccess?: () => void }) => void;
+  openAddProductModal: (options?: { initialName?: string; onSuccess?: () => void | Promise<void> }) => void;
+  refetchProducts: () => Promise<void>;
 }
 
 const sidebarItems: SidebarItem[] = [
@@ -84,6 +88,21 @@ export const DashboardLayout: React.FC = () => {
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
   const [orderModalEditingOrder, setOrderModalEditingOrder] = useState<Order | null>(null);
   const orderModalSuccessRef = useRef<(() => void) | null>(null);
+  
+  // Product modal state
+  const [isProductModalOpen, setIsProductModalOpen] = useState(false);
+  const [productModalInitialName, setProductModalInitialName] = useState<string>('');
+  const productModalSuccessRef = useRef<(() => void | Promise<void>) | null>(null);
+  const {
+    fetchAll: refetchProducts,
+  } = useSupabaseTable<Product>({ tableName: 'products', enableRealtime: false });
+
+  // Bulk create products modal state
+  const [isBulkCreateProductsModalOpen, setIsBulkCreateProductsModalOpen] = useState(false);
+  const [bulkCreateProductsModalMissingProducts, setBulkCreateProductsModalMissingProducts] = useState<string[]>([]);
+  const [bulkCreateProductsModalPendingUploadState, setBulkCreateProductsModalPendingUpload] = useState<any>(null);
+  const bulkCreateProductsModalSuccessRef = useRef<((pendingUpload?: any) => void | Promise<void>) | null>(null);
+  const bulkCreateProductsModalPendingUpload = useRef<any>(null);
 
   const openAddOrderModal = useCallback((options?: { order?: Order | null; onSuccess?: () => void }) => {
     setOrderModalEditingOrder(options?.order ?? null);
@@ -102,11 +121,72 @@ export const DashboardLayout: React.FC = () => {
     closeAddOrderModal();
   }, [closeAddOrderModal]);
 
+  const openAddProductModal = useCallback((options?: { initialName?: string; onSuccess?: () => void | Promise<void> }) => {
+    setProductModalInitialName(options?.initialName ?? '');
+    productModalSuccessRef.current = options?.onSuccess ?? null;
+    setIsProductModalOpen(true);
+  }, []);
+
+  const closeAddProductModal = useCallback(() => {
+    setIsProductModalOpen(false);
+    setProductModalInitialName('');
+    productModalSuccessRef.current = null;
+  }, []);
+
+  const handleProductModalSuccess = useCallback(async () => {
+    if (productModalSuccessRef.current) {
+      await productModalSuccessRef.current();
+    }
+    closeAddProductModal();
+  }, [closeAddProductModal]);
+
+  const openBulkCreateProductsModal = useCallback((options: { missingProducts: string[]; pendingUpload: any }) => {
+    setBulkCreateProductsModalMissingProducts(options.missingProducts || []);
+    setBulkCreateProductsModalPendingUpload(options.pendingUpload || null);
+    bulkCreateProductsModalPendingUpload.current = options.pendingUpload || null;
+    setIsBulkCreateProductsModalOpen(true);
+  }, []);
+
+  const closeBulkCreateProductsModal = useCallback(() => {
+    setIsBulkCreateProductsModalOpen(false);
+    setBulkCreateProductsModalMissingProducts([]);
+    setBulkCreateProductsModalPendingUpload(null);
+    bulkCreateProductsModalPendingUpload.current = null;
+    bulkCreateProductsModalSuccessRef.current = null;
+  }, []);
+
+  const handleBulkCreateProductsModalSuccess = useCallback(async (pendingUpload?: any) => {
+    // Close bulk modal first
+    closeBulkCreateProductsModal();
+    
+    // Store pendingUpload in ref so AddOrderModal can access it
+    if (pendingUpload) {
+      bulkCreateProductsModalPendingUpload.current = pendingUpload;
+      
+      // Small delay to ensure modal closes, then re-open AddOrderModal
+      setTimeout(() => {
+        openAddOrderModal({
+          onSuccess: async () => {
+            // Import will be continued automatically by AddOrderModal
+          },
+        });
+      }, 150);
+    }
+    
+    if (bulkCreateProductsModalSuccessRef.current) {
+      await bulkCreateProductsModalSuccessRef.current(pendingUpload);
+    }
+  }, [closeBulkCreateProductsModal, openAddOrderModal]);
+
   const outletContext = useMemo<DashboardOutletContext>(
     () => ({
       openAddOrderModal,
+      openAddProductModal,
+      refetchProducts: async () => {
+        await refetchProducts();
+      },
     }),
-    [openAddOrderModal]
+    [openAddOrderModal, openAddProductModal, refetchProducts]
   );
   
   // Filter sidebar items based on role
@@ -691,11 +771,24 @@ export const DashboardLayout: React.FC = () => {
         </main>
       </div>
 
-      <AddOrderModal
-        isOpen={isOrderModalOpen}
-        onClose={closeAddOrderModal}
-        onSuccess={handleOrderModalSuccess}
-        editingOrder={orderModalEditingOrder ?? undefined}
+        <AddOrderModal
+          isOpen={isOrderModalOpen}
+          onClose={closeAddOrderModal}
+          onSuccess={handleOrderModalSuccess}
+          editingOrder={orderModalEditingOrder ?? undefined}
+          openAddProductModal={openAddProductModal}
+          refetchProducts={async () => {
+            await refetchProducts();
+          }}
+          openBulkCreateProductsModal={openBulkCreateProductsModal}
+          pendingUploadAfterProductsCreated={bulkCreateProductsModalPendingUpload.current}
+        />
+
+      <AddProductModal
+        isOpen={isProductModalOpen}
+        onClose={closeAddProductModal}
+        onSuccess={handleProductModalSuccess}
+        initialName={productModalInitialName}
       />
 
       {/* All Notifications Modal */}
