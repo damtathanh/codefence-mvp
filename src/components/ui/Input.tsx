@@ -33,14 +33,14 @@ export const Input: React.FC<InputProps> = ({
   return (
     <div className="w-full">
       {label && (
-        <label className="block text-sm font-medium text-white/90 mb-2">
+        <label className="block text-sm font-medium text-[var(--text-main)] mb-2">
           {label}
         </label>
       )}
       <input
         type={type}
         onKeyDown={handleKeyDown}
-        className={`w-full px-4 py-3.5 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl text-[#E5E7EB] placeholder-[#E5E7EB]/50 focus:outline-none focus:ring-2 focus:ring-[#8B5CF6] focus:border-[#8B5CF6]/50 focus:bg-white/10 transition-all duration-300 ${className}`}
+        className={`w-full px-4 py-3.5 bg-[var(--bg-card)] backdrop-blur-xl border border-[var(--border-subtle)] rounded-xl text-[var(--text-main)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[#8B5CF6] focus:border-[#8B5CF6]/50 focus:bg-[var(--bg-card-soft)] transition-all duration-300 ${className}`}
         {...props}
       />
       {error && (

@@ -115,10 +115,10 @@ export const InvoicePage: React.FC = () => {
 
   if (loading && invoices.length === 0) {
     return (
-      <div className="space-y-6">
-        <Card>
-          <CardContent className="p-12 text-center">
-            <p className="text-[#E5E7EB]/70">Loading invoices...</p>
+      <div className="flex flex-col h-full min-h-0">
+        <Card className="flex-1 flex flex-col min-h-0">
+          <CardContent className="flex-1 flex items-center justify-center">
+            <p className="text-[var(--text-muted)]">Loading invoices...</p>
           </CardContent>
         </Card>
       </div>
@@ -127,11 +127,11 @@ export const InvoicePage: React.FC = () => {
 
   if (error) {
     return (
-      <div className="space-y-6">
-        <Card>
-          <CardContent className="p-12 text-center">
-            <p className="text-red-400">Error: {error}</p>
-            <Button onClick={() => window.location.reload()} className="mt-4">
+      <div className="flex flex-col h-full min-h-0">
+        <Card className="flex-1 flex flex-col min-h-0">
+          <CardContent className="flex-1 flex flex-col items-center justify-center">
+            <p className="text-red-400 mb-4">Error: {error}</p>
+            <Button onClick={() => window.location.reload()}>
               Retry
             </Button>
           </CardContent>
@@ -141,65 +141,62 @@ export const InvoicePage: React.FC = () => {
   }
 
   return (
-    <div className="w-full max-w-full space-y-6">
+    <div className="flex flex-col h-full min-h-0 gap-6">
       {/* Filters */}
-      <Card>
-        <CardHeader className="!pt-4 !pb-3 !px-6">
-          <CardTitle className="flex items-center gap-2">
-            <Filter size={20} />
+      <Card className="flex-shrink-0">
+        <CardHeader className="!pt-3 !pb-2 !px-4">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Filter size={18} />
             Filters
           </CardTitle>
         </CardHeader>
-        <CardContent className="!pt-0 !px-6 !pb-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <CardContent className="!pt-0 !px-4 !pb-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <Input
-              label="Search by Invoice ID, Order ID, or Customer"
-              placeholder="Enter Invoice ID, Order ID, or Customer name..."
+              placeholder="Search by Invoice ID, Order ID, or Customer…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
+              className="h-10 !py-2"
             />
-            <div>
-              <label className="block text-sm font-medium text-[#E5E7EB]/90 mb-2">Status</label>
-              <div className="relative">
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="w-full pr-10 px-4 py-3 bg-white/10 backdrop-blur-md border border-white/20 rounded-lg text-[#E5E7EB] appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
-                >
-                  <option value="all">All Status</option>
-                  <option value="paid">Paid</option>
-                  <option value="pending">Pending</option>
-                  <option value="overdue">Overdue</option>
-                </select>
-                <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                </svg>
-              </div>
+            <div className="relative">
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="w-full h-10 pr-10 px-3 py-2 bg-white/10 backdrop-blur-md border border-white/20 rounded-lg text-[#E5E7EB] text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
+              >
+                <option value="all">All Status</option>
+                <option value="paid">Paid</option>
+                <option value="pending">Pending</option>
+                <option value="overdue">Overdue</option>
+              </select>
+              <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+              </svg>
             </div>
             <Input
-              label="Date"
               type="date"
               value={dateFilter}
               onChange={(e) => setDateFilter(e.target.value)}
+              className="h-10 !py-2"
             />
           </div>
         </CardContent>
       </Card>
 
-      <Card className="overflow-hidden">
-        <CardContent className="p-0">
-          <div className="px-6 pb-3 pt-4 border-b border-[#1E223D] flex items-center justify-between">
+      <Card className="flex-1 flex flex-col min-h-0">
+        <CardHeader className="!pt-4 !pb-3 !px-6 flex-shrink-0">
+          <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <button
                 onClick={handleSelectAll}
-                className="text-sm text-[#E5E7EB]/70 hover:text-[#E5E7EB] transition"
+                className="text-sm text-[var(--text-muted)] hover:text-[var(--text-main)] transition"
               >
                 {selectedIds.size === filteredInvoices.length && filteredInvoices.length > 0
                   ? 'Deselect All'
                   : 'Select All'}
               </button>
               {selectedIds.size > 0 && (
-                <span className="text-sm text-[#E5E7EB]/70">
+                <span className="text-sm text-[var(--text-muted)]">
                   {selectedIds.size} selected
                 </span>
               )}
@@ -211,6 +208,8 @@ export const InvoicePage: React.FC = () => {
               </Button>
             )}
           </div>
+        </CardHeader>
+        <CardContent className="flex-1 min-h-0 overflow-y-auto p-0">
           <div className="w-full max-w-full overflow-x-auto scrollbar-thin scrollbar-thumb-[#1E223D] scrollbar-track-transparent">
             <table className="min-w-[1100px] w-full border-separate border-spacing-0">
               <thead>
@@ -295,7 +294,7 @@ export const InvoicePage: React.FC = () => {
               </tbody>
             </table>
             {filteredInvoices.length === 0 && (
-              <div className="p-12 text-center text-[#E5E7EB]/70">
+              <div className="p-12 text-center text-[var(--text-muted)]">
                 {invoices.length === 0
                   ? 'No invoices found.'
                   : 'No invoices match your filters.'}

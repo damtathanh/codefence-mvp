@@ -5,17 +5,17 @@ export type ToastType = 'success' | 'error' | 'info' | 'warning';
 
 interface Toast {
   id: string;
-  message: string;
+  message: React.ReactNode;
   type: ToastType;
   duration?: number;
 }
 
 interface ToastContextType {
-  showToast: (message: string, type?: ToastType, duration?: number) => void;
-  showSuccess: (message: string, duration?: number) => void;
-  showError: (message: string, duration?: number) => void;
-  showInfo: (message: string, duration?: number) => void;
-  showWarning: (message: string, duration?: number) => void;
+  showToast: (message: React.ReactNode, type?: ToastType, duration?: number) => void;
+  showSuccess: (message: React.ReactNode, duration?: number) => void;
+  showError: (message: React.ReactNode, duration?: number) => void;
+  showInfo: (message: React.ReactNode, duration?: number) => void;
+  showWarning: (message: React.ReactNode, duration?: number) => void;
 }
 
 const ToastContext = createContext<ToastContextType | undefined>(undefined);
@@ -31,32 +31,33 @@ export const useToast = () => {
 export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
-  const showToast = useCallback((message: string, type: ToastType = 'info', duration = 3000) => {
+  const showToast = useCallback((message: React.ReactNode, type: ToastType = 'info', duration: number | undefined = 3000) => {
     const id = Math.random().toString(36).substring(7);
     const newToast: Toast = { id, message, type, duration };
     
     setToasts((prev) => [...prev, newToast]);
 
-    if (duration > 0) {
+    // If duration is 0 or undefined, the toast is persistent (no auto-dismiss)
+    if (duration !== undefined && duration > 0) {
       setTimeout(() => {
         setToasts((prev) => prev.filter((toast) => toast.id !== id));
       }, duration);
     }
   }, []);
 
-  const showSuccess = useCallback((message: string, duration?: number) => {
+  const showSuccess = useCallback((message: React.ReactNode, duration?: number) => {
     showToast(message, 'success', duration);
   }, [showToast]);
 
-  const showError = useCallback((message: string, duration?: number) => {
+  const showError = useCallback((message: React.ReactNode, duration?: number) => {
     showToast(message, 'error', duration);
   }, [showToast]);
 
-  const showInfo = useCallback((message: string, duration?: number) => {
+  const showInfo = useCallback((message: React.ReactNode, duration?: number) => {
     showToast(message, 'info', duration);
   }, [showToast]);
 
-  const showWarning = useCallback((message: string, duration?: number) => {
+  const showWarning = useCallback((message: React.ReactNode, duration?: number) => {
     showToast(message, 'warning', duration);
   }, [showToast]);
 
@@ -135,7 +136,11 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onRemove }) => {
     >
       <Icon className="w-5 h-5 mt-0.5 flex-shrink-0" />
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium break-words">{toast.message}</p>
+        {typeof toast.message === 'string' ? (
+          <p className="text-sm font-medium break-words">{toast.message}</p>
+        ) : (
+          <div className="text-sm font-medium break-words">{toast.message}</div>
+        )}
       </div>
       <button
         onClick={handleRemove}

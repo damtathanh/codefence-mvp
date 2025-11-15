@@ -435,7 +435,7 @@ export const DashboardLayout: React.FC = () => {
   const expanded = (isDesktop && isHovered) || sidebarOpen;
 
   return (
-    <div className="flex h-screen bg-[#0B0F28] overflow-hidden">
+    <div className="flex h-screen bg-[var(--bg-page)] overflow-hidden">
       {/* Mobile Overlay */}
       {sidebarOpen && (
         <div
@@ -457,12 +457,12 @@ export const DashboardLayout: React.FC = () => {
         } ${
           // Overlay styling when expanded on desktop
           expanded && isDesktop
-            ? 'bg-[#12163A]/95 backdrop-blur-md border-r border-[#1E223D] shadow-xl'
-            : 'bg-gradient-to-b from-[#12163A] to-[#181C3B] border-r border-[#1E223D]'
+            ? 'bg-[var(--bg-sidebar)]/95 backdrop-blur-md border-r border-[var(--border-subtle)] shadow-xl'
+            : 'bg-[var(--bg-sidebar)] border-r border-[var(--border-subtle)]'
         }`}
       >
         {/* Logo */}
-        <div className="flex items-center justify-between h-16 px-5 border-b border-[#1E223D]">
+        <div className="flex items-center justify-between h-16 px-5 border-b border-[var(--border-subtle)]">
           {expanded ? (
             <Link
               to="/"
@@ -486,7 +486,7 @@ export const DashboardLayout: React.FC = () => {
           )}
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="lg:hidden p-1 rounded-lg hover:bg-white/10 transition text-[#E5E7EB] -mr-2"
+            className="lg:hidden p-1 rounded-lg hover:bg-[var(--bg-card-soft)] transition text-[var(--text-main)] -mr-2"
             aria-label="Toggle sidebar"
           >
             {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
@@ -508,7 +508,7 @@ export const DashboardLayout: React.FC = () => {
                 } ${
                   active
                     ? 'bg-[#8B5CF6] text-white shadow-lg'
-                    : 'text-[#E5E7EB]/70 hover:bg-white/10 hover:text-[#E5E7EB]'
+                    : 'text-[var(--text-muted)] hover:bg-[var(--bg-card-soft)] hover:text-[var(--text-main)]'
                 }`}
               >
                 <Icon size={28} />
@@ -528,7 +528,7 @@ export const DashboardLayout: React.FC = () => {
         </nav>
 
         {/* Logout */}
-        <div className="p-4 border-t border-[#1E223D]">
+        <div className="p-4 border-t border-[var(--border-subtle)]">
           <button
             onClick={handleLogout}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-red-400 hover:bg-red-500/10 transition-all ${
@@ -548,22 +548,22 @@ export const DashboardLayout: React.FC = () => {
       {/* Main Content */}
       <div className="flex-1 flex flex-col lg:ml-20 transition-all duration-300 min-h-0">
         {/* Topbar */}
-        <header className="h-16 bg-gradient-to-r from-[#12163A] to-[#181C3B] border-b border-[#1E223D] flex items-center justify-between px-6 sticky top-0 z-20">
+        <header className="h-16 bg-[var(--bg-sidebar)] border-b border-[var(--border-subtle)] flex items-center justify-between px-6 sticky top-0 z-20">
           {/* Left side: Mobile Menu Button + Breadcrumb */}
           <div className="flex items-center gap-4">
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="lg:hidden p-2 rounded-lg hover:bg-white/10 transition text-[#E5E7EB]"
+              className="lg:hidden p-2 rounded-lg hover:bg-[var(--bg-card-soft)] transition text-[var(--text-main)]"
             >
               <Menu size={20} />
             </button>
             
             {/* Page Title and Subtitle */}
             <div className="flex items-center gap-2">
-              <h2 className="text-lg font-semibold text-[#E5E7EB] tracking-wide">
+              <h2 className="text-lg font-semibold text-[var(--text-main)] tracking-wide">
                 {pageInfo.title}:
               </h2>
-              <p className="text-base text-[#E5E7EB]/70">
+              <p className="text-base text-[var(--text-muted)]">
                 {pageInfo.subtitle}
               </p>
             </div>
@@ -574,7 +574,7 @@ export const DashboardLayout: React.FC = () => {
             {/* Back to Home Button */}
             <button
               onClick={() => navigate("/")}
-              className="flex items-center gap-2 px-4 py-2 bg-[#8B5CF6]/20 border border-[#8B5CF6]/30 rounded-lg text-[#E5E7EB] hover:bg-[#8B5CF6]/30 transition whitespace-nowrap"
+              className="flex items-center gap-2 px-4 py-2 bg-[#8B5CF6]/20 border border-[#8B5CF6]/30 rounded-lg text-[var(--text-main)] hover:bg-[#8B5CF6]/30 transition whitespace-nowrap"
             >
               <ArrowLeft size={18} />
               <span className="text-sm font-medium hidden md:inline">Back to Home</span>
@@ -584,7 +584,7 @@ export const DashboardLayout: React.FC = () => {
             <div className="relative" ref={notificationRef}>
               <button
                 onClick={() => setShowNotifications(!showNotifications)}
-                className="relative p-2 rounded-lg hover:bg-white/10 transition text-[#E5E7EB]"
+                className="relative p-2 rounded-lg hover:bg-[var(--bg-card-soft)] transition text-[var(--text-main)]"
               >
                 <Bell size={20} />
                 {unreadCount > 0 && (
@@ -594,10 +594,10 @@ export const DashboardLayout: React.FC = () => {
 
               {/* Notification Popup */}
               {showNotifications && (
-                <div className="absolute right-0 top-12 w-80 md:w-96 bg-gradient-to-br from-[#12163A] to-[#181C3B] border border-[#1E223D] rounded-lg shadow-2xl z-50 max-h-[500px] flex flex-col">
+                <div className="absolute right-0 top-12 w-80 md:w-96 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg shadow-2xl z-50 max-h-[500px] flex flex-col">
                   {/* Header */}
-                  <div className="flex items-center justify-between p-4 border-b border-[#1E223D]">
-                    <h3 className="text-lg font-semibold text-[#E5E7EB]">Notifications</h3>
+                  <div className="flex items-center justify-between p-4 border-b border-[var(--border-subtle)]">
+                    <h3 className="text-lg font-semibold text-[var(--text-main)]">Notifications</h3>
                     {unreadCount > 0 && (
                       <button
                         onClick={markAllAsRead}
@@ -612,16 +612,16 @@ export const DashboardLayout: React.FC = () => {
                   <div className="overflow-y-auto max-h-[400px]">
                     {notifications.length === 0 ? (
                       <div className="p-8 text-center">
-                        <Bell size={32} className="mx-auto mb-3 text-[#E5E7EB]/30" />
-                        <p className="text-[#E5E7EB]/70 text-sm">No notifications</p>
+                        <Bell size={32} className="mx-auto mb-3 text-[var(--text-muted)]" />
+                        <p className="text-[var(--text-muted)] text-sm">No notifications</p>
                       </div>
                     ) : (
-                      <div className="divide-y divide-[#1E223D]">
+                      <div className="divide-y divide-[var(--border-subtle)]">
                         {notifications.map((notification) => (
                           <div
                             key={notification.id}
                             onClick={() => markAsRead(notification.id)}
-                            className={`p-4 hover:bg-white/5 transition cursor-pointer ${
+                            className={`p-4 hover:bg-[var(--bg-card-soft)] transition cursor-pointer ${
                               !notification.read ? 'bg-[#8B5CF6]/10' : ''
                             }`}
                           >
@@ -631,17 +631,17 @@ export const DashboardLayout: React.FC = () => {
                               </div>
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-start justify-between gap-2 mb-1">
-                                  <h4 className="text-sm font-semibold text-[#E5E7EB]">
+                                  <h4 className="text-sm font-semibold text-[var(--text-main)]">
                                     {notification.title}
                                   </h4>
                                   {!notification.read && (
                                     <span className="w-2 h-2 bg-[#8B5CF6] rounded-full flex-shrink-0 mt-1"></span>
                                   )}
                                 </div>
-                                <p className="text-xs text-[#E5E7EB]/70 mb-2 line-clamp-2">
+                                <p className="text-xs text-[var(--text-muted)] mb-2 line-clamp-2">
                                   {notification.message}
                                 </p>
-                                <p className="text-xs text-[#E5E7EB]/50">{notification.time}</p>
+                                <p className="text-xs text-[var(--text-muted)]">{notification.time}</p>
                               </div>
                             </div>
                           </div>
@@ -652,7 +652,7 @@ export const DashboardLayout: React.FC = () => {
 
                   {/* Footer */}
                   {notifications.length > 0 && (
-                    <div className="p-3 border-t border-[#1E223D] text-center">
+                    <div className="p-3 border-t border-[var(--border-subtle)] text-center">
                       <button
                         onClick={() => {
                           setShowNotifications(false);
@@ -669,11 +669,11 @@ export const DashboardLayout: React.FC = () => {
             </div>
 
             {/* Profile */}
-            <button className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/10 transition">
+            <button className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[var(--bg-card-soft)] transition">
               <div className="w-8 h-8 rounded-full bg-gradient-to-r from-[#6366F1] via-[#7C3AED] to-[#8B5CF6] flex items-center justify-center">
                 <User size={18} className="text-white" />
               </div>
-              <span className="text-[#E5E7EB] font-medium hidden md:block">
+              <span className="text-[var(--text-main)] font-medium hidden md:block">
                 {profile?.full_name || 'User'}
               </span>
             </button>
@@ -683,9 +683,9 @@ export const DashboardLayout: React.FC = () => {
         {/* Page Content */}
         <main
           ref={mainContentRef}
-          className={`flex-1 min-h-0 bg-[#0B0F28] ${isMessagePage ? "overflow-hidden" : "overflow-y-auto"}`}
+          className="flex-1 min-h-0 bg-[var(--bg-page)] overflow-hidden"
         >
-          <div className={`w-full h-full ${isMessagePage ? "h-full flex flex-col" : ""} bg-gradient-to-br from-[#0B0F28] via-[#12163A] to-[#181C3B] px-6 py-6`}>
+          <div className="w-full h-full flex flex-col bg-[var(--bg-page)] px-6 py-6">
             <Outlet context={outletContext} />
           </div>
         </main>
@@ -705,14 +705,14 @@ export const DashboardLayout: React.FC = () => {
           onClick={() => setShowAllNotifications(false)}
         >
           <div
-            className="bg-gradient-to-br from-[#12163A] to-[#181C3B] rounded-xl border border-[#1E223D] shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col"
+            className="bg-[var(--bg-card)] rounded-xl border border-[var(--border-subtle)] shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
-            <div className="flex items-center justify-between p-6 border-b border-[#1E223D]">
+            <div className="flex items-center justify-between p-6 border-b border-[var(--border-subtle)]">
               <div>
-                <h2 className="text-2xl font-bold text-[#E5E7EB] mb-1">All Notifications</h2>
-                <p className="text-sm text-[#E5E7EB]/70">
+                <h2 className="text-2xl font-bold text-[var(--text-main)] mb-1">All Notifications</h2>
+                <p className="text-sm text-[var(--text-muted)]">
                   {unreadCount > 0 ? `${unreadCount} unread notification${unreadCount > 1 ? 's' : ''}` : 'All caught up!'}
                 </p>
               </div>
@@ -727,7 +727,7 @@ export const DashboardLayout: React.FC = () => {
                 )}
                 <button
                   onClick={() => setShowAllNotifications(false)}
-                  className="p-2 rounded-lg hover:bg-white/10 transition text-[#E5E7EB]"
+                  className="p-2 rounded-lg hover:bg-[var(--bg-card-soft)] transition text-[var(--text-main)]"
                 >
                   <X size={20} />
                 </button>
@@ -738,9 +738,9 @@ export const DashboardLayout: React.FC = () => {
             <div className="flex-1 overflow-y-auto p-4">
               {notifications.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16">
-                  <Bell size={48} className="mb-4 text-[#E5E7EB]/30" />
-                  <p className="text-[#E5E7EB]/70 text-lg mb-2">No notifications</p>
-                  <p className="text-[#E5E7EB]/50 text-sm">You're all caught up!</p>
+                  <Bell size={48} className="mb-4 text-[var(--text-muted)]" />
+                  <p className="text-[var(--text-muted)] text-lg mb-2">No notifications</p>
+                  <p className="text-[var(--text-muted)] text-sm">You're all caught up!</p>
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -751,7 +751,7 @@ export const DashboardLayout: React.FC = () => {
                       className={`p-5 rounded-lg border transition-all cursor-pointer ${
                         !notification.read
                           ? 'bg-[#8B5CF6]/10 border-[#8B5CF6]/30 hover:bg-[#8B5CF6]/15'
-                          : 'bg-white/5 border-[#1E223D] hover:bg-white/10'
+                          : 'bg-[var(--bg-card-soft)] border-[var(--border-subtle)] hover:bg-[var(--bg-card-soft)]'
                       }`}
                     >
                       <div className="flex gap-4">
@@ -767,19 +767,19 @@ export const DashboardLayout: React.FC = () => {
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-3 mb-2">
-                            <h4 className="text-base font-semibold text-[#E5E7EB]">
+                            <h4 className="text-base font-semibold text-[var(--text-main)]">
                               {notification.title}
                             </h4>
                             <div className="flex items-center gap-2 flex-shrink-0">
                               {!notification.read && (
                                 <span className="w-2 h-2 bg-[#8B5CF6] rounded-full"></span>
                               )}
-                              <span className="text-xs text-[#E5E7EB]/50 whitespace-nowrap">
+                              <span className="text-xs text-[var(--text-muted)] whitespace-nowrap">
                                 {notification.time}
                               </span>
                             </div>
                           </div>
-                          <p className="text-sm text-[#E5E7EB]/70 leading-relaxed">
+                          <p className="text-sm text-[var(--text-muted)] leading-relaxed">
                             {notification.message}
                           </p>
                           <div className="mt-3 flex items-center gap-2">
@@ -805,9 +805,9 @@ export const DashboardLayout: React.FC = () => {
 
             {/* Footer */}
             {notifications.length > 0 && (
-              <div className="p-4 border-t border-[#1E223D] bg-white/5">
+              <div className="p-4 border-t border-[var(--border-subtle)] bg-[var(--bg-card-soft)]">
                 <div className="flex items-center justify-between">
-                  <p className="text-sm text-[#E5E7EB]/70">
+                  <p className="text-sm text-[var(--text-muted)]">
                     Showing {notifications.length} notification{notifications.length > 1 ? 's' : ''}
                   </p>
                   <button
@@ -826,13 +826,13 @@ export const DashboardLayout: React.FC = () => {
       {/* Logout Confirmation Modal */}
       {showLogoutModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-gradient-to-br from-[#12163A] to-[#181C3B] rounded-lg border border-[#1E223D] p-6 lg:p-8 max-w-md w-full">
-            <h3 className="text-xl font-semibold text-[#E5E7EB] mb-3">Confirm Logout</h3>
-            <p className="text-[#E5E7EB]/70 mb-8">Are you sure you want to logout?</p>
+          <div className="bg-[var(--bg-card)] rounded-lg border border-[var(--border-subtle)] p-6 lg:p-8 max-w-md w-full">
+            <h3 className="text-xl font-semibold text-[var(--text-main)] mb-3">Confirm Logout</h3>
+            <p className="text-[var(--text-muted)] mb-8">Are you sure you want to logout?</p>
             <div className="flex gap-3 justify-end">
               <button
                 onClick={() => setShowLogoutModal(false)}
-                className="px-4 py-2 rounded-lg border border-[#1E223D] text-[#E5E7EB] hover:bg-white/10 transition"
+                className="px-4 py-2 rounded-lg border border-[var(--border-subtle)] text-[var(--text-main)] hover:bg-[var(--bg-card-soft)] transition"
               >
                 Cancel
               </button>

@@ -2,11 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
-import { User, Lock, Shield, Moon, Sun, Monitor } from 'lucide-react';
+import { User, Lock, Shield } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient';
 import { useAuth } from '../../features/auth';
 import { useToast } from '../../components/ui/Toast';
-import { useTheme } from '../../context/ThemeContext';
 import { useUserProfile } from '../../hooks/useUserProfile';
 
 interface ProfileData {
@@ -21,8 +20,7 @@ export const SettingsPage: React.FC = () => {
   const { user } = useAuth();
   const { profile, loading: profileLoading, refreshProfile, updateProfile } = useUserProfile();
   const { showSuccess, showError, showInfo } = useToast();
-  const { theme, setTheme: setThemeContext } = useTheme();
-  const [activeTab, setActiveTab] = useState<'profile' | 'password' | 'security' | 'theme'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'password' | 'security'>('profile');
   const [saving, setSaving] = useState(false);
   const [ready, setReady] = useState(false);
   const [profileData, setProfileData] = useState({
@@ -300,16 +298,10 @@ export const SettingsPage: React.FC = () => {
     await attemptPasswordUpdate();
   };
 
-  const handleThemeChange = (newTheme: 'light' | 'dark' | 'system') => {
-    setThemeContext(newTheme);
-    showSuccess(`Theme changed to ${newTheme}`);
-  };
-
   const tabs = [
     { id: 'profile' as const, label: 'Profile', icon: User },
     { id: 'password' as const, label: 'Password', icon: Lock },
     { id: 'security' as const, label: 'Security', icon: Shield },
-    { id: 'theme' as const, label: 'Theme', icon: Moon },
   ];
 
   return (
@@ -328,7 +320,7 @@ export const SettingsPage: React.FC = () => {
                     className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition ${
                       activeTab === tab.id
                         ? 'bg-[#8B5CF6] text-white'
-                        : 'text-[#E5E7EB]/70 hover:bg-white/10 hover:text-[#E5E7EB]'
+                        : 'text-[var(--text-muted)] hover:bg-[var(--bg-card-soft)] hover:text-[var(--text-main)]'
                     }`}
                   >
                     <Icon size={20} />
@@ -352,11 +344,11 @@ export const SettingsPage: React.FC = () => {
                 {(!ready || (profileLoading && user)) ? (
                   <div className="flex items-center justify-center py-8">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#8B5CF6]"></div>
-                    <span className="ml-3 text-[#E5E7EB]/70">Loading profile...</span>
+                    <span className="ml-3 text-[var(--text-muted)]">Loading profile...</span>
                   </div>
                 ) : !user ? (
                   <div className="flex items-center justify-center py-8">
-                    <p className="text-[#E5E7EB]/70">Please log in to view your profile.</p>
+                    <p className="text-[var(--text-muted)]">Please log in to view your profile.</p>
                   </div>
                 ) : (
                   <form onSubmit={handleProfileUpdate} className="space-y-4">
@@ -442,15 +434,15 @@ export const SettingsPage: React.FC = () => {
               </CardHeader>
               <CardContent className="flex-1 overflow-y-auto min-h-0 space-y-6">
                 <div className="space-y-6">
-                  <div className="flex items-center justify-between p-4 bg-white/5 rounded-lg">
+                  <div className="flex items-center justify-between p-4 bg-[var(--bg-card-soft)] rounded-lg border border-[var(--border-subtle)]">
                     <div>
-                      <h3 className="text-[#E5E7EB] font-medium mb-1">Two-Factor Authentication</h3>
-                      <p className="text-sm text-[#E5E7EB]/70">Add an extra layer of security to your account</p>
+                      <h3 className="text-[var(--text-main)] font-medium mb-1">Two-Factor Authentication</h3>
+                      <p className="text-sm text-[var(--text-muted)]">Add an extra layer of security to your account</p>
                     </div>
                     <button
                       onClick={() => setTwoFAEnabled(!twoFAEnabled)}
                       className={`relative w-12 h-6 rounded-full transition ${
-                        twoFAEnabled ? 'bg-[#8B5CF6]' : 'bg-white/20'
+                        twoFAEnabled ? 'bg-[#8B5CF6]' : 'bg-slate-300'
                       }`}
                     >
                       <span
@@ -458,132 +450,13 @@ export const SettingsPage: React.FC = () => {
                           twoFAEnabled ? 'translate-x-6' : 'translate-x-0'
                         }`}
                       />
-                    </button>
-                  </div>
-                  <p className="text-sm text-[#E5E7EB]/70">
+                  </button>
+                </div>
+                  <p className="text-sm text-[var(--text-muted)]">
                     {twoFAEnabled
                       ? '2FA is enabled. Your account is more secure.'
                       : '2FA is disabled. Enable it for better security.'}
                   </p>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Theme Tab */}
-          {activeTab === 'theme' && (
-            <Card className="flex flex-col h-full min-h-0">
-              <CardHeader className="!py-2">
-                <CardTitle>Theme Settings</CardTitle>
-              </CardHeader>
-              <CardContent className="flex-1 overflow-y-auto min-h-0 space-y-6">
-                <div className="space-y-6">
-                  <div>
-                    <h3 className="text-[#E5E7EB] font-medium mb-4">Choose Theme</h3>
-                    <p className="text-sm text-[#E5E7EB]/70 mb-6">
-                      Select your preferred theme. System will automatically match your device settings.
-                    </p>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      {/* Light Theme */}
-                      <button
-                        onClick={() => handleThemeChange('light')}
-                        className={`p-6 rounded-lg border-2 transition-all ${
-                          theme === 'light'
-                            ? 'border-[#8B5CF6] bg-[#8B5CF6]/20'
-                            : 'border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10'
-                        }`}
-                      >
-                        <div className="flex flex-col items-center gap-3">
-                          <div className={`p-3 rounded-lg ${
-                            theme === 'light' ? 'bg-[#8B5CF6]' : 'bg-white/10'
-                          }`}>
-                            <Sun size={24} className={theme === 'light' ? 'text-white' : 'text-[#E5E7EB]'} />
-                          </div>
-                          <div className="text-center">
-                            <h4 className="text-[#E5E7EB] font-medium mb-1">Light</h4>
-                            <p className="text-xs text-[#E5E7EB]/70">Bright and clean</p>
-                          </div>
-                          {theme === 'light' && (
-                            <div className="w-2 h-2 rounded-full bg-[#8B5CF6]"></div>
-                          )}
-                        </div>
-                      </button>
-
-                      {/* Dark Theme */}
-                      <button
-                        onClick={() => handleThemeChange('dark')}
-                        className={`p-6 rounded-lg border-2 transition-all ${
-                          theme === 'dark'
-                            ? 'border-[#8B5CF6] bg-[#8B5CF6]/20'
-                            : 'border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10'
-                        }`}
-                      >
-                        <div className="flex flex-col items-center gap-3">
-                          <div className={`p-3 rounded-lg ${
-                            theme === 'dark' ? 'bg-[#8B5CF6]' : 'bg-white/10'
-                          }`}>
-                            <Moon size={24} className={theme === 'dark' ? 'text-white' : 'text-[#E5E7EB]'} />
-                          </div>
-                          <div className="text-center">
-                            <h4 className="text-[#E5E7EB] font-medium mb-1">Dark</h4>
-                            <p className="text-xs text-[#E5E7EB]/70">Easy on the eyes</p>
-                          </div>
-                          {theme === 'dark' && (
-                            <div className="w-2 h-2 rounded-full bg-[#8B5CF6]"></div>
-                          )}
-                        </div>
-                      </button>
-
-                      {/* System Theme */}
-                      <button
-                        onClick={() => handleThemeChange('system')}
-                        className={`p-6 rounded-lg border-2 transition-all ${
-                          theme === 'system'
-                            ? 'border-[#8B5CF6] bg-[#8B5CF6]/20'
-                            : 'border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10'
-                        }`}
-                      >
-                        <div className="flex flex-col items-center gap-3">
-                          <div className={`p-3 rounded-lg ${
-                            theme === 'system' ? 'bg-[#8B5CF6]' : 'bg-white/10'
-                          }`}>
-                            <Monitor size={24} className={theme === 'system' ? 'text-white' : 'text-[#E5E7EB]'} />
-                          </div>
-                          <div className="text-center">
-                            <h4 className="text-[#E5E7EB] font-medium mb-1">System</h4>
-                            <p className="text-xs text-[#E5E7EB]/70">Match device</p>
-                          </div>
-                          {theme === 'system' && (
-                            <div className="w-2 h-2 rounded-full bg-[#8B5CF6]"></div>
-                          )}
-                        </div>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Current Theme Info */}
-                  <div className="p-4 bg-white/5 rounded-lg border border-white/10">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h4 className="text-[#E5E7EB] font-medium mb-1">Current Selection</h4>
-                        <p className="text-sm text-[#E5E7EB]/70">
-                          {theme === 'light' && 'Light theme is selected'}
-                          {theme === 'dark' && 'Dark theme is selected'}
-                          {theme === 'system' && `System theme is selected (${typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'Dark' : 'Light'})`}
-                        </p>
-                      </div>
-                      <div className={`p-2 rounded-lg ${
-                        theme === 'light' ? 'bg-yellow-500/20' :
-                        theme === 'dark' ? 'bg-blue-500/20' :
-                        'bg-purple-500/20'
-                      }`}>
-                        {theme === 'light' && <Sun size={20} className="text-yellow-400" />}
-                        {theme === 'dark' && <Moon size={20} className="text-blue-400" />}
-                        {theme === 'system' && <Monitor size={20} className="text-purple-400" />}
-                      </div>
-                    </div>
-                  </div>
                 </div>
               </CardContent>
             </Card>

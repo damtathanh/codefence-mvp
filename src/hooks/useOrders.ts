@@ -6,15 +6,15 @@ import * as XLSX from "xlsx";
 import Papa from "papaparse";
 
 // Smart header mapping
-import { buildHeaderMapping, normalize } from "../utils/smartColumnMapper";
+import { validateAndMapHeaders, normalize } from "../utils/smartColumnMapper";
 
 export interface OrderInput {
   order_id: string;
   customer_name: string;
   phone: string;
   address: string | null;
-  product_id: string;
-  product_name?: string;
+  product_id: string | null; // Can be null if product not found
+  product: string; // Raw product name from file
   amount: number;
 }
 
@@ -28,21 +28,27 @@ export const useOrders = () => {
   const { user } = useAuth();
 
   /** LOAD PRODUCTS */
-  const fetchProducts = useCallback(async (): Promise<Product[]> => {
+  const fetchProducts = useCallback(async (): Promise<Array<{ id: string; name: string }>> => {
     if (!user) return [];
     const { data, error } = await supabase
       .from("products")
-      .select("*")
+      .select("id, name")
       .eq("user_id", user.id)
       .eq("status", "active");
 
     return error ? [] : (data ?? []);
   }, [user]);
 
+  /** SAFE STRING CONVERSION */
+  const toStr = (value: any): string => {
+    if (value === null || value === undefined) return "";
+    return String(value).trim();
+  };
+
   /** CLEAN NUMBER */
   const parseNumeric = (v: any): number | null => {
     if (v === null || v === undefined) return null;
-    const cleaned = v.toString().replace(/,/g, "").trim();
+    const cleaned = String(v).replace(/,/g, "").trim();
     const num = Number(cleaned);
     return isNaN(num) ? null : num;
   };
@@ -52,7 +58,7 @@ export const useOrders = () => {
     if (!o.order_id) return "Order ID missing";
     if (!o.customer_name) return "Customer name missing";
     if (!o.phone) return "Phone missing";
-    if (!o.product_id) return "Product not mapped";
+    if (!o.product) return "Product name missing";
     if (!o.amount || o.amount <= 0) return "Amount invalid";
     return null;
   };
@@ -60,6 +66,12 @@ export const useOrders = () => {
   /** MAP PRODUCT NAME → ID */
   const validateAndMapProducts = useCallback(
     async (rows: any[]) => {
+      if (!user) {
+        return { validOrders: [], invalidOrders: [], warnings: [] };
+      }
+
+      // Fetch all active products for the user (equivalent to per-row lookup but more efficient)
+      // This matches: .from('products').select('id, name').eq('user_id', user.id).eq('name', productName).maybeSingle()
       const products = await fetchProducts();
       const productMap = new Map(
         products.map((p) => [normalize(p.name), p])
@@ -67,32 +79,48 @@ export const useOrders = () => {
 
       const valid: OrderInput[] = [];
       const invalid: InvalidOrderRow[] = [];
+      const warnings: Array<{ rowIndex: number; message: string }> = [];
 
       rows.forEach((row, idx) => {
-        const prod = productMap.get(normalize(row.product || ""));
+        const productName = (row.product || "").trim();
+        const normalizedProductName = normalize(productName);
+        const prod = productMap.get(normalizedProductName);
 
-        if (!prod) {
+        // Always create the order, but set product_id to null if product not found
+        const orderData: OrderInput = {
+          order_id: row.order_id || "",
+          customer_name: row.customer_name || "",
+          phone: row.phone || "",
+          address: row.address || null,
+          product_id: prod ? prod.id : null,
+          product: productName, // Store raw product name from file
+          amount: parseNumeric(row.amount) ?? 0,
+        };
+
+        // Validate required fields
+        const validationError = validateOrder(orderData);
+        if (validationError) {
           invalid.push({
             rowIndex: idx + 1,
             order: row,
-            reason: `Product "${row.product}" not found`,
+            reason: validationError,
           });
         } else {
-          valid.push({
-            order_id: row.order_id,
-            customer_name: row.customer_name,
-            phone: row.phone,
-            address: row.address,
-            product_id: prod.id,
-            product_name: prod.name,
-            amount: parseNumeric(row.amount) ?? 0,
-          });
+          valid.push(orderData);
+          
+          // Add warning if product not found (but row is still valid)
+          if (!prod && productName) {
+            warnings.push({
+              rowIndex: idx + 1,
+              message: `Product "${productName}" not found; please correct it in the Orders table.`,
+            });
+          }
         }
       });
 
-      return { validOrders: valid, invalidOrders: invalid };
+      return { validOrders: valid, invalidOrders: invalid, warnings };
     },
-    [fetchProducts]
+    [fetchProducts, user]
   );
 
   /** CSV PARSE */
@@ -104,16 +132,35 @@ export const useOrders = () => {
         complete: (res) => {
           try {
             const headers = res.meta.fields || [];
-            const map = buildHeaderMapping(headers);
+            
+            // Validate headers and check for missing/misnamed columns
+            const validationResult = validateAndMapHeaders(headers);
+            if (validationResult.error) {
+              const error = new Error(validationResult.error);
+              // Attach validation result to error for structured error display
+              (error as any).validationResult = validationResult;
+              reject(error);
+              return;
+            }
+            const mapping = validationResult.mapping;
 
-            const rows = res.data.map((r: any) => ({
-              order_id: r[map.order_id] || "",
-              customer_name: r[map.customer_name] || "",
-              phone: r[map.phone] || "",
-              address: r[map.address] || "",
-              product: r[map.product] || "",
-              amount: parseNumeric(r[map.amount]) ?? 0,
-            }));
+            const rows = res.data.map((r: any) => {
+              const orderId = toStr(r[mapping.order_id]);
+              const customerName = toStr(r[mapping.customer_name]);
+              const phone = toStr(r[mapping.phone]);
+              const address = toStr(r[mapping.address]) || null;
+              const productName = toStr(r[mapping.product]);
+              const amountStr = toStr(r[mapping.amount]);
+              
+              return {
+                order_id: orderId,
+                customer_name: customerName,
+                phone: phone,
+                address: address,
+                product: productName,
+                amount: parseNumeric(amountStr) ?? 0,
+              };
+            });
 
             resolve(rows);
           } catch (err) {
@@ -134,17 +181,42 @@ export const useOrders = () => {
           const wb = XLSX.read(e.target?.result, { type: "array" });
           const sheet = wb.Sheets[wb.SheetNames[0]];
           const json = XLSX.utils.sheet_to_json(sheet);
-          const headers = Object.keys(json[0]);
-          const map = buildHeaderMapping(headers);
+          
+          if (!json || json.length === 0) {
+            reject(new Error("File appears to be empty or has no data rows."));
+            return;
+          }
 
-          const rows = json.map((r: any) => ({
-            order_id: r[map.order_id] || "",
-            customer_name: r[map.customer_name] || "",
-            phone: r[map.phone] || "",
-            address: r[map.address] || "",
-            product: r[map.product] || "",
-            amount: parseNumeric(r[map.amount]) ?? 0,
-          }));
+          const headers = Object.keys(json[0] || {});
+          
+          // Validate headers and check for missing/misnamed columns
+          const validationResult = validateAndMapHeaders(headers);
+          if (validationResult.error) {
+            const error = new Error(validationResult.error);
+            // Attach validation result to error for structured error display
+            (error as any).validationResult = validationResult;
+            reject(error);
+            return;
+          }
+          const mapping = validationResult.mapping;
+
+          const rows = json.map((r: any) => {
+            const orderId = toStr(r[mapping.order_id]);
+            const customerName = toStr(r[mapping.customer_name]);
+            const phone = toStr(r[mapping.phone]);
+            const address = toStr(r[mapping.address]) || null;
+            const productName = toStr(r[mapping.product]);
+            const amountStr = toStr(r[mapping.amount]);
+            
+            return {
+              order_id: orderId,
+              customer_name: customerName,
+              phone: phone,
+              address: address,
+              product: productName,
+              amount: parseNumeric(amountStr) ?? 0,
+            };
+          });
 
           resolve(rows);
         } catch (err) {
@@ -187,7 +259,8 @@ export const useOrders = () => {
             customer_name: order.customer_name,
             phone: order.phone,
             address: order.address,
-            product_id: order.product_id,
+            product_id: order.product_id, // Can be null
+            product: order.product, // Raw product name from file
             amount,
             status: "Pending",
             risk_score: null,

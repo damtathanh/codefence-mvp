@@ -1,35 +1,200 @@
-export const REQUIRED_HEADERS = {
-    order_id: ["order id", "orderid", "mã đơn hàng", "ma don hang", "voucher code", "order code"],
-    customer_name: ["customer name", "customer full name", "tên khách hàng", "ten khach hang"],
-    phone: ["phone", "phone number", "sđt", "sdt"],
-    address: ["address", "địa chỉ", "dia chi"],
-    product: ["product", "product name", "sản phẩm", "san pham"],
-    amount: ["amount", "giá trị đơn", "gia tri don", "price"],
-  };
+// Normalize header string: trim and lowercase
+export function norm(h: string): string {
+  return h.trim().toLowerCase();
+}
+
+// Header labels with their internal keys and both language options
+const HEADER_MAPPINGS: Record<string, { en: string; vi: string }> = {
+  order_id: { en: "order id", vi: "mã đơn hàng" },
+  customer_name: { en: "customer name", vi: "tên khách hàng" },
+  phone: { en: "phone number", vi: "số điện thoại" },
+  address: { en: "address", vi: "địa chỉ" },
+  product: { en: "product", vi: "sản phẩm" },
+  amount: { en: "amount (vnd)", vi: "thành tiền (vnđ)" },
+};
+
+// Required columns (address is optional)
+const REQUIRED_COLUMNS = ["order_id", "customer_name", "phone", "product", "amount"];
+
+// Human-friendly display names for error messages
+const DISPLAY_NAMES: Record<string, { en: string; vi: string }> = {
+  order_id: { en: "Order ID", vi: "Mã đơn hàng" },
+  customer_name: { en: "Customer Name", vi: "Tên khách hàng" },
+  phone: { en: "Phone Number", vi: "Số điện thoại" },
+  address: { en: "Address", vi: "Địa chỉ" },
+  product: { en: "Product", vi: "Sản phẩm" },
+  amount: { en: "Amount (VND)", vi: "Thành tiền (VNĐ)" },
+};
+
+export function normalize(str: string) {
+  return str.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+// Heuristics to detect misnamed columns
+function detectMisnamedColumn(header: string, normalizedHeader: string, requiredKey: string): boolean {
+  const normalized = normalizedHeader;
   
-  export function normalize(str: string) {
-    return str.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  switch (requiredKey) {
+    case 'order_id':
+      return normalized.includes('order') && !normalized.includes('customer');
+    case 'customer_name':
+      return normalized.includes('cus') || normalized.includes('customer') || normalized.includes('name');
+    case 'phone':
+      return normalized.includes('phone') || normalized.includes('tel');
+    case 'product':
+      return normalized.includes('product') || normalized.includes('item');
+    case 'amount':
+      return normalized.includes('amount') || normalized.includes('money') || normalized.includes('price') || normalized.includes('total');
+    default:
+      return false;
+  }
+}
+
+export interface MisnamedColumn {
+  actual: string;
+  expected: string;
+}
+
+export interface HeaderValidationResult {
+  mapping: Record<string, string>;
+  error?: string;
+  missingRequired?: string[];
+  misnamed?: MisnamedColumn[];
+}
+
+export function validateAndMapHeaders(headers: string[]): HeaderValidationResult {
+  // Build mapping by matching each header against known labels
+  const mapping: Record<string, string> = {};
+  const normalizedHeaders = headers.map(h => normalize(h));
+  const unmatchedHeaders: Array<{ original: string; normalized: string }> = [];
+  
+  // For each known column, try to find a matching header
+  for (const [key, labels] of Object.entries(HEADER_MAPPINGS)) {
+    const normalizedEn = normalize(labels.en);
+    const normalizedVi = normalize(labels.vi);
+    
+    // Find matching header (case-insensitive, accent-insensitive)
+    const matchedIndex = normalizedHeaders.findIndex(
+      h => h === normalizedEn || h === normalizedVi
+    );
+    
+    if (matchedIndex !== -1) {
+      // Store the original header name for data extraction
+      mapping[key] = headers[matchedIndex];
+    }
   }
   
-  export function buildHeaderMapping(headers: string[]) {
-    const mapping: Record<string, string> = {};
-    const normalizedHeaders = headers.map((h) => normalize(h));
+  // Collect unmatched headers for misnamed detection
+  const matchedHeaderIndices = new Set<number>();
+  for (const [key, labels] of Object.entries(HEADER_MAPPINGS)) {
+    const normalizedEn = normalize(labels.en);
+    const normalizedVi = normalize(labels.vi);
+    const matchedIndex = normalizedHeaders.findIndex(
+      h => h === normalizedEn || h === normalizedVi
+    );
+    if (matchedIndex !== -1) {
+      matchedHeaderIndices.add(matchedIndex);
+    }
+  }
   
-    for (const key in REQUIRED_HEADERS) {
-      const aliases = REQUIRED_HEADERS[key];
+  headers.forEach((original, idx) => {
+    if (!matchedHeaderIndices.has(idx)) {
+      unmatchedHeaders.push({ original, normalized: normalizedHeaders[idx] });
+    }
+  });
   
-      const matched = normalizedHeaders.find((col) =>
-        aliases.map(normalize).includes(col)
-      );
+  // Detect misnamed columns using heuristics
+  const misnamed: MisnamedColumn[] = [];
+  const matchedForMisnamed = new Set<string>(); // Track which required columns have misnamed candidates
   
-      if (matched) {
-        const realIndex = normalizedHeaders.indexOf(matched);
-        mapping[key] = headers[realIndex]; // real column name
-      } else {
-        mapping[key] = ""; // left blank → invalid detection
+  for (const requiredKey of REQUIRED_COLUMNS) {
+    if (!mapping[requiredKey]) {
+      // Try to find a misnamed candidate
+      for (const { original, normalized } of unmatchedHeaders) {
+        if (detectMisnamedColumn(original, normalized, requiredKey)) {
+          const display = DISPLAY_NAMES[requiredKey];
+          misnamed.push({
+            actual: original,
+            expected: display.en
+          });
+          matchedForMisnamed.add(requiredKey);
+          break; // Only one misnamed per required column
+        }
       }
     }
-  
-    return mapping;
   }
+  
+  // Check for missing required columns (exclude those that have misnamed candidates)
+  const missingRequired: string[] = [];
+  for (const key of REQUIRED_COLUMNS) {
+    if (!mapping[key] && !matchedForMisnamed.has(key)) {
+      const display = DISPLAY_NAMES[key];
+      missingRequired.push(display.en);
+    }
+  }
+  
+  // Build error message if there are issues
+  if (missingRequired.length > 0 || misnamed.length > 0) {
+    const parts: string[] = [];
+    
+    if (missingRequired.length > 0 && misnamed.length === 0) {
+      parts.push(`We couldn't import this file. Missing required columns: ${missingRequired.join(", ")}.`);
+    } else if (missingRequired.length === 0 && misnamed.length > 0) {
+      const misnamedList = misnamed.map(m => `"${m.actual}" → should be ${m.expected}`).join(", ");
+      parts.push(`We couldn't import this file. Some column names are invalid: ${misnamedList}.`);
+    } else {
+      // Both missing and misnamed
+      parts.push(`We couldn't import this file.`);
+      if (missingRequired.length > 0) {
+        parts.push(`Missing required columns: ${missingRequired.join(", ")}.`);
+      }
+      if (misnamed.length > 0) {
+        parts.push(`Columns with invalid names:\n${misnamed.map(m => `"${m.actual}" → should be ${m.expected}`).join('\n')}`);
+      }
+    }
+    
+    return {
+      mapping: {},
+      error: parts.join('\n'),
+      missingRequired,
+      misnamed
+    };
+  }
+  
+  return { mapping };
+}
+
+// Legacy function for backward compatibility (deprecated)
+export function buildHeaderMapping(headers: string[]) {
+  const result = validateAndMapHeaders(headers);
+  if (result.error) {
+    // Return empty mapping if validation fails
+    return Object.keys(HEADER_MAPPINGS).reduce((acc, key) => {
+      acc[key] = "";
+      return acc;
+    }, {} as Record<string, string>);
+  }
+  return result.mapping;
+}
+
+export function validateRequiredHeaders(mapping: Record<string, string>): string[] {
+  const required = ['order_id', 'customer_name', 'phone', 'product', 'amount'];
+  const missing: string[] = [];
+  
+  for (const key of required) {
+    if (!mapping[key] || mapping[key] === '') {
+      // Get display name for the missing header
+      const displayNames: Record<string, string> = {
+        order_id: 'Order ID',
+        customer_name: 'Customer Name',
+        phone: 'Phone Number',
+        product: 'Product',
+        amount: 'Amount (VND)'
+      };
+      missing.push(displayNames[key] || key);
+    }
+  }
+  
+  return missing;
+}
   

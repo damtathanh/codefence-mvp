@@ -517,10 +517,10 @@ export const ProductsPage: React.FC = () => {
 
   if (loading && products.length === 0) {
     return (
-      <div className="space-y-6">
-        <Card>
-          <CardContent className="p-12 text-center">
-            <p className="text-[#E5E7EB]/70">Loading products...</p>
+      <div className="flex flex-col h-full min-h-0">
+        <Card className="flex-1 flex flex-col min-h-0">
+          <CardContent className="flex-1 flex items-center justify-center">
+            <p className="text-[var(--text-muted)]">Loading products...</p>
           </CardContent>
         </Card>
       </div>
@@ -529,11 +529,11 @@ export const ProductsPage: React.FC = () => {
 
   if (error) {
     return (
-      <div className="space-y-6">
-        <Card>
-          <CardContent className="p-12 text-center">
-            <p className="text-red-400">Error: {error}</p>
-            <Button onClick={() => window.location.reload()} className="mt-4">
+      <div className="flex flex-col h-full min-h-0">
+        <Card className="flex-1 flex flex-col min-h-0">
+          <CardContent className="flex-1 flex flex-col items-center justify-center">
+            <p className="text-red-400 mb-4">Error: {error}</p>
+            <Button onClick={() => window.location.reload()}>
               Retry
             </Button>
           </CardContent>
@@ -543,111 +543,107 @@ export const ProductsPage: React.FC = () => {
   }
 
   return (
-    <div className="w-full max-w-full space-y-6">
+    <div className="flex flex-col h-full min-h-0 gap-6">
       {/* Filters */}
-      <Card>
-        <CardHeader className="!pt-4 !pb-3 !px-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <CardTitle className="flex items-center gap-2">
-              <Filter size={20} />
+      <Card className="flex-shrink-0">
+        <CardHeader className="!pt-3 !pb-2 !px-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Filter size={18} />
               Filters
             </CardTitle>
-            <Button onClick={openAddModal} className="w-full sm:w-auto">
-              <Plus size={20} className="mr-2" />
+            <Button onClick={openAddModal} size="sm" className="w-full sm:w-auto">
+              <Plus size={16} className="mr-2" />
               Add Product
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="!pt-0 !px-6 !pb-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <CardContent className="!pt-0 !px-4 !pb-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <Input
-              label="Search by Name"
-              placeholder="Enter product name..."
+              placeholder="Search by product name…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
+              className="h-10 !py-2"
             />
-            <div>
-              <label className="block text-sm font-medium text-[#E5E7EB]/90 mb-2">Category</label>
-              <div className="relative">
-                <select
-                  value={categoryFilter}
-                  onChange={(e) => setCategoryFilter(e.target.value)}
-                  className="w-full pr-10 px-4 py-3 bg-white/10 backdrop-blur-md border border-white/20 rounded-lg text-[#E5E7EB] appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
-                >
-                  <option value="all">All Categories</option>
-                  {PRODUCT_CATEGORIES.map(group => (
-                    <optgroup key={group.groupName} label={group.groupName}>
-                      {group.categories.map(category => (
-                        <option key={category.slug} value={category.slug}>
-                          {category.displayName}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ))}
-                  {existingCategories.length > 0 && (
-                    <optgroup label="Other Categories">
-                      {existingCategories.map(category => (
-                        <option key={category} value={category}>
-                          {getCategoryDisplayName(category)}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                </select>
-                <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                </svg>
-              </div>
+            <div className="relative">
+              <select
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+                className="w-full h-10 pr-10 px-3 py-2 bg-white/10 backdrop-blur-md border border-white/20 rounded-lg text-[#E5E7EB] text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
+              >
+                <option value="all">All Categories</option>
+                {PRODUCT_CATEGORIES.map(group => (
+                  <optgroup key={group.groupName} label={group.groupName}>
+                    {group.categories.map(category => (
+                      <option key={category.slug} value={category.slug}>
+                        {category.displayName}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+                {existingCategories.length > 0 && (
+                  <optgroup label="Other Categories">
+                    {existingCategories.map(category => (
+                      <option key={category} value={category}>
+                        {getCategoryDisplayName(category)}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+              <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+              </svg>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-[#E5E7EB]/90 mb-2">Status</label>
-              <div className="relative">
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="w-full pr-10 px-4 py-3 bg-white/10 backdrop-blur-md border border-white/20 rounded-lg text-[#E5E7EB] appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
-                >
-                  <option value="all">All Status</option>
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                </select>
-                <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                </svg>
-              </div>
+            <div className="relative">
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="w-full h-10 pr-10 px-3 py-2 bg-white/10 backdrop-blur-md border border-white/20 rounded-lg text-[#E5E7EB] text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
+              >
+                <option value="all">All Status</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+              <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+              </svg>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      <Card className="overflow-hidden">
-        <CardContent className="p-0">
-          <div className="px-6 pb-3 pt-4 border-b border-[#1E223D] flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <button
-                onClick={handleSelectAll}
-                className="text-sm text-[#E5E7EB]/70 hover:text-[#E5E7EB] transition"
-              >
-                {selectedIds.size === filteredProducts.length && filteredProducts.length > 0
-                  ? 'Deselect All'
-                  : 'Select All'}
-              </button>
+      <Card className="flex-1 flex flex-col min-h-0">
+        <CardHeader className="!pt-4 !pb-3 !px-6 flex-shrink-0">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={handleSelectAll}
+                  className="text-sm text-[var(--text-muted)] hover:text-[var(--text-main)] transition"
+                >
+                  {selectedIds.size === filteredProducts.length && filteredProducts.length > 0
+                    ? 'Deselect All'
+                    : 'Select All'}
+                </button>
+                {selectedIds.size > 0 && (
+                  <span className="text-sm text-[var(--text-muted)]">
+                    {selectedIds.size} selected
+                  </span>
+                )}
+              </div>
               {selectedIds.size > 0 && (
-                <span className="text-sm text-[#E5E7EB]/70">
-                  {selectedIds.size} selected
-                </span>
+                <button
+                  onClick={handleDeleteAllClick}
+                  className="px-4 py-2 text-sm font-semibold rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-400 hover:text-red-300 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-red-500/50 focus:ring-offset-2 focus:ring-offset-[#0B0F28] flex items-center gap-2"
+                >
+                  <Trash2 size={16} />
+                  Delete All
+                </button>
               )}
             </div>
-            {selectedIds.size > 0 && (
-              <button
-                onClick={handleDeleteAllClick}
-                className="px-4 py-2 text-sm font-semibold rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-400 hover:text-red-300 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-red-500/50 focus:ring-offset-2 focus:ring-offset-[#0B0F28] flex items-center gap-2"
-              >
-                <Trash2 size={16} />
-                Delete All
-              </button>
-            )}
-          </div>
+        </CardHeader>
+        <CardContent className="flex-1 min-h-0 overflow-y-auto p-0">
           <div className="w-full max-w-full overflow-x-auto scrollbar-thin scrollbar-thumb-[#1E223D] scrollbar-track-transparent">
             <table className="min-w-[1100px] w-full border-separate border-spacing-0">
               <thead>

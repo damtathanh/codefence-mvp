@@ -5,6 +5,27 @@
 @tailwind utilities;
 
 /* ===============================
+   🎨 BRAND DESIGN TOKENS
+=================================*/
+:root {
+  /* Brand */
+  --color-brand: #8B5CF6;
+  --color-brand-soft: #EDE9FE;
+
+  /* Dark neutrals – default theme */
+  --bg-page: #020617;
+  --bg-sidebar: #050816;
+  --bg-card: #0B1020;
+  --bg-card-soft: #111827;
+
+  --text-main: #E5E7EB;
+  --text-muted: #9CA3AF;
+
+  --border-subtle: rgba(30,64,175,0.45);
+  --border-strong: rgba(148,163,184,0.9);
+}
+
+/* ===============================
    🌌 BASE CONFIGURATION
 =================================*/
 @layer base {

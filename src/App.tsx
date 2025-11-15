@@ -26,7 +26,6 @@ import { SettingsPage } from "./pages/dashboard/SettingsPage";
 import { AdminDashboard } from "./pages/admin/AdminDashboard";
 import { AdminMessagePage } from "./pages/admin/AdminMessagePage";
 import { ToastProvider } from "./components/ui";
-import { ThemeProvider } from "./context/ThemeContext";
 
 // Layout wrapper for public routes
 const PublicLayout = () => {
@@ -85,80 +84,78 @@ function App() {
 
   return (
     <ErrorBoundary>
-      <ThemeProvider>
-        <ToastProvider>
-          <AuthProvider>
-            <Router>
-              <ScrollToTop />
-              <ScrollToSectionHandler />
-              <AutoLogoutWrapper />
+      <ToastProvider>
+        <AuthProvider>
+          <Router>
+            <ScrollToTop />
+            <ScrollToSectionHandler />
+            <AutoLogoutWrapper />
 
-              <Routes>
-                {/* Auth callback route - must be outside PublicLayout to handle redirects properly */}
-                <Route path="/auth/callback" element={<AuthCallback />} />
+            <Routes>
+              {/* Auth callback route - must be outside PublicLayout to handle redirects properly */}
+              <Route path="/auth/callback" element={<AuthCallback />} />
 
-                {/* Public routes */}
-                <Route path="/*" element={<PublicLayout />} />
+              {/* Public routes */}
+              <Route path="/*" element={<PublicLayout />} />
 
-                {/* Protected dashboard routes */}
-                <Route
-                  path="/dashboard/*"
-                  element={
-                    <ProtectedRoute>
-                      <DashboardRouter />
-                    </ProtectedRoute>
-                  }
-                >
-                  <Route index element={<DashboardPage />} />
-                  <Route path="analytics" element={<AnalyticsPage />} />
-                  <Route path="products" element={<ProductsPage />} />
-                  <Route path="orders" element={<OrdersPage />} />
-                  <Route path="invoice" element={<InvoicePage />} />
-                  <Route path="history" element={<HistoryPage />} />
-                  <Route path="message" element={<MessagePage />} />
-                  <Route path="settings" element={<SettingsPage />} />
-                </Route>
+              {/* Protected dashboard routes */}
+              <Route
+                path="/dashboard/*"
+                element={
+                  <ProtectedRoute>
+                    <DashboardRouter />
+                  </ProtectedRoute>
+                }
+              >
+                <Route index element={<DashboardPage />} />
+                <Route path="analytics" element={<AnalyticsPage />} />
+                <Route path="products" element={<ProductsPage />} />
+                <Route path="orders" element={<OrdersPage />} />
+                <Route path="invoice" element={<InvoicePage />} />
+                <Route path="history" element={<HistoryPage />} />
+                <Route path="message" element={<MessagePage />} />
+                <Route path="settings" element={<SettingsPage />} />
+              </Route>
 
-                {/* Admin dashboard routes */}
-                <Route
-                  path="/admin/*"
-                  element={
-                    <ProtectedRoute>
-                      <DashboardRouter />
-                    </ProtectedRoute>
-                  }
-                >
-                  <Route index element={<Navigate to="/admin/dashboard" replace />} />
-                  <Route path="dashboard" element={<AdminDashboard />} />
-                  <Route path="analytics" element={<AdminDashboard />} />
-                  <Route path="message" element={<AdminMessagePage />} />
-                  <Route path="settings" element={<SettingsPage />} />
-                </Route>
+              {/* Admin dashboard routes */}
+              <Route
+                path="/admin/*"
+                element={
+                  <ProtectedRoute>
+                    <DashboardRouter />
+                  </ProtectedRoute>
+                }
+              >
+                <Route index element={<Navigate to="/admin/dashboard" replace />} />
+                <Route path="dashboard" element={<AdminDashboard />} />
+                <Route path="analytics" element={<AdminDashboard />} />
+                <Route path="message" element={<AdminMessagePage />} />
+                <Route path="settings" element={<SettingsPage />} />
+              </Route>
 
-                {/* User dashboard route - redirects to /dashboard (role-based rendering handles the rest) */}
-                <Route
-                  path="/user/dashboard"
-                  element={
-                    <ProtectedRoute>
-                      <Navigate to="/dashboard" replace />
-                    </ProtectedRoute>
-                  }
-                />
+              {/* User dashboard route - redirects to /dashboard (role-based rendering handles the rest) */}
+              <Route
+                path="/user/dashboard"
+                element={
+                  <ProtectedRoute>
+                    <Navigate to="/dashboard" replace />
+                  </ProtectedRoute>
+                }
+              />
 
-                {/* Settings route - accessible from header dropdown */}
-                <Route
-                  path="/settings"
-                  element={
-                    <ProtectedRoute>
-                      <Navigate to="/dashboard/settings" replace />
-                    </ProtectedRoute>
-                  }
-                />
-              </Routes>
-            </Router>
-          </AuthProvider>
-        </ToastProvider>
-      </ThemeProvider>
+              {/* Settings route - accessible from header dropdown */}
+              <Route
+                path="/settings"
+                element={
+                  <ProtectedRoute>
+                    <Navigate to="/dashboard/settings" replace />
+                  </ProtectedRoute>
+                }
+              />
+            </Routes>
+          </Router>
+        </AuthProvider>
+      </ToastProvider>
     </ErrorBoundary>
   );
 }

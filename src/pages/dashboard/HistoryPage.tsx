@@ -55,48 +55,47 @@ export const HistoryPage: React.FC = () => {
   };
 
   return (
-    <div className="w-full max-w-full space-y-6">
-
+    <div className="flex flex-col h-full min-h-0 gap-6">
       {/* Filters */}
-      <Card>
-        <CardHeader className="!pt-4 !pb-3 !px-6">
-          <CardTitle className="flex items-center gap-2">
-            <Filter size={20} />
+      <Card className="flex-shrink-0">
+        <CardHeader className="!pt-3 !pb-2 !px-4">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Filter size={18} />
             Filters
           </CardTitle>
         </CardHeader>
-        <CardContent className="!pt-0 !px-6 !pb-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-[#E5E7EB]/90 mb-2">Status</label>
-              <div className="relative">
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="w-full pr-10 px-4 py-3 bg-white/10 backdrop-blur-md border border-white/20 rounded-lg text-[#E5E7EB] appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
-                >
-                  <option value="all">All Status</option>
-                  <option value="success">Success</option>
-                  <option value="failed">Failed</option>
-                </select>
-                <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                </svg>
-              </div>
+        <CardContent className="!pt-0 !px-4 !pb-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="relative">
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="w-full h-10 pr-10 px-3 py-2 bg-white/10 backdrop-blur-md border border-white/20 rounded-lg text-[#E5E7EB] text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
+              >
+                <option value="all">All Status</option>
+                <option value="success">Success</option>
+                <option value="failed">Failed</option>
+              </select>
+              <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+              </svg>
             </div>
             <Input
-              label="Date"
               type="date"
               value={dateFilter}
               onChange={(e) => setDateFilter(e.target.value)}
+              className="h-10 !py-2"
             />
           </div>
         </CardContent>
       </Card>
 
       {/* History Logs */}
-      <Card className="overflow-hidden">
-        <CardContent className="p-0">
+      <Card className="flex-1 flex flex-col min-h-0">
+        <CardHeader className="!pt-4 !pb-3 !px-6 flex-shrink-0">
+          <CardTitle>History Logs</CardTitle>
+        </CardHeader>
+        <CardContent className="flex-1 min-h-0 overflow-y-auto p-0">
           <div className="w-full max-w-full overflow-x-auto scrollbar-thin scrollbar-thumb-[#1E223D] scrollbar-track-transparent">
             {error ? (
               <div className="p-12 text-center">
@@ -156,7 +155,7 @@ export const HistoryPage: React.FC = () => {
                   </tbody>
                 </table>
                 {filteredLogs.length === 0 && !loading && (
-                  <div className="p-12 text-center text-[#E5E7EB]/70">
+                  <div className="p-12 text-center text-[var(--text-muted)]">
                     {logs.length === 0
                       ? 'No history records found.'
                       : 'No records match your filters.'}

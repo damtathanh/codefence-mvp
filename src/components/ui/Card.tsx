@@ -13,7 +13,7 @@ export const Card: React.FC<CardProps> = ({
 }) => {
   return (
     <div
-      className={`${glass ? 'bg-gradient-to-br from-[#12163A]/80 to-[#181C3B]/80 backdrop-blur-sm' : 'bg-white/5'} rounded-lg border border-[#1E223D] shadow-lg ${className}`}
+      className={`${glass ? 'bg-[var(--bg-card)] backdrop-blur-sm' : 'bg-[var(--bg-card-soft)]'} rounded-lg border border-[var(--border-subtle)] shadow-lg ${className}`}
     >
       {children}
     </div>
@@ -36,7 +36,7 @@ export const CardTitle: React.FC<{
   className?: string;
 }> = ({ children, className = '' }) => {
   return (
-    <h3 className={`text-lg font-semibold text-[#E5E7EB] ${className}`}>
+    <h3 className={`text-lg font-semibold text-[var(--text-main)] ${className}`}>
       {children}
     </h3>
   );
@@ -47,7 +47,7 @@ export const CardDescription: React.FC<{
   className?: string;
 }> = ({ children, className = '' }) => {
   return (
-    <p className={`text-sm text-[#E5E7EB]/70 mt-1 ${className}`}>
+    <p className={`text-sm text-[var(--text-muted)] mt-1 ${className}`}>
       {children}
     </p>
   );
