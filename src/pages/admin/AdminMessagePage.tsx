@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "../../components/ui/Card";
 import { Input } from "../../components/ui/Input";
 import { Button } from "../../components/ui/Button";
@@ -11,8 +11,9 @@ import { uploadFile } from "../../utils/uploadFile";
 import { supabase } from "../../lib/supabaseClient";
 import { useToast } from "../../components/ui/Toast";
 import type { Message, UserProfile } from "../../types/supabase";
-
-const SYSTEM_BOT_ID = "75ece53b-1a93-451d-87ee-5e19427eb741";
+import { SYSTEM_BOT_ID } from "../../constants/messages";
+import { useMessageScroll } from "../../utils/messageScroll";
+import { useImageLoadScroll } from "../../hooks/useImageLoadScroll";
 
 interface ConversationUser {
   id: string;
@@ -53,28 +54,13 @@ export const AdminMessagePage: React.FC = () => {
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const inboxDebounceRef = useRef<NodeJS.Timeout | null>(null);
-  const shouldAutoScroll = useRef(true);
+  const isUserScrollingUp = useRef(false);
 
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
-    const c = messagesContainerRef.current;
-    if (c) {
-      const raf = typeof requestAnimationFrame === "function" ? requestAnimationFrame : ((cb: FrameRequestCallback) => setTimeout(cb, 0));
-      raf(() => {
-        raf(() => {
-          try {
-            c.scrollTo({ top: c.scrollHeight, behavior });
-          } catch {
-            c.scrollTop = c.scrollHeight;
-          }
-        });
-      });
-    } else {
-      const raf = typeof requestAnimationFrame === "function" ? requestAnimationFrame : ((cb: FrameRequestCallback) => setTimeout(cb, 0));
-      raf(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior });
-      });
-    }
-  }, []);
+  const { scrollToBottom, handleScroll } = useMessageScroll(
+    messagesContainerRef,
+    isUserScrollingUp,
+    80
+  );
   
   // Load admin ids & profiles
   useEffect(() => {
@@ -282,7 +268,7 @@ export const AdminMessagePage: React.FC = () => {
       all.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
       setMessages(all);
       messagesCache.current[userId] = all;
-      shouldAutoScroll.current = true;
+      isUserScrollingUp.current = false;
       scrollToBottom("auto");
 
       // mark unread user->admin messages as read (admin opened)
@@ -356,6 +342,13 @@ export const AdminMessagePage: React.FC = () => {
     }
   }, [adminIds, fetchInbox]);
 
+  // Auto-scroll when conversation is selected
+  useEffect(() => {
+    if (!selectedUser) return;
+    isUserScrollingUp.current = false;
+    scrollToBottom("auto");
+  }, [selectedUser, scrollToBottom]);
+
   // Fetch messages when selectedUser changes (with cache guard)
   useEffect(() => {
     if (!selectedUser) return;
@@ -370,7 +363,7 @@ export const AdminMessagePage: React.FC = () => {
       (convoLast && (!cachedLast || cachedLast.id !== convoLast.id));
 
     if (cached) {
-      shouldAutoScroll.current = true;
+      isUserScrollingUp.current = false;
       setMessages(cached);
       scrollToBottom("auto");
     }
@@ -378,7 +371,7 @@ export const AdminMessagePage: React.FC = () => {
     if (needsRefresh) {
       safeFetchMessagesForUser(selectedUser);
     }
-  }, [selectedUser, conversations, safeFetchMessagesForUser]);
+  }, [selectedUser, conversations, safeFetchMessagesForUser, scrollToBottom]);
 
   // initial fetch + realtime subscription
   useEffect(() => {
@@ -453,10 +446,10 @@ export const AdminMessagePage: React.FC = () => {
     };
   }, [debouncedFetchInbox]);
 
-  // auto-scroll on messages change
-  useLayoutEffect(() => {
-    if (!shouldAutoScroll.current) return;
-    scrollToBottom("auto");
+  // Auto-scroll on messages change
+  useEffect(() => {
+    if (!messages || messages.length === 0) return;
+    if (!isUserScrollingUp.current) scrollToBottom("auto");
   }, [messages, scrollToBottom]);
 
   useEffect(() => {
@@ -467,37 +460,8 @@ export const AdminMessagePage: React.FC = () => {
     };
   }, []);
 
-  useEffect(() => {
-    const images = document.querySelectorAll<HTMLImageElement>(".chat-image");
-    if (images.length === 0) return;
-
-    let loaded = 0;
-    const maybeScroll = () => {
-      loaded += 1;
-      if (loaded === images.length && shouldAutoScroll.current) {
-        scrollToBottom("smooth");
-      }
-    };
-
-    const cleanups: Array<() => void> = [];
-
-    images.forEach((img) => {
-      if (img.complete) {
-        maybeScroll();
-      } else {
-        const handleLoad = () => {
-          maybeScroll();
-          img.removeEventListener("load", handleLoad);
-        };
-        img.addEventListener("load", handleLoad);
-        cleanups.push(() => img.removeEventListener("load", handleLoad));
-      }
-    });
-
-    return () => {
-      cleanups.forEach((cleanup) => cleanup());
-    };
-  }, [messages, scrollToBottom]);
+  // Auto-scroll when images load (to account for layout shifts)
+  useImageLoadScroll(messagesContainerRef, isUserScrollingUp, scrollToBottom, [messages, scrollToBottom]);
 
   // send admin reply
   const handleSend = async (e?: React.FormEvent) => {
@@ -541,7 +505,7 @@ export const AdminMessagePage: React.FC = () => {
         created_at: new Date().toISOString(),
       } as unknown as Message;
 
-      shouldAutoScroll.current = true;
+      isUserScrollingUp.current = false;
       setMessages((prev) => {
         const next = [...prev, optimisticMessage] as Message[];
         messagesCache.current[selectedUser] = next;
@@ -622,20 +586,20 @@ export const AdminMessagePage: React.FC = () => {
   };
 
   return (
-    <div className="flex h-full w-full min-w-0">
-      {/* Left: Inbox */}
-      <div className="w-80 flex-shrink-0 border-r border-[#1E223D]">
-        <Card className="h-full rounded-none border-0">
-          <CardHeader className="border-b border-[#1E223D]">
+    <div className="flex flex-col h-full space-y-2">
+      <div className="flex-1 grid grid-cols-[minmax(260px,320px)_minmax(0,1fr)] gap-6 min-h-0">
+        {/* Left: Inbox */}
+        <Card className="flex flex-col h-full min-h-0">
+          <CardHeader className="border-b border-[#1E223D] px-3 !py-2">
             <CardTitle className="text-lg">Inbox</CardTitle>
           </CardHeader>
-          <CardContent className="p-0">
+          <CardContent className="flex-1 min-h-0 p-0">
             {loadingConversations ? (
               <div className="p-4 text-center text-[#E5E7EB]/70">Loading...</div>
             ) : conversations.length === 0 ? (
               <div className="p-4 text-center text-[#E5E7EB]/70">No conversations</div>
             ) : (
-              <div className="divide-y divide-[#1E223D]">
+              <div className="h-full overflow-y-auto space-y-2">
                 {conversations.map((c) => {
                   const isSel = c.id === selectedUser;
                   const hasUnread = c.unreadCount > 0;
@@ -644,7 +608,7 @@ export const AdminMessagePage: React.FC = () => {
                     <button
                       key={c.id}
                       onClick={() => {
-                        shouldAutoScroll.current = true;
+                        isUserScrollingUp.current = false;
                         setPreviewSrc(null);
                         setSelectedUser(c.id);
                         setSelectedDisplayName(c.displayName);
@@ -681,81 +645,77 @@ export const AdminMessagePage: React.FC = () => {
             )}
           </CardContent>
         </Card>
-      </div>
 
-      {/* Right: Chat */}
-      <div className="flex-1 flex flex-col min-w-0">
+        {/* Right: Chat */}
         {selectedUser ? (
-          <Card className="h-full rounded-none border-0 flex flex-col">
-            <CardHeader className="border-b border-[#1E223D]">
+          <Card className="flex flex-col h-full min-h-0">
+            <CardHeader className="border-b border-[#1E223D] px-3 !py-2">
               <CardTitle>
                 {selectedDisplayName ??
                   conversations.find((x) => x.id === selectedUser)?.displayName ??
                   "User"}
               </CardTitle>
             </CardHeader>
-            <CardContent className="flex-1 flex flex-col !p-0 min-h-0">
-              <div
-                className="flex-1 overflow-y-auto p-4 space-y-3 bg-[#0B0F28]"
-                ref={messagesContainerRef}
-                onScroll={(e) => {
-                  const el = e.currentTarget;
-                  shouldAutoScroll.current =
-                    el.scrollTop + el.clientHeight >= el.scrollHeight - 20;
-                }}
-              >
-                {messagesLoading ? (
-                  <div className="text-center text-[#E5E7EB]/70 py-8">Loading messages...</div>
-                ) : messages.length === 0 ? (
-                  <div className="text-center text-[#E5E7EB]/70 py-8">No messages</div>
-                ) : (
-                  messages.map((m) => {
-                    const isAdmin = adminIds.includes(m.sender_id) || m.sender_id === SYSTEM_BOT_ID;
-                    const isSystem = m.system_message;
-                    const isImage = !!m.attachment_url?.match(/\.(jpg|jpeg|png|gif|webp)$/i);
-                    const adminName = isAdmin ? getAdminName(m.sender_id) : undefined;
-                    return (
-                      <div key={m.id} className={`flex ${isAdmin ? "justify-end" : "justify-start"}`}>
-                        <div className={`max-w-[70%] rounded-2xl px-4 py-2 ${isSystem ? "bg-[#2A2E45] text-[#9CA3AF] italic" : isAdmin ? "bg-gradient-to-r from-[#8B5CF6] to-[#6D28D9] text-white" : "bg-gradient-to-r from-[#2563EB] to-[#1E3A8A] text-white"}`}>
-                          {m.attachment_url && (
-                            <div className="mb-2">
-                              {isImage ? (
-                                <img
-                                  src={m.attachment_url}
-                                  alt="attachment"
-                                  className="chat-image max-w-[200px] max-h-[200px] rounded-lg object-cover cursor-pointer"
-                                  onClick={() => setPreviewSrc(m.attachment_url || null)}
-                                />
-                              ) : (
-                                <a href={m.attachment_url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-white/90 hover:text-white">
-                                  <File size={16} /><span className="text-sm truncate">{m.attachment_url.split("/").pop()}</span> <Download size={14} />
-                                </a>
-                              )}
-                            </div>
-                          )}
-                          {m.message && <p className="text-sm">{m.message}</p>}
-                          <p className={`text-xs mt-1 ${isSystem ? "text-[#9CA3AF]" : "text-white/70"} ${isAdmin ? "text-right" : ""}`}>
-                            {isAdmin && !isSystem ? formatMessageTimestampWithName(m.created_at, adminName || "Admin") : formatMessageTimestamp(m.created_at)}
-                          </p>
+            <CardContent className="flex flex-col flex-1 min-h-0 !p-0">
+              <div className="flex flex-col flex-1 min-h-0">
+                <div
+                  className="flex-1 overflow-y-auto min-h-0 p-4 space-y-4 pr-2 bg-[#0B0F28]"
+                  ref={messagesContainerRef}
+                  onScroll={handleScroll}
+                >
+                  {messagesLoading ? (
+                    <div className="text-center text-[#E5E7EB]/70 py-8">Loading messages...</div>
+                  ) : messages.length === 0 ? (
+                    <div className="text-center text-[#E5E7EB]/70 py-8">No messages</div>
+                  ) : (
+                    messages.map((m) => {
+                      const isAdmin = adminIds.includes(m.sender_id) || m.sender_id === SYSTEM_BOT_ID;
+                      const isSystem = m.system_message;
+                      const isImage = !!m.attachment_url?.match(/\.(jpg|jpeg|png|gif|webp)$/i);
+                      const adminName = isAdmin ? getAdminName(m.sender_id) : undefined;
+                      return (
+                        <div key={m.id} className={`flex ${isAdmin ? "justify-end" : "justify-start"}`}>
+                          <div className={`max-w-[70%] rounded-2xl px-4 py-2 ${isSystem ? "bg-[#2A2E45] text-[#9CA3AF] italic" : isAdmin ? "bg-gradient-to-r from-[#8B5CF6] to-[#6D28D9] text-white" : "bg-gradient-to-r from-[#2563EB] to-[#1E3A8A] text-white"}`}>
+                            {m.attachment_url && (
+                              <div className="mb-2">
+                                {isImage ? (
+                                  <img
+                                    src={m.attachment_url}
+                                    alt="attachment"
+                                    className="chat-image max-w-[200px] max-h-[200px] rounded-lg object-cover cursor-pointer"
+                                    onClick={() => setPreviewSrc(m.attachment_url || null)}
+                                  />
+                                ) : (
+                                  <a href={m.attachment_url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-white/90 hover:text-white">
+                                    <File size={16} /><span className="text-sm truncate">{m.attachment_url.split("/").pop()}</span> <Download size={14} />
+                                  </a>
+                                )}
+                              </div>
+                            )}
+                            {m.message && <p className="text-sm">{m.message}</p>}
+                            <p className={`text-xs mt-1 ${isSystem ? "text-[#9CA3AF]" : "text-white/70"} ${isAdmin ? "text-right" : ""}`}>
+                              {isAdmin && !isSystem ? formatMessageTimestampWithName(m.created_at, adminName || "Admin") : formatMessageTimestamp(m.created_at)}
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })
-                )}
-                <div ref={messagesEndRef} />
-              </div>
+                      );
+                    })
+                  )}
+                  <div ref={messagesEndRef} />
+                </div>
 
-              <div className="border-t border-[#1E223D] p-3 bg-[#0B0F28]">
-                <FileUploader onFileSelect={setSelectedFile} onRemove={() => setSelectedFile(null)} selectedFile={selectedFile} />
-                <form onSubmit={handleSend} className="flex gap-2 mt-2">
-                  <Input placeholder="Type your reply..." value={newMessage} onChange={(e) => setNewMessage(e.target.value)} className="flex-1" disabled={uploading} />
-                  <Button type="submit" size="sm" disabled={uploading || (!newMessage.trim() && !selectedFile)} className="button-gradient"><Send size={18} /></Button>
-                </form>
+                <div className="pt-4 border-t border-white/5 p-3 bg-[#0B0F28]">
+                  <FileUploader onFileSelect={setSelectedFile} onRemove={() => setSelectedFile(null)} selectedFile={selectedFile} />
+                  <form onSubmit={handleSend} className="flex gap-2 mt-2">
+                    <Input placeholder="Type your reply..." value={newMessage} onChange={(e) => setNewMessage(e.target.value)} className="flex-1" disabled={uploading} />
+                    <Button type="submit" size="sm" disabled={uploading || (!newMessage.trim() && !selectedFile)} className="button-gradient"><Send size={18} /></Button>
+                  </form>
+                </div>
               </div>
             </CardContent>
           </Card>
         ) : (
-          <Card className="h-full rounded-none border-0">
+          <Card className="flex flex-col h-full min-h-0">
             <CardContent className="p-12 text-center text-[#E5E7EB]/70">Select a conversation to start messaging</CardContent>
           </Card>
         )}

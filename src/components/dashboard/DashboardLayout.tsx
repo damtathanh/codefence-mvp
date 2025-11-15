@@ -70,7 +70,9 @@ export const DashboardLayout: React.FC = () => {
   const isAdmin = isAdminByEmail(user);
   
   // Detect if current page is Message page (user or admin)
-  const isMessagePage = location.pathname.includes('/message');
+  const isMessagePage =
+    location.pathname.startsWith("/dashboard/message") ||
+    location.pathname.startsWith("/admin/message");
   const {
     data: supabaseNotifications,
     loading: notificationsLoading,
@@ -544,7 +546,7 @@ export const DashboardLayout: React.FC = () => {
       </aside>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col lg:ml-20 transition-all duration-300">
+      <div className="flex-1 flex flex-col lg:ml-20 transition-all duration-300 min-h-0">
         {/* Topbar */}
         <header className="h-16 bg-gradient-to-r from-[#12163A] to-[#181C3B] border-b border-[#1E223D] flex items-center justify-between px-6 sticky top-0 z-20">
           {/* Left side: Mobile Menu Button + Breadcrumb */}
@@ -679,20 +681,14 @@ export const DashboardLayout: React.FC = () => {
         </header>
 
         {/* Page Content */}
-        <main ref={mainContentRef} className="flex-1 flex flex-col overflow-hidden bg-[#0B0F28]">
-          <div className="flex-1 flex flex-col w-full min-w-0 bg-gradient-to-br from-[#0B0F28] via-[#12163A] to-[#181C3B]">
-            {isMessagePage ? (
-              <div className="flex-1 flex w-full min-w-0">
-                <Outlet context={outletContext} />
-              </div>
-            ) : (
-              <div className="flex-1 w-full max-w-screen-xl mx-auto px-6 py-6">
-                <Outlet context={outletContext} />
-              </div>
-            )}
+        <main
+          ref={mainContentRef}
+          className={`flex-1 min-h-0 bg-[#0B0F28] ${isMessagePage ? "overflow-hidden" : "overflow-y-auto"}`}
+        >
+          <div className={`w-full h-full ${isMessagePage ? "h-full flex flex-col" : ""} bg-gradient-to-br from-[#0B0F28] via-[#12163A] to-[#181C3B] px-6 py-6`}>
+            <Outlet context={outletContext} />
           </div>
         </main>
-
       </div>
 
       <AddOrderModal

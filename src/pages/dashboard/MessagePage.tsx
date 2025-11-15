@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "../../components/ui/Card";
 import { Input } from "../../components/ui/Input";
 import { Button } from "../../components/ui/Button";
@@ -11,10 +11,9 @@ import { uploadFile } from "../../utils/uploadFile";
 import { supabase } from "../../lib/supabaseClient";
 import { useToast } from "../../components/ui/Toast";
 import type { Message, UserProfile } from "../../types/supabase";
-
-const SYSTEM_BOT_ID = "75ece53b-1a93-451d-87ee-5e19427eb741";
-const SYSTEM_REPLY_TEXT = "Thanks for reaching out! Our support team will reply soon.";
-const SYSTEM_COOLDOWN_MINUTES = 15;
+import { SYSTEM_BOT_ID, SYSTEM_REPLY_TEXT, SYSTEM_COOLDOWN_MINUTES } from "../../constants/messages";
+import { useMessageScroll } from "../../utils/messageScroll";
+import { useImageLoadScroll } from "../../hooks/useImageLoadScroll";
 
 export const MessagePage: React.FC = () => {
   const { user } = useAuth();
@@ -28,33 +27,15 @@ export const MessagePage: React.FC = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
-  const shouldAutoScroll = useRef(true);
+  const isUserScrollingUp = useRef(false);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [previewSrc, setPreviewSrc] = useState<string | null>(null);
 
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
-    const raf =
-      typeof requestAnimationFrame === "function"
-        ? requestAnimationFrame
-        : (cb: FrameRequestCallback) => setTimeout(cb, 0);
-
-    const container = messagesContainerRef.current;
-    if (container) {
-      raf(() => {
-        raf(() => {
-          try {
-            container.scrollTo({ top: container.scrollHeight, behavior });
-          } catch {
-            container.scrollTop = container.scrollHeight;
-          }
-        });
-      });
-    } else {
-      raf(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior });
-      });
-    }
-  }, []);
+  const { scrollToBottom, handleScroll } = useMessageScroll(
+    messagesContainerRef,
+    isUserScrollingUp,
+    80
+  );
 
   useEffect(() => {
     if (!user) {
@@ -145,7 +126,7 @@ export const MessagePage: React.FC = () => {
 
       if (error) throw error;
       setMessages(data || []);
-      shouldAutoScroll.current = true;
+      isUserScrollingUp.current = false;
       scrollToBottom("auto");
 
       // mark admin->user messages as read (including system-bot messages)
@@ -218,47 +199,22 @@ export const MessagePage: React.FC = () => {
     };
   }, [fetchMessages]);
 
-  useLayoutEffect(() => {
-    if (!shouldAutoScroll.current) return;
-    scrollToBottom("auto");
-  }, [messages, scrollToBottom]);
-
   useEffect(() => {
-    const container = messagesContainerRef.current;
-    if (!container) return;
-    const images = container.querySelectorAll<HTMLImageElement>(".chat-image");
-    if (images.length === 0) return;
-
-    let loaded = 0;
-    const maybeScroll = () => {
-      loaded += 1;
-      if (loaded === images.length && shouldAutoScroll.current) {
-        scrollToBottom("smooth");
-      }
-    };
-
-    const cleanups: Array<() => void> = [];
-    images.forEach((img) => {
-      if (img.complete) {
-        maybeScroll();
-      } else {
-        const handleLoad = () => {
-          maybeScroll();
-          img.removeEventListener("load", handleLoad);
-        };
-        img.addEventListener("load", handleLoad);
-        cleanups.push(() => img.removeEventListener("load", handleLoad));
-      }
-    });
-
-    return () => {
-      cleanups.forEach((cleanup) => cleanup());
-    };
+    if (!messages || messages.length === 0) return;
+    if (!isUserScrollingUp.current) scrollToBottom("auto");
   }, [messages, scrollToBottom]);
 
-  // helper: check admin replies since timestamp
+  // Auto-scroll when images load (to account for layout shifts)
+  useImageLoadScroll(messagesContainerRef, isUserScrollingUp, scrollToBottom, [messages, scrollToBottom]);
+
+  /**
+   * Checks if any admin has replied to the user since a given timestamp
+   * Used to prevent system bot from auto-replying when an admin has already responded
+   * @param sinceIso - ISO timestamp to check from
+   * @returns true if admin replied, false otherwise
+   */
   const hasAdminReplySince = async (sinceIso: string) => {
-    // load admin ids
+    // Load all admin user IDs (role=admin or email ends with @codfence.com)
     const { data: admins } = await supabase
       .from("users_profile")
       .select("id")
@@ -267,6 +223,7 @@ export const MessagePage: React.FC = () => {
     const adminIds = (admins || []).map((a: any) => a.id);
     if (adminIds.length === 0) return false;
 
+    // Check if any admin sent a message to this user after the timestamp
     const { data } = await supabase
       .from("messages")
       .select("id,created_at")
@@ -278,7 +235,11 @@ export const MessagePage: React.FC = () => {
     return (data && data.length > 0);
   };
 
-  // helper: check last system message time for this user (from system-bot)
+  /**
+   * Gets the timestamp of the last system bot message for this user
+   * Used to enforce cooldown between auto-replies
+   * @returns ISO timestamp of last system message, or null if none exists
+   */
   const lastSystemMessage = async () => {
     const { data } = await supabase
       .from("messages")
@@ -291,7 +252,13 @@ export const MessagePage: React.FC = () => {
     return (data && data[0]) ? data[0].created_at : null;
   };
 
-  // insert system reply if allowed (cooldown + no admin reply)
+  /**
+   * Conditionally inserts a system bot reply to the user's message
+   * Only inserts if:
+   * 1. Cooldown period (SYSTEM_COOLDOWN_MINUTES) has passed since last system message
+   * 2. No admin has replied since the user's message
+   * @param lastUserMessageCreatedAtIso - Timestamp of the user's message that triggered this check
+   */
   const maybeInsertSystemReply = async (lastUserMessageCreatedAtIso: string) => {
     if (!user) return;
 
@@ -388,7 +355,7 @@ export const MessagePage: React.FC = () => {
         ];
         return next;
       });
-      shouldAutoScroll.current = true;
+      isUserScrollingUp.current = false;
       scrollToBottom("smooth");
 
       // After sending: maybe insert system reply (immediate, but subject to cooldown and if admin hasn't replied)
@@ -422,21 +389,17 @@ export const MessagePage: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col h-full w-full min-w-0">
-      <div className="flex-1 flex w-full min-h-0 min-w-0">
-        <Card className="flex flex-col h-full w-full overflow-hidden rounded-2xl shadow-2xl border-2 border-[#1E223D]/50">
-          <CardHeader className="!pt-2 !pb-2 !px-4 lg:!px-6 border-b border-[#1E223D]/30">
-            <CardTitle className="flex items-center gap-2 text-base"><Bot size={18} />Chat with CodFence Support Team</CardTitle>
-          </CardHeader>
-          <CardContent className="flex-1 flex flex-col !p-0 min-h-0">
+    <div className="flex flex-col h-full">
+      <Card className="flex flex-col flex-1 min-h-0 rounded-2xl shadow-2xl border-2 border-[#1E223D]/50">
+        <CardHeader className="!pt-2 !pb-2 !px-4 lg:!px-6 border-b border-[#1E223D]/30">
+          <CardTitle className="flex items-center gap-2 text-base"><Bot size={18} />Chat with CodFence Support Team</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col flex-1 min-h-0 !p-0">
+          <div className="flex flex-col flex-1 min-h-0">
             <div
-              className="flex-1 overflow-y-auto p-4 lg:p-5 space-y-3 bg-[#0B0F28]"
+              className="flex-1 overflow-y-auto p-4 lg:p-5 space-y-4 pr-2 bg-[#0B0F28]"
               ref={messagesContainerRef}
-              onScroll={(e) => {
-                const el = e.currentTarget;
-                shouldAutoScroll.current =
-                  el.scrollTop + el.clientHeight >= el.scrollHeight - 20;
-              }}
+              onScroll={handleScroll}
             >
               {messages.length === 0 ? (
                 <div className="text-center text-[#E5E7EB]/70 py-8">No messages yet. Start a conversation!</div>
@@ -475,16 +438,16 @@ export const MessagePage: React.FC = () => {
               <div ref={messagesEndRef} />
             </div>
 
-            <div className="border-t border-[#1E223D] p-3 lg:p-4 bg-[#0B0F28]">
+            <div className="pt-4 border-t border-white/5 p-3 lg:p-4 bg-[#0B0F28]">
               <FileUploader onFileSelect={setSelectedFile} onRemove={() => setSelectedFile(null)} selectedFile={selectedFile} />
               <form onSubmit={handleSend} className="flex gap-2 mt-2">
                 <Input placeholder="Type your message..." value={newMessage} onChange={(e) => setNewMessage(e.target.value)} className="flex-1" disabled={uploading} />
                 <Button type="submit" size="sm" disabled={uploading || (!newMessage.trim() && !selectedFile)} className="button-gradient"><Send size={18} /></Button>
               </form>
             </div>
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+        </CardContent>
+      </Card>
       {previewSrc && (
         <ImageModal
           src={previewSrc}

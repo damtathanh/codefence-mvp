@@ -313,11 +313,11 @@ export const SettingsPage: React.FC = () => {
   ];
 
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+    <div className="flex flex-col h-full min-h-0">
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6 min-h-0">
         {/* Sidebar */}
-        <Card>
-          <CardContent className="p-0">
+        <Card className="h-full">
+          <CardContent className="p-0 h-full">
             <nav className="space-y-1">
               {tabs.map((tab) => {
                 const Icon = tab.icon;
@@ -341,14 +341,14 @@ export const SettingsPage: React.FC = () => {
         </Card>
 
         {/* Content */}
-        <div className="lg:col-span-3">
+        <div className="flex flex-col min-h-0">
           {/* Profile Tab */}
           {activeTab === 'profile' && (
-            <Card>
-              <CardHeader>
+            <Card className="flex flex-col h-full min-h-0">
+              <CardHeader className="!py-2">
                 <CardTitle>Update Profile</CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="flex-1 overflow-y-auto min-h-0 space-y-4">
                 {(!ready || (profileLoading && user)) ? (
                   <div className="flex items-center justify-center py-8">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#8B5CF6]"></div>
@@ -402,11 +402,11 @@ export const SettingsPage: React.FC = () => {
 
           {/* Password Tab */}
           {activeTab === 'password' && (
-            <Card>
-              <CardHeader>
+            <Card className="flex flex-col h-full min-h-0">
+              <CardHeader className="!py-2">
                 <CardTitle>Change Password</CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="flex-1 overflow-y-auto min-h-0 space-y-4">
                 <form onSubmit={handlePasswordUpdate} className="space-y-4">
                   <Input
                     label="Current Password"
@@ -436,11 +436,11 @@ export const SettingsPage: React.FC = () => {
 
           {/* Security Tab */}
           {activeTab === 'security' && (
-            <Card>
-              <CardHeader>
+            <Card className="flex flex-col h-full min-h-0">
+              <CardHeader className="!py-2">
                 <CardTitle>Security Settings</CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="flex-1 overflow-y-auto min-h-0 space-y-6">
                 <div className="space-y-6">
                   <div className="flex items-center justify-between p-4 bg-white/5 rounded-lg">
                     <div>
@@ -472,11 +472,11 @@ export const SettingsPage: React.FC = () => {
 
           {/* Theme Tab */}
           {activeTab === 'theme' && (
-            <Card>
-              <CardHeader>
+            <Card className="flex flex-col h-full min-h-0">
+              <CardHeader className="!py-2">
                 <CardTitle>Theme Settings</CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="flex-1 overflow-y-auto min-h-0 space-y-6">
                 <div className="space-y-6">
                   <div>
                     <h3 className="text-[#E5E7EB] font-medium mb-4">Choose Theme</h3>

@@ -78,7 +78,14 @@ export function useSupabaseTable<T extends { id: string; user_id: string }>(
     }
   }, [tableName]);
 
-  // Add new item
+  /**
+   * Adds a new item to the table for the current user
+   * Automatically sets user_id and created_at timestamp
+   * Updates local state optimistically on success
+   * @param item - Item data (id is optional, will be auto-generated if not provided)
+   * @returns The created item with all fields populated
+   * @throws Error if insertion fails or RLS prevents access
+   */
   const addItem = useCallback(
     async (item: Omit<T, 'id' | 'user_id' | 'created_at' | 'updated_at'> & { id?: string }) => {
       try {
