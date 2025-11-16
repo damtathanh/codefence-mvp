@@ -7,15 +7,27 @@ import Papa from "papaparse";
 
 // Smart header mapping
 import { validateAndMapHeaders, normalize } from "../utils/smartColumnMapper";
+import { computeRiskScoreV1, evaluateRisk } from "../utils/riskEngine";
+
+export interface ParsedOrderRow {
+  order_id: string;
+  customer_name: string;
+  phone: string;
+  address: string | null;
+  product: string;
+  amount: number;
+  payment_method: string; // raw from file (COD, Bank, Momo, ZaloPay, etc.)
+}
 
 export interface OrderInput {
   order_id: string;
   customer_name: string;
   phone: string;
   address: string | null;
-  product_id: string | null; // Can be null if product not found
-  product: string; // Raw product name from file
+  product_id?: string | null; // set after product mapping
+  product: string; // raw product name
   amount: number;
+  payment_method: string; // normalized (e.g., COD/BANK/MOMO/ZALOPAY)
 }
 
 export interface InvalidOrderRow {
@@ -65,7 +77,7 @@ export const useOrders = () => {
 
   /** MAP PRODUCT NAME → ID */
   const validateAndMapProducts = useCallback(
-    async (rows: any[]) => {
+    async (rows: ParsedOrderRow[]) => {
       if (!user) {
         return { validOrders: [], invalidOrders: [], warnings: [] };
       }
@@ -93,8 +105,9 @@ export const useOrders = () => {
           phone: row.phone || "",
           address: row.address || null,
           product_id: prod ? prod.id : null,
-          product: productName, // Store raw product name from file
+          product: productName,
           amount: parseNumeric(row.amount) ?? 0,
+          payment_method: row.payment_method || "COD",
         };
 
         // Validate required fields
@@ -125,7 +138,7 @@ export const useOrders = () => {
 
   /** CSV PARSE */
   const parseCSV = useCallback((file: File) => {
-    return new Promise<any[]>((resolve, reject) => {
+    return new Promise<ParsedOrderRow[]>((resolve, reject) => {
       Papa.parse(file, {
         header: true,
         skipEmptyLines: true,
@@ -142,25 +155,56 @@ export const useOrders = () => {
               reject(error);
               return;
             }
-            const mapping = validationResult.mapping;
+            const headerMapping = validationResult.mapping;
 
-            const rows = res.data.map((r: any) => {
-              const orderId = toStr(r[mapping.order_id]);
-              const customerName = toStr(r[mapping.customer_name]);
-              const phone = toStr(r[mapping.phone]);
-              const address = toStr(r[mapping.address]) || null;
-              const productName = toStr(r[mapping.product]);
-              const amountStr = toStr(r[mapping.amount]);
-              
-              return {
-                order_id: orderId,
-                customer_name: customerName,
-                phone: phone,
-                address: address,
-                product: productName,
-                amount: parseNumeric(amountStr) ?? 0,
-              };
-            });
+            const rows: ParsedOrderRow[] = res.data
+              .map((r: any) => {
+                const rowByHeader: Record<string, any> = {};
+                headers.forEach((header) => {
+                  rowByHeader[header] = r[header];
+                });
+
+                const getValue = (key: keyof typeof headerMapping): string => {
+                  const headerName = headerMapping[key];
+                  if (!headerName) return '';
+
+                  const value = rowByHeader[headerName];
+                  return value !== undefined && value !== null ? String(value).trim() : '';
+                };
+
+                const order_id = getValue('order_id');
+                const customer_name = getValue('customer_name');
+                const phone = getValue('phone');
+                const address = getValue('address');
+                const product = getValue('product');
+                const amountRaw = getValue('amount');
+                const paymentMethodRaw = getValue('payment_method');
+
+                if (!order_id || !customer_name || !product || !amountRaw) {
+                  return null; // skip invalid rows
+                }
+
+                const amount = Number(String(amountRaw).replace(/[.,\s]/g, ''));
+
+                const payment_method = paymentMethodRaw
+                  ? paymentMethodRaw.toString().trim()
+                  : 'COD';
+
+                const row: ParsedOrderRow = {
+                  order_id,
+                  customer_name,
+                  phone,
+                  address: address || null,
+                  product,
+                  amount,
+                  payment_method,
+                };
+
+                console.log('[DEBUG] parsed CSV row:', row);
+
+                return row;
+              })
+              .filter((o): o is ParsedOrderRow => o !== null);
 
             resolve(rows);
           } catch (err) {
@@ -174,21 +218,24 @@ export const useOrders = () => {
 
   /** XLSX PARSE */
   const parseXLSX = useCallback((file: File) => {
-    return new Promise<any[]>((resolve, reject) => {
+    return new Promise<ParsedOrderRow[]>((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = (e) => {
         try {
           const wb = XLSX.read(e.target?.result, { type: "array" });
           const sheet = wb.Sheets[wb.SheetNames[0]];
-          const json = XLSX.utils.sheet_to_json(sheet);
           
-          if (!json || json.length === 0) {
+          // Get raw data as array of arrays (first row is headers)
+          const rawData = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null }) as any[][];
+          
+          if (!rawData || rawData.length < 2) {
             reject(new Error("File appears to be empty or has no data rows."));
             return;
           }
 
-          const headers = Object.keys(json[0] || {});
-          
+          const headers = rawData[0].map((h: any) => String(h || '').trim());
+          const dataRows = rawData.slice(1);
+
           // Validate headers and check for missing/misnamed columns
           const validationResult = validateAndMapHeaders(headers);
           if (validationResult.error) {
@@ -198,24 +245,54 @@ export const useOrders = () => {
             reject(error);
             return;
           }
-          const mapping = validationResult.mapping;
+          const headerMapping = validationResult.mapping;
 
-          const rows = json.map((r: any) => {
-            const orderId = toStr(r[mapping.order_id]);
-            const customerName = toStr(r[mapping.customer_name]);
-            const phone = toStr(r[mapping.phone]);
-            const address = toStr(r[mapping.address]) || null;
-            const productName = toStr(r[mapping.product]);
-            const amountStr = toStr(r[mapping.amount]);
-            
-            return {
-              order_id: orderId,
-              customer_name: customerName,
-              phone: phone,
-              address: address,
-              product: productName,
-              amount: parseNumeric(amountStr) ?? 0,
+          const rows: ParsedOrderRow[] = [];
+
+          dataRows.forEach((row) => {
+            const rowByHeader: Record<string, any> = {};
+            headers.forEach((header, index) => {
+              rowByHeader[header] = row[index];
+            });
+
+            const get = (key: keyof typeof headerMapping): string => {
+              const headerName = headerMapping[key];
+              if (!headerName) return '';
+              const value = rowByHeader[headerName];
+              return value !== undefined && value !== null ? String(value).trim() : '';
             };
+
+            const order_id = get('order_id');
+            const customer_name = get('customer_name');
+            const phone = get('phone');
+            const address = get('address');
+            const product = get('product');
+            const amountRaw = get('amount');
+            const paymentMethodRaw = get('payment_method');
+
+            if (!order_id || !customer_name || !product || !amountRaw) {
+              return; // skip invalid rows
+            }
+
+            const amount = Number(String(amountRaw).replace(/[.,\s]/g, ''));
+
+            const payment_method = paymentMethodRaw
+              ? paymentMethodRaw.toString().trim()
+              : 'COD';
+
+            const parsedRow: ParsedOrderRow = {
+              order_id,
+              customer_name,
+              phone,
+              address: address || null,
+              product,
+              amount,
+              payment_method,
+            };
+
+            console.log('[DEBUG] parsed XLSX row:', parsedRow);
+
+            rows.push(parsedRow);
           });
 
           resolve(rows);
@@ -229,7 +306,7 @@ export const useOrders = () => {
 
   /** UNIVERSAL PARSER */
   const parseFile = useCallback(
-    async (file: File) => {
+    async (file: File): Promise<ParsedOrderRow[]> => {
       const name = file.name.toLowerCase();
       if (name.endsWith(".csv")) return parseCSV(file);
       if (name.endsWith(".xls") || name.endsWith(".xlsx")) return parseXLSX(file);
@@ -253,20 +330,85 @@ export const useOrders = () => {
           const amount = parseNumeric(order.amount);
           if (!amount) throw new Error("Amount invalid");
 
-          const { error } = await supabase.from("orders").insert({
+          const now = new Date().toISOString();
+          const rawPaymentMethod = order.payment_method || "COD";
+          const paymentMethod = rawPaymentMethod.toUpperCase();
+          const isCod = paymentMethod === "COD";
+
+          // Query past orders for risk evaluation
+          const phone = order.phone || '';
+          let pastOrders: { status: string | null }[] = [];
+          
+          if (phone && user?.id) {
+            const { data: pastOrdersData, error: pastError } = await supabase
+              .from('orders')
+              .select('status')
+              .eq('user_id', user.id)
+              .eq('phone', phone);
+            
+            if (pastError) {
+              console.error('Error fetching past orders for risk evaluation:', pastError);
+            } else {
+              pastOrders = pastOrdersData || [];
+            }
+          }
+
+          // Evaluate risk using new risk engine
+          const { score: riskScore, level: riskLevel, reasons } = evaluateRisk({
+            paymentMethod,
+            amountVnd: amount,
+            phone,
+            address: order.address,
+            pastOrders,
+          });
+
+          const baseStatus = isCod ? "Pending Review" : "Order Paid";
+          const paidAt = isCod ? null : now;
+
+          const payload = {
             user_id: user?.id,
             order_id: order.order_id,
             customer_name: order.customer_name,
             phone: order.phone,
             address: order.address,
-            product_id: order.product_id, // Can be null
-            product: order.product, // Raw product name from file
+            product_id: order.product_id ?? null,
+            product: order.product,
             amount,
-            status: "Pending",
-            risk_score: null,
-          });
+            status: baseStatus,
+            risk_score: riskScore,
+            risk_level: riskLevel,
+            payment_method: paymentMethod,
+            paid_at: paidAt,
+          };
+
+          console.log('[DEBUG] insert payload:', payload);
+
+          const { data: insertedData, error } = await supabase.from("orders").insert(payload).select().single();
 
           if (error) throw error;
+
+          // Insert RISK_EVALUATED event
+          if (insertedData && insertedData.id) {
+            const { error: eventError } = await supabase
+              .from('order_events')
+              .insert([
+                {
+                  order_id: insertedData.id,
+                  event_type: 'RISK_EVALUATED',
+                  payload_json: {
+                    score: riskScore,
+                    level: riskLevel,
+                    reasons,
+                    source: 'import_rule_engine',
+                  },
+                },
+              ]);
+
+            if (eventError) {
+              console.error('Error inserting RISK_EVALUATED event:', eventError);
+              // Don't fail the whole import if event insert fails
+            }
+          }
 
           success++;
         } catch (err: any) {

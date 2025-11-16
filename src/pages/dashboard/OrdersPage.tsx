@@ -12,7 +12,17 @@ import { ConfirmModal } from '../../components/ui/ConfirmModal';
 import { useToast } from '../../components/ui/Toast';
 import { logUserAction } from '../../utils/logUserAction';
 import { generateChanges } from '../../utils/generateChanges';
-import type { Order, Product } from '../../types/supabase';
+import { StatusBadge } from '../../components/dashboard/StatusBadge';
+import {
+  sendConfirmation,
+  simulateCustomerConfirmed,
+  simulateCustomerCancelled,
+  simulateCustomerPaid,
+} from '../../utils/mockZaloService';
+import RejectOrderModal from '../../components/orders/RejectOrderModal';
+
+type RejectMode = 'VERIFICATION_REQUIRED' | 'ORDER_REJECTED';
+import type { Order, OrderEvent, Product } from '../../types/supabase';
 import type { DashboardOutletContext } from '../../components/dashboard/DashboardLayout';
 
 interface SimpleProduct {
@@ -23,7 +33,7 @@ interface SimpleProduct {
 
 export const OrdersPage: React.FC = () => {
   const { user } = useAuth();
-  const { showSuccess, showError } = useToast();
+  const { showSuccess, showError, showInfo } = useToast();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +53,76 @@ export const OrdersPage: React.FC = () => {
   const [deleteAllLoading, setDeleteAllLoading] = useState(false);
   const [openActionDropdown, setOpenActionDropdown] = useState<string | null>(null);
   const [dropdownPosition, setDropdownPosition] = useState<{ x: number; y: number; placement: 'bottom' | 'top' }>({ x: 0, y: 0, placement: 'bottom' });
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [orderEvents, setOrderEvents] = useState<OrderEvent[]>([]);
+  const [isSidePanelOpen, setIsSidePanelOpen] = useState(false);
+  const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
+  const [rejectTargetOrder, setRejectTargetOrder] = useState<Order | null>(null);
+  const [rejectMode, setRejectMode] = useState<RejectMode>('VERIFICATION_REQUIRED');
+  const [rejectReason, setRejectReason] = useState('');
+  const [rejectLoading, setRejectLoading] = useState(false);
   const { openAddOrderModal } = useOutletContext<DashboardOutletContext>();
+
+  // Load order events for a specific order
+  const loadOrderEvents = async (orderId: string) => {
+    const { data, error } = await supabase
+      .from('order_events')
+      .select('*')
+      .eq('order_id', orderId)
+      .order('created_at', { ascending: true });
+
+    if (!error && data) {
+      setOrderEvents(data);
+    }
+  };
+
+  // Helper to format event display
+  const getEventDisplay = (evt: OrderEvent) => {
+    const type = evt.event_type;
+    const payload = (evt.payload_json || {}) as any;
+
+    switch (type) {
+      case 'VERIFICATION_REQUIRED':
+        return {
+          title: 'Verification required',
+          subtitle: payload.reason || '',
+        };
+      case 'ORDER_REJECTED':
+        return {
+          title: 'Order rejected',
+          subtitle: payload.reason || '',
+        };
+      case 'ORDER_SHIPPED':
+        return {
+          title: 'Order shipped (Delivering)',
+          subtitle: payload.shipped_at || '',
+        };
+      case 'ORDER_COMPLETED':
+        return {
+          title: 'Order completed',
+          subtitle: payload.completed_at || '',
+        };
+      case 'RISK_EVALUATED':
+        return {
+          title: 'Risk evaluated',
+          subtitle: payload.level && payload.score != null
+            ? `${payload.level} (${payload.score})`
+            : '',
+        };
+      default:
+        return {
+          title: type,
+          subtitle: '',
+        };
+    }
+  };
+
+  // Handle row click to open side panel
+  const handleRowClick = async (order: Order) => {
+    setSelectedOrder(order);
+    setIsSidePanelOpen(true);
+    await loadOrderEvents(order.id);
+  };
 
   // Fetch orders with product joins
   const fetchOrders = async () => {
@@ -178,101 +257,319 @@ export const OrdersPage: React.FC = () => {
   };
 
   const handleApprove = async (orderId: string) => {
-    // TODO: Implement Zalo OA message flow
-    const order = orders.find(o => o.id === orderId);
-    const orderIdentifier = order?.order_id || orderId;
-    
+    const order = orders.find((o) => o.id === orderId);
+    if (!order) {
+      showError('Order not found');
+      return;
+    }
+
+    const rawMethod = order.payment_method || 'COD';
+    const method = rawMethod.toUpperCase();
+
+    if (method !== 'COD') {
+      showInfo('Non-COD order is already paid. No confirmation needed.');
+      return;
+    }
+
     try {
-      // Capture previous data for change tracking
-      const previousData = order ? {
-        status: order.status,
-      } : {};
-      
-      const updateData = {
-        status: 'Approved',
-      };
-      
-      // Generate changes
-      const changes = generateChanges(previousData, updateData);
-      
-      await updateOrder(orderId, updateData);
-      
+      await sendConfirmation(order);
+
       // Log user action
-      if (user && order) {
+      if (user) {
         await logUserAction({
           userId: user.id,
-          action: 'Approve Order',
+          action: 'Approve Order (Send Confirmation)',
           status: 'success',
           orderId: order.order_id ?? "",
-          details: Object.keys(changes).length > 0 ? changes : null,
+          details: {
+            order_id: order.order_id,
+            payment_method: method,
+          },
         });
       }
-      
-      showSuccess('Order approved successfully!');
+
+      await fetchOrders();
+      showSuccess('Confirmation sent via mock Zalo OA');
     } catch (err) {
-      console.error('Error approving order:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Failed to approve order. Please try again.';
+      console.error('Error sending confirmation:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to send confirmation';
       showError(errorMessage);
-      
+
       // Log failed action
-      if (user && order) {
+      if (user) {
         await logUserAction({
           userId: user.id,
-          action: 'Approve Order',
+          action: 'Approve Order (Send Confirmation)',
           status: 'failed',
           orderId: order.order_id ?? "",
+          details: {
+            order_id: order.order_id,
+            error: String(err),
+          },
         });
       }
     }
   };
 
-  const handleReject = async (orderId: string) => {
-    // TODO: Implement rejection logic
+  const handleReject = (orderId: string) => {
     const order = orders.find(o => o.id === orderId);
-    const orderIdentifier = order?.order_id || orderId;
     
+    if (!order) {
+      showError('Order not found');
+      return;
+    }
+    
+    setRejectTargetOrder(order);
+    setRejectMode('VERIFICATION_REQUIRED');
+    setRejectReason('');
+    setIsRejectModalOpen(true);
+  };
+
+  const handleConfirmReject = async () => {
+    if (!rejectTargetOrder || !user) return;
+
+    if (!rejectReason.trim()) {
+      showError('Please enter a reason');
+      return;
+    }
+
+    setRejectLoading(true);
+
+    const order = rejectTargetOrder;
+    const orderId = order.id;
+    const orderIdentifier = order.order_id ?? order.id;
+
     try {
-      // Capture previous data for change tracking
-      const previousData = order ? {
-        status: order.status,
-      } : {};
-      
-      const updateData = {
-        status: 'Rejected',
+      const nextStatus =
+        rejectMode === 'VERIFICATION_REQUIRED'
+          ? 'Verification Required'
+          : 'Order Rejected';
+
+      const updateData: Partial<Order> = {
+        status: nextStatus,
       };
-      
-      // Generate changes
-      const changes = generateChanges(previousData, updateData);
-      
-      await updateOrder(orderId, updateData);
-      
-      // Log user action
-      if (user && order) {
-        await logUserAction({
-          userId: user.id,
-          action: 'Reject Order',
-          status: 'success',
-          orderId: order.order_id ?? "",
-          details: Object.keys(changes).length > 0 ? changes : null,
-        });
+
+      if (rejectMode === 'VERIFICATION_REQUIRED') {
+        (updateData as any).verification_reason = rejectReason;
+      } else {
+        (updateData as any).reject_reason = rejectReason;
       }
-      
-      showSuccess('Order rejected successfully!');
+
+      const previousData = {
+        status: order.status,
+      };
+
+      const changes = generateChanges(previousData, updateData);
+
+      // Update order
+      const { error: updateError } = await supabase
+        .from('orders')
+        .update(updateData)
+        .eq('id', orderId)
+        .eq('user_id', user.id);
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      // Insert order_events
+      const eventType =
+        rejectMode === 'VERIFICATION_REQUIRED'
+          ? 'VERIFICATION_REQUIRED'
+          : 'ORDER_REJECTED';
+
+      const { error: eventError } = await supabase
+        .from('order_events')
+        .insert([
+          {
+            order_id: orderId,
+            event_type: eventType,
+            payload_json: {
+              reason: rejectReason,
+              mode: rejectMode,
+              source: 'panel_action',
+            },
+          },
+        ]);
+
+      if (eventError) {
+        throw eventError;
+      }
+
+      // Log user action
+      await logUserAction({
+        userId: user.id,
+        action: rejectMode === 'VERIFICATION_REQUIRED' ? 'Mark Order as Verification Required' : 'Reject Order',
+        status: 'success',
+        orderId: orderIdentifier,
+        details: Object.keys(changes).length > 0 ? changes : null,
+      });
+
+      showSuccess(
+        rejectMode === 'VERIFICATION_REQUIRED'
+          ? 'Order marked as Verification Required'
+          : 'Order rejected successfully!'
+      );
+
+      setIsRejectModalOpen(false);
+      setRejectTargetOrder(null);
+      setRejectReason('');
+
+      // Refresh orders and, if the side panel is open on this order, refresh its events/status
+      await fetchOrders();
+      if (selectedOrder && selectedOrder.id === orderId) {
+        await loadOrderEvents(orderId);
+      }
     } catch (err) {
-      console.error('Error rejecting order:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Failed to reject order. Please try again.';
+      console.error('Error handling reject/verification:', err);
+      const errorMessage =
+        err instanceof Error ? err.message : 'Failed to update order. Please try again.';
       showError(errorMessage);
-      
-      // Log failed action
-      if (user && order) {
+
+      if (user && rejectTargetOrder) {
         await logUserAction({
           userId: user.id,
           action: 'Reject Order',
           status: 'failed',
-          orderId: order.order_id ?? "",
+          orderId: rejectTargetOrder.order_id ?? '',
         });
       }
+    } finally {
+      setRejectLoading(false);
     }
+  };
+
+  const handleMarkShipped = async (order: Order) => {
+    if (!user) return;
+
+    const now = new Date().toISOString();
+
+    try {
+      const { error: updateError } = await supabase
+        .from('orders')
+        .update({
+          status: 'Delivering',
+          shipped_at: now,
+        })
+        .eq('id', order.id)
+        .eq('user_id', user.id);
+
+      if (updateError) throw updateError;
+
+      const { error: eventError } = await supabase
+        .from('order_events')
+        .insert([
+          {
+            order_id: order.id,
+            event_type: 'ORDER_SHIPPED',
+            payload_json: {
+              shipped_at: now,
+              source: 'panel_action',
+            },
+          },
+        ]);
+
+      if (eventError) throw eventError;
+
+      await logUserAction({
+        userId: user.id,
+        action: 'Mark Order as Delivering',
+        status: 'success',
+        orderId: order.order_id ?? '',
+      });
+
+      showSuccess('Order marked as Delivering');
+      await fetchOrders();
+      if (selectedOrder && selectedOrder.id === order.id) {
+        await loadOrderEvents(order.id);
+      }
+    } catch (err) {
+      console.error('Error marking order as delivering:', err);
+      const errorMessage =
+        err instanceof Error ? err.message : 'Failed to update order status.';
+      showError(errorMessage);
+
+      await logUserAction({
+        userId: user.id,
+        action: 'Mark Order as Delivering',
+        status: 'failed',
+        orderId: order.order_id ?? '',
+      });
+    }
+  };
+
+  const handleMarkCompleted = async (order: Order) => {
+    if (!user) return;
+
+    const now = new Date().toISOString();
+
+    try {
+      const { error: updateError } = await supabase
+        .from('orders')
+        .update({
+          status: 'Completed',
+          completed_at: now,
+        })
+        .eq('id', order.id)
+        .eq('user_id', user.id);
+
+      if (updateError) throw updateError;
+
+      const { error: eventError } = await supabase
+        .from('order_events')
+        .insert([
+          {
+            order_id: order.id,
+            event_type: 'ORDER_COMPLETED',
+            payload_json: {
+              completed_at: now,
+              source: 'panel_action',
+            },
+          },
+        ]);
+
+      if (eventError) throw eventError;
+
+      await logUserAction({
+        userId: user.id,
+        action: 'Mark Order as Completed',
+        status: 'success',
+        orderId: order.order_id ?? '',
+      });
+
+      showSuccess('Order marked as Completed');
+      await fetchOrders();
+      if (selectedOrder && selectedOrder.id === order.id) {
+        await loadOrderEvents(order.id);
+      }
+    } catch (err) {
+      console.error('Error marking order as completed:', err);
+      const errorMessage =
+        err instanceof Error ? err.message : 'Failed to update order status.';
+      showError(errorMessage);
+
+      await logUserAction({
+        userId: user.id,
+        action: 'Mark Order as Completed',
+        status: 'failed',
+        orderId: order.order_id ?? '',
+      });
+    }
+  };
+
+  // Helper to get latest risk evaluation event
+  const getLatestRiskEvent = (): { score: number | null; level: string | null; reasons: string[] } => {
+    const riskEvents = orderEvents.filter(evt => evt.event_type === 'RISK_EVALUATED');
+    if (riskEvents.length === 0) {
+      return { score: selectedOrder?.risk_score ?? null, level: selectedOrder?.risk_level ?? null, reasons: [] };
+    }
+    const latest = riskEvents[riskEvents.length - 1];
+    const payload = (latest.payload_json || {}) as any;
+    return {
+      score: payload.score ?? selectedOrder?.risk_score ?? null,
+      level: payload.level ?? selectedOrder?.risk_level ?? null,
+      reasons: Array.isArray(payload.reasons) ? payload.reasons : [],
+    };
   };
 
   // Handle product correction
@@ -360,16 +657,6 @@ export const OrdersPage: React.FC = () => {
     return 'Unknown Product';
   };
 
-  const getStatusBadge = (status: string) => {
-    const statusLower = status.toLowerCase();
-    if (statusLower === 'approved' || statusLower === 'verified') {
-      return { className: 'bg-green-500/20 text-green-400', label: status };
-    }
-    if (statusLower === 'rejected') {
-      return { className: 'bg-red-500/20 text-red-400', label: status };
-    }
-    return { className: 'bg-yellow-500/20 text-yellow-400', label: status || 'Pending' };
-  };
 
   const filteredOrders = orders.filter(order => {
     const matchesSearch = order.order_id?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -616,9 +903,15 @@ export const OrdersPage: React.FC = () => {
                 className="w-full h-10 pr-10 px-3 py-2 bg-white/10 backdrop-blur-md border border-white/20 rounded-lg text-[#E5E7EB] text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
               >
                 <option value="all">All Status</option>
-                <option value="Pending">Pending</option>
-                <option value="Approved">Approved</option>
-                <option value="Rejected">Rejected</option>
+                <option value="Pending Review">Pending Review</option>
+                <option value="Verification Required">Verification Required</option>
+                <option value="Order Confirmation Sent">Order Confirmation Sent</option>
+                <option value="Customer Confirmed">Customer Confirmed</option>
+                <option value="Customer Cancelled">Customer Cancelled</option>
+                <option value="Order Paid">Order Paid</option>
+                <option value="Delivering">Delivering</option>
+                <option value="Completed">Completed</option>
+                <option value="Order Rejected">Order Rejected</option>
               </select>
               <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
@@ -707,17 +1000,21 @@ export const OrdersPage: React.FC = () => {
                       <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB]">Address</th>
                       <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB]">Product</th>
                       <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB]">Amount (VND)</th>
-                      <th className="px-6 py-4 text-center text-sm font-semibold text-[#E5E7EB]">Risk Score</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB]">Payment Method</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB]">Risk Score</th>
                       <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB]">Status</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB]">Actions</th>
+                      <th className="pl-6 pr-10 py-4 text-right text-sm font-semibold text-[#E5E7EB] w-40">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredOrders.map((order) => {
-                      const statusBadge = getStatusBadge(order.status);
                       return (
-                        <tr key={order.id} className="border-b border-[#1E223D] hover:bg-white/5 transition">
-                          <td className="px-6 py-4 align-middle">
+                        <tr 
+                          key={order.id} 
+                          onClick={() => handleRowClick(order)}
+                          className="border-b border-[#1E223D] hover:bg-white/5 transition cursor-pointer"
+                        >
+                          <td className="px-6 py-4 align-middle" onClick={(e) => e.stopPropagation()}>
                             <input
                               type="checkbox"
                               checked={selectedIds.has(order.id)}
@@ -726,30 +1023,30 @@ export const OrdersPage: React.FC = () => {
                             />
                           </td>
                           <td 
-                            className="px-6 py-4 text-sm text-[#E5E7EB] font-medium align-middle truncate whitespace-nowrap overflow-hidden max-w-[120px]"
+                            className="px-6 py-4 text-sm text-[#E5E7EB] font-medium align-middle max-w-[140px] truncate whitespace-nowrap"
                             title={order.order_id || order.id}
                           >
                             {order.order_id || order.id}
                           </td>
                           <td
-                            className="px-6 py-4 text-sm text-[#E5E7EB] align-middle truncate whitespace-nowrap overflow-hidden max-w-[200px]"
+                            className="px-6 py-4 text-sm text-[#E5E7EB] align-middle max-w-[200px] leading-snug whitespace-normal break-words overflow-hidden max-h-[3.2rem]"
                             title={order.customer_name}
                           >
                             {order.customer_name}
                           </td>
                           <td 
-                            className="px-6 py-4 text-sm text-[#E5E7EB] align-middle truncate whitespace-nowrap overflow-hidden max-w-[150px]"
+                            className="px-6 py-4 text-sm text-[#E5E7EB] align-middle whitespace-nowrap"
                             title={order.phone || undefined}
                           >
                             {order.phone || '-'}
                           </td>
                           <td
-                            className="px-6 py-4 text-sm text-[#E5E7EB] align-middle truncate whitespace-nowrap overflow-hidden max-w-[150px]"
+                            className="px-6 py-4 text-sm text-[#E5E7EB] align-middle max-w-[220px] leading-snug whitespace-normal break-words overflow-hidden max-h-[3.2rem]"
                             title={order.address || undefined}
                           >
                             {order.address || '-'}
                           </td>
-                          <td className="px-6 py-4 align-middle break-words overflow-hidden">
+                          <td className="px-6 py-4 align-middle max-w-[260px] leading-snug whitespace-normal break-words overflow-hidden max-h-[3.2rem]" onClick={(e) => e.stopPropagation()}>
                             {isInvalidProduct(order) ? (
                               <div className="space-y-2 min-w-0">
                                 <div className="flex items-center gap-2 min-w-0">
@@ -798,19 +1095,20 @@ export const OrdersPage: React.FC = () => {
                               </div>
                             )}
                           </td>
-                          <td className="px-6 py-4 text-sm text-[#E5E7EB] align-middle break-words overflow-hidden">
+                          <td className="px-6 py-4 text-sm text-[#E5E7EB] align-middle whitespace-nowrap">
                             {order.amount.toLocaleString('vi-VN')}
                           </td>
-                          <td className="px-6 py-4 text-sm text-[#E5E7EB] text-center align-middle break-words overflow-hidden">
+                          <td className="px-6 py-4 text-sm text-[#E5E7EB] align-middle whitespace-nowrap">
+                            {order.payment_method || 'COD'}
+                          </td>
+                          <td className="px-6 py-4 text-sm text-[#E5E7EB] align-middle whitespace-nowrap">
                             {order.risk_score !== null && order.risk_score !== undefined ? order.risk_score : 'N/A'}
                           </td>
-                          <td className="px-6 py-4 align-middle">
-                            <span className={`px-2 py-1 rounded text-xs font-medium ${statusBadge.className}`}>
-                              {statusBadge.label}
-                            </span>
+                          <td className="px-6 py-4 text-sm text-[#E5E7EB] align-middle whitespace-nowrap">
+                            <StatusBadge status={order.status} />
                           </td>
-                          <td className="px-6 py-4 align-middle">
-                            <div className="relative action-dropdown-container">
+                          <td className="px-6 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                            <div className="relative action-dropdown-container flex justify-end">
                               <Button
                                 onClick={(e) => toggleActionDropdown(order.id, e)}
                                 size="sm"
@@ -896,6 +1194,197 @@ export const OrdersPage: React.FC = () => {
         onCancel={handleDeleteAllCancel}
         loading={deleteAllLoading}
       />
+
+      <RejectOrderModal
+        isOpen={isRejectModalOpen}
+        mode={rejectMode}
+        reason={rejectReason}
+        onModeChange={setRejectMode}
+        onReasonChange={setRejectReason}
+        onConfirm={handleConfirmReject}
+        onCancel={() => {
+          setIsRejectModalOpen(false);
+          setRejectTargetOrder(null);
+          setRejectReason('');
+        }}
+        loading={rejectLoading}
+      />
+
+      {/* Side Panel - Order Detail */}
+      {isSidePanelOpen && selectedOrder && typeof document !== 'undefined' && createPortal(
+        <div className="fixed inset-0 z-50 flex">
+          {/* Backdrop */}
+          <div
+            className="flex-1 bg-black/40"
+            onClick={() => {
+              setIsSidePanelOpen(false);
+              setSelectedOrder(null);
+              setOrderEvents([]);
+            }}
+          />
+
+          {/* Side Panel */}
+          <div className="w-full max-w-xl h-full bg-[#020617] border-l border-white/10 flex flex-col">
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-white/10 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-white">Order Detail</h2>
+                <p className="text-sm text-white/60">#{selectedOrder.order_id}</p>
+              </div>
+              <button
+                onClick={() => {
+                  setIsSidePanelOpen(false);
+                  setSelectedOrder(null);
+                  setOrderEvents([]);
+                }}
+                className="text-white/60 hover:text-white text-xl"
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              {/* Basic Info */}
+              <section className="space-y-1">
+                <div className="text-sm text-white/60">Customer</div>
+                <div className="font-medium text-white">{selectedOrder.customer_name}</div>
+                <div className="text-sm text-white/70">{selectedOrder.phone}</div>
+                <div className="text-sm text-white/70">{selectedOrder.address || '-'}</div>
+              </section>
+
+              {/* Payment & Risk */}
+              <section className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-white/60">Payment Method</span>
+                  <span className="text-sm text-white">{selectedOrder.payment_method || 'COD'}</span>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-white/60">Risk</span>
+                  <span className="text-sm text-white">
+                    {selectedOrder.risk_level
+                      ? `${selectedOrder.risk_level} (${selectedOrder.risk_score ?? 0})`
+                      : selectedOrder.risk_score ?? 'N/A'}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-white/60">Status</span>
+                  <StatusBadge status={selectedOrder.status} />
+                </div>
+              </section>
+
+              {/* Risk Breakdown */}
+              {(() => {
+                const riskDetails = getLatestRiskEvent();
+                return riskDetails.reasons.length > 0 && (
+                  <section className="space-y-1">
+                    <div className="text-sm text-white/60">Risk breakdown</div>
+                    <ul className="list-disc list-inside text-xs text-white/70 space-y-0.5">
+                      {riskDetails.reasons.map((reason, idx) => (
+                        <li key={idx}>{reason}</li>
+                      ))}
+                    </ul>
+                  </section>
+                );
+              })()}
+
+              {/* Timeline */}
+              <section>
+                <div className="text-sm font-medium text-white mb-2">Timeline</div>
+
+                {orderEvents.length === 0 && (
+                  <div className="text-white/60 text-sm">
+                    No events yet.
+                  </div>
+                )}
+
+                <div className="space-y-3">
+                  {orderEvents.map(evt => {
+                    const { title, subtitle } = getEventDisplay(evt);
+                    return (
+                      <div key={evt.id} className="flex items-start gap-2">
+                        <div className="h-2 w-2 rounded-full bg-white/60 mt-1" />
+                        <div>
+                          <div className="text-white">{title}</div>
+                          <div className="text-xs text-white/50">
+                            {new Date(evt.created_at).toLocaleString()}
+                          </div>
+                          {subtitle && (
+                            <div className="text-xs text-white/60 mt-0.5">
+                              {subtitle}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="p-4 border-t border-white/10 flex flex-wrap gap-2">
+              <button
+                className="px-4 py-2 bg-blue-600 rounded text-white"
+                onClick={async () => {
+                  await simulateCustomerConfirmed(selectedOrder);
+                  await loadOrderEvents(selectedOrder.id);
+                  await fetchOrders();
+                }}
+              >
+                Simulate Confirmed
+              </button>
+
+              <button
+                className="px-4 py-2 bg-yellow-600 rounded text-white"
+                onClick={async () => {
+                  await simulateCustomerCancelled(selectedOrder, 'Dev test');
+                  await loadOrderEvents(selectedOrder.id);
+                  await fetchOrders();
+                }}
+              >
+                Simulate Cancelled
+              </button>
+
+              <button
+                className="px-4 py-2 bg-green-600 rounded text-white"
+                onClick={async () => {
+                  await simulateCustomerPaid(selectedOrder);
+                  await loadOrderEvents(selectedOrder.id);
+                  await fetchOrders();
+                }}
+              >
+                Simulate Paid
+              </button>
+
+              {selectedOrder.status === 'Order Paid' && (
+                <button
+                  className="px-4 py-2 bg-indigo-600 rounded text-white"
+                  onClick={async () => {
+                    await handleMarkShipped(selectedOrder);
+                  }}
+                >
+                  Mark as Delivering
+                </button>
+              )}
+
+              {selectedOrder.status === 'Delivering' && (
+                <button
+                  className="px-4 py-2 bg-emerald-600 rounded text-white"
+                  onClick={async () => {
+                    await handleMarkCompleted(selectedOrder);
+                  }}
+                >
+                  Mark as Completed
+                </button>
+              )}
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 };

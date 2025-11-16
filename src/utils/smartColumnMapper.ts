@@ -11,6 +11,7 @@ const HEADER_MAPPINGS: Record<string, { en: string; vi: string }> = {
   address: { en: "address", vi: "địa chỉ" },
   product: { en: "product", vi: "sản phẩm" },
   amount: { en: "amount (vnd)", vi: "thành tiền (vnđ)" },
+  payment_method: { en: "payment method", vi: "phương thức thanh toán" },
 };
 
 // Required columns (address is optional)
@@ -24,6 +25,7 @@ const DISPLAY_NAMES: Record<string, { en: string; vi: string }> = {
   address: { en: "Address", vi: "Địa chỉ" },
   product: { en: "Product", vi: "Sản phẩm" },
   amount: { en: "Amount (VND)", vi: "Thành tiền (VNĐ)" },
+  payment_method: { en: "Payment Method", vi: "Phương thức thanh toán" },
 };
 
 export function normalize(str: string) {
@@ -161,6 +163,7 @@ export function validateAndMapHeaders(headers: string[]): HeaderValidationResult
     };
   }
   
+  console.log('[DEBUG] headerMapping:', mapping);
   return { mapping };
 }
 

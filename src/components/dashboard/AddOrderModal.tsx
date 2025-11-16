@@ -3,7 +3,7 @@ import { Card, CardContent } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { X, Upload, FileText, Loader2, AlertTriangle, Circle, AlertCircle, Plus } from 'lucide-react';
-import { useOrders, type OrderInput, type InvalidOrderRow } from '../../hooks/useOrders';
+import { useOrders, type OrderInput, type InvalidOrderRow, type ParsedOrderRow } from '../../hooks/useOrders';
 import { useToast } from '../ui/Toast';
 import { useSupabaseTable } from '../../hooks/useSupabaseTable';
 import { useAuth } from '../../features/auth';
@@ -16,7 +16,7 @@ import { normalize } from '../../utils/smartColumnMapper';
 
 interface ParsedUploadPayload {
   validOrders: OrderInput[];
-  orders: Array<{ product: string; [key: string]: any }>;
+  orders: ParsedOrderRow[];
 }
 
 interface AddOrderModalProps {
@@ -75,16 +75,12 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
   });
 
   // File upload state
-  const [uploadedOrders, setUploadedOrders] = useState<Array<{ product: string; [key: string]: any }>>([]);
+  const [uploadedOrders, setUploadedOrders] = useState<ParsedOrderRow[]>([]);
   const [invalidOrders, setInvalidOrders] = useState<InvalidOrderRow[]>([]);
   const [correctedOrders, setCorrectedOrders] = useState<Map<number, string>>(new Map()); // rowIndex -> product_id
   const [showPreview, setShowPreview] = useState(false);
   
   // Missing products state
-  interface ParsedUploadPayload {
-    validOrders: OrderInput[];
-    orders: Array<{ product: string; [key: string]: any }>;
-  }
   const [pendingUpload, setPendingUpload] = useState<ParsedUploadPayload | null>(null);
   const [missingProducts, setMissingProducts] = useState<string[]>([]);
   
@@ -289,6 +285,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
           product_id: formData.product_id || null,
           product: productName, // Store product name
           amount: numericAmount,
+          payment_method: "COD",
         };
 
         // Validate order
@@ -595,69 +592,28 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
         // All orders are valid and no duplicates, insert them
         setUploadProgress(`Inserting ${validOrders.length} orders...`);
         
-        // Insert orders and log each one
-        let successCount = 0;
-        const errors: Array<{ orderId: string; customerName: string; error: string }> = [];
-        
-        for (const orderData of validOrders) {
-          try {
-            // Insert order directly via Supabase
-            const { data: newOrder, error: insertError } = await supabase
-              .from("orders")
-              .insert({
-                user_id: user?.id,
-                order_id: orderData.order_id,
-                customer_name: orderData.customer_name,
-                phone: orderData.phone,
-                address: orderData.address,
-                product_id: orderData.product_id, // Can be null
-                product: orderData.product, // Raw product name from file
-                amount: orderData.amount,
-                status: "Pending",
-                risk_score: null,
-              })
-              .select()
-              .single();
+        // Use insertOrders from useOrders hook (handles payment_method, status, risk_score, paid_at)
+        const result = await insertOrders(validOrders);
 
-            if (insertError) throw insertError;
-            successCount++;
-            
-            // Log user action for each successfully created order
-            if (user && newOrder) {
-              await logUserAction({
-                userId: user.id,
-                action: 'Create Order',
-                status: 'success',
-                orderId: newOrder.order_id ?? "",
-              });
-            }
-          } catch (err) {
-            const errorMessage = getErrorMessage(err);
-            const orderId = orderData.order_id || 'N/A';
-            const customerName = orderData.customer_name || 'Unknown';
-            errors.push({ orderId, customerName, error: errorMessage });
-            
-            // Log failed action
+        if (result.success > 0) {
+          // Log user action for each successfully created order
+          for (const orderData of validOrders) {
             if (user) {
               await logUserAction({
                 userId: user.id,
                 action: 'Create Order',
-                status: 'failed',
+                status: 'success',
                 orderId: orderData.order_id ?? "",
               });
             }
           }
-        }
-
-        if (successCount > 0) {
-          if (errors.length > 0) {
+          
+          if (result.failed > 0) {
             // Show detailed error summary
-            const errorSummary = errors.map(e => 
-              `${e.customerName} (${e.orderId}): ${e.error}`
-            ).join('\n');
-            showError(`Successfully added ${successCount} order(s), but ${errors.length} failed:\n${errorSummary}`);
+            const errorSummary = result.errors.join('\n');
+            showError(`Successfully added ${result.success} order(s), but ${result.failed} failed:\n${errorSummary}`);
           } else {
-            showSuccess(`Successfully added ${successCount} order(s)!`);
+            showSuccess(`Successfully added ${result.success} order(s)!`);
           }
           
           // Refresh orders table
@@ -668,10 +624,8 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
           onClose();
         } else {
           // All failed - show detailed error list
-          const errorSummary = errors.map(e => 
-            `${e.customerName} (${e.orderId}): ${e.error}`
-          ).join('\n');
-          showError(`Failed to add all ${errors.length} order(s):\n${errorSummary}`);
+          const errorSummary = result.errors.join('\n');
+          showError(`Failed to add all ${result.failed} order(s):\n${errorSummary}`);
         }
       }
     } catch (err) {
@@ -933,64 +887,27 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
       // All checks passed, insert orders
       setUploadProgress(`Inserting ${revalidatedOrders.length} orders...`);
       
-      let successCount = 0;
-      const errors: Array<{ orderId: string; customerName: string; error: string }> = [];
-      
-      for (const orderData of revalidatedOrders) {
-        try {
-          const { data: newOrder, error: insertError } = await supabase
-            .from("orders")
-            .insert({
-              user_id: user?.id,
-              order_id: orderData.order_id,
-              customer_name: orderData.customer_name,
-              phone: orderData.phone,
-              address: orderData.address,
-              product_id: orderData.product_id,
-              product: orderData.product,
-              amount: orderData.amount,
-              status: "Pending",
-              risk_score: null,
-            })
-            .select()
-            .single();
+      // Use insertOrders from useOrders hook (handles payment_method, status, risk_score, paid_at)
+      const result = await insertOrders(revalidatedOrders);
 
-          if (insertError) throw insertError;
-          successCount++;
-          
-          if (user && newOrder) {
-            await logUserAction({
-              userId: user.id,
-              action: 'Create Order',
-              status: 'success',
-              orderId: newOrder.order_id ?? "",
-            });
-          }
-        } catch (err) {
-          const errorMessage = getErrorMessage(err);
-          const orderId = orderData.order_id || 'N/A';
-          const customerName = orderData.customer_name || 'Unknown';
-          errors.push({ orderId, customerName, error: errorMessage });
-          
+      if (result.success > 0) {
+        // Log user action for each successfully created order
+        for (const orderData of revalidatedOrders) {
           if (user) {
             await logUserAction({
               userId: user.id,
               action: 'Create Order',
-              status: 'failed',
+              status: 'success',
               orderId: orderData.order_id ?? "",
             });
           }
         }
-      }
-
-      if (successCount > 0) {
-        if (errors.length > 0) {
-          const errorSummary = errors.map(e => 
-            `${e.customerName} (${e.orderId}): ${e.error}`
-          ).join('\n');
-          showError(`Successfully added ${successCount} order(s), but ${errors.length} failed:\n${errorSummary}`);
+        
+        if (result.failed > 0) {
+          const errorSummary = result.errors.join('\n');
+          showError(`Successfully added ${result.success} order(s), but ${result.failed} failed:\n${errorSummary}`);
         } else {
-          showSuccess(`Successfully added ${successCount} order(s)!`);
+          showSuccess(`Successfully added ${result.success} order(s)!`);
         }
         
         if (onSuccess) {
@@ -1002,10 +919,8 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
         setMissingProducts([]);
         onClose();
       } else {
-        const errorSummary = errors.map(e => 
-          `${e.customerName} (${e.orderId}): ${e.error}`
-        ).join('\n');
-        showError(`Failed to add all ${errors.length} order(s):\n${errorSummary}`);
+        const errorSummary = result.errors.join('\n');
+        showError(`Failed to add all ${result.failed} order(s):\n${errorSummary}`);
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : getErrorMessage(err);
@@ -1051,6 +966,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
             product_id: productId,
             product: order.product || "", // Keep raw product name
             amount: parseNumeric(order.amount) ?? 0,
+            payment_method: order.payment_method || "COD",
           } as OrderInput);
         }
       });
@@ -1163,69 +1079,28 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
       // All orders are valid and no duplicates, insert them
       setUploadProgress(`Inserting ${finalOrders.length} orders...`);
 
-      // Insert all orders and log each one
-      let successCount = 0;
-      const errors: Array<{ orderId: string; customerName: string; error: string }> = [];
-      
-      for (const orderData of finalOrders) {
-        try {
-          // Insert order directly via Supabase
-          const { data: newOrder, error: insertError } = await supabase
-            .from("orders")
-            .insert({
-              user_id: user?.id,
-              order_id: orderData.order_id,
-              customer_name: orderData.customer_name,
-              phone: orderData.phone,
-              address: orderData.address,
-              product_id: orderData.product_id, // Can be null
-              product: orderData.product, // Raw product name from file
-              amount: orderData.amount,
-              status: "Pending",
-              risk_score: null,
-            })
-            .select()
-            .single();
+      // Use insertOrders from useOrders hook (handles payment_method, status, risk_score, paid_at)
+      const result = await insertOrders(finalOrders);
 
-          if (insertError) throw insertError;
-          successCount++;
-          
-          // Log user action for each successfully created order
-          if (user && newOrder) {
-            await logUserAction({
-              userId: user.id,
-              action: 'Create Order',
-              status: 'success',
-              orderId: newOrder.order_id ?? "",
-            });
-          }
-        } catch (err) {
-          const errorMessage = getErrorMessage(err);
-          const orderId = orderData.order_id || 'N/A';
-          const customerName = orderData.customer_name || 'Unknown';
-          errors.push({ orderId, customerName, error: errorMessage });
-          
-          // Log failed action
+      if (result.success > 0) {
+        // Log user action for each successfully created order
+        for (const orderData of finalOrders) {
           if (user) {
             await logUserAction({
               userId: user.id,
               action: 'Create Order',
-              status: 'failed',
+              status: 'success',
               orderId: orderData.order_id ?? "",
             });
           }
         }
-      }
-
-      if (successCount > 0) {
-        if (errors.length > 0) {
+        
+        if (result.failed > 0) {
           // Show detailed error summary
-          const errorSummary = errors.map(e => 
-            `${e.customerName} (${e.orderId}): ${e.error}`
-          ).join('\n');
-          showError(`Successfully added ${successCount} order(s), but ${errors.length} failed:\n${errorSummary}`);
+          const errorSummary = result.errors.join('\n');
+          showError(`Successfully added ${result.success} order(s), but ${result.failed} failed:\n${errorSummary}`);
         } else {
-          showSuccess(`Successfully added ${successCount} order(s)!`);
+          showSuccess(`Successfully added ${result.success} order(s)!`);
         }
         
         // Refresh orders table
@@ -1236,10 +1111,8 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
         onClose();
       } else {
         // All failed - show detailed error list
-        const errorSummary = errors.map(e => 
-          `${e.customerName} (${e.orderId}): ${e.error}`
-        ).join('\n');
-        showError(`Failed to add all ${errors.length} order(s):\n${errorSummary}`);
+        const errorSummary = result.errors.join('\n');
+        showError(`Failed to add all ${result.failed} order(s):\n${errorSummary}`);
       }
     } catch (err) {
       const errorMessage = getErrorMessage(err);

@@ -25,6 +25,7 @@ export interface Order {
   amount: number;
   status: string; // Default: 'Pending'
   risk_score: number | null; // Numeric value or null (displayed as 'N/A' in UI when null)
+  risk_level: string | null; // 'Low' | 'Medium' | 'High'
   created_at?: string;
   updated_at?: string;
   // Joined product data (when fetching with join)
@@ -33,6 +34,23 @@ export interface Order {
     name: string;
     category: string;
   } | null;
+  // Timeline/payment fields
+  payment_method?: string | null;
+  confirmation_sent_at?: string | null;
+  customer_confirmed_at?: string | null;
+  cancelled_at?: string | null;
+  qr_sent_at?: string | null;
+  qr_expired_at?: string | null;
+  paid_at?: string | null;
+  cancel_reason?: string | null;
+}
+
+export interface OrderEvent {
+  id: string;
+  order_id: string;
+  event_type: string;
+  payload_json: any;
+  created_at: string;
 }
 
 export interface Invoice {
