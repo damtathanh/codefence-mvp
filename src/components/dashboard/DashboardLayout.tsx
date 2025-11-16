@@ -114,6 +114,9 @@ export const DashboardLayout: React.FC = () => {
     setIsOrderModalOpen(false);
     setOrderModalEditingOrder(null);
     orderModalSuccessRef.current = null;
+    // Clear the pending upload ref when AddOrderModal closes
+    // This ensures it doesn't persist across multiple upload sessions
+    bulkCreateProductsModalPendingUpload.current = null;
   }, []);
 
   const handleOrderModalSuccess = useCallback(() => {
@@ -151,7 +154,9 @@ export const DashboardLayout: React.FC = () => {
     setIsBulkCreateProductsModalOpen(false);
     setBulkCreateProductsModalMissingProducts([]);
     setBulkCreateProductsModalPendingUpload(null);
-    bulkCreateProductsModalPendingUpload.current = null;
+    // Do NOT clear bulkCreateProductsModalPendingUpload.current here,
+    // because handleBulkCreateProductsModalSuccess will need it.
+    // Only clear it after AddOrderModal finishes or after processParsedOrders runs.
     bulkCreateProductsModalSuccessRef.current = null;
   }, []);
 
@@ -789,6 +794,14 @@ export const DashboardLayout: React.FC = () => {
         onClose={closeAddProductModal}
         onSuccess={handleProductModalSuccess}
         initialName={productModalInitialName}
+      />
+
+      <BulkCreateProductsModal
+        isOpen={isBulkCreateProductsModalOpen}
+        onClose={closeBulkCreateProductsModal}
+        missingProducts={bulkCreateProductsModalMissingProducts}
+        pendingUpload={bulkCreateProductsModalPendingUpload.current}
+        onSuccess={handleBulkCreateProductsModalSuccess}
       />
 
       {/* All Notifications Modal */}

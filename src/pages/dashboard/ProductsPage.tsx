@@ -4,6 +4,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Ca
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { ConfirmModal } from '../../components/ui/ConfirmModal';
+import { AddProductModal } from '../../components/dashboard/AddProductModal';
 import { Plus, Edit, Trash2, X, Filter, ChevronDown } from 'lucide-react';
 import { useSupabaseTable } from '../../hooks/useSupabaseTable';
 import { useToast } from '../../components/ui/Toast';
@@ -774,8 +775,19 @@ export const ProductsPage: React.FC = () => {
         return createPortal(dropdownContent, document.body);
       })()}
 
-      {/* Add/Edit Modal */}
-      {isModalOpen && (
+      {/* Add Product Modal - Only show in add mode, not edit mode */}
+      {isModalOpen && !isEditMode && (
+        <AddProductModal
+          isOpen={isModalOpen}
+          onClose={closeModal}
+          onSuccess={async () => {
+            await fetchAll();
+          }}
+        />
+      )}
+
+      {/* Edit Modal - Keep inline for edit mode to preserve existing edit functionality */}
+      {isModalOpen && isEditMode && (
         <div 
           className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 transition-opacity duration-200"
           onClick={handleOverlayClick}
@@ -794,7 +806,7 @@ export const ProductsPage: React.FC = () => {
             {/* Header - Fixed */}
             <div className="flex items-center justify-between p-6 border-b border-[#1E223D] flex-shrink-0">
               <h3 id="product-modal-title" className="text-xl font-semibold text-[#E5E7EB]">
-                {isEditMode ? 'Edit Product' : 'Add Product'}
+                Edit Product
               </h3>
               <button 
                 onClick={closeModal} 
@@ -909,7 +921,7 @@ export const ProductsPage: React.FC = () => {
                     Cancel
                   </Button>
                   <Button type="submit">
-                    {isEditMode ? 'Update' : 'Add'} Product
+                    Update Product
                   </Button>
                 </div>
               </form>

@@ -87,6 +87,10 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
   }
   const [pendingUpload, setPendingUpload] = useState<ParsedUploadPayload | null>(null);
   const [missingProducts, setMissingProducts] = useState<string[]>([]);
+  
+  // Flag to track if we've already processed the pending upload after products were created
+  // This prevents double-processing when AddOrderModal re-opens
+  const [hasProcessedPendingUpload, setHasProcessedPendingUpload] = useState(false);
 
   // Helper function to handle formatted number input for amount
   const handleFormattedNumberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -128,11 +132,54 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
       setShowPreview(false);
       setPendingUpload(null);
       setMissingProducts([]);
+      setHasProcessedPendingUpload(false); // Reset flag when modal closes
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
     }
   }, [isOpen, editingOrder]);
+
+  // Auto-resume import after products are created
+  // When BulkCreateProductsModal succeeds and AddOrderModal re-opens with pendingUploadAfterProductsCreated,
+  // automatically process the pending upload to continue the import
+  useEffect(() => {
+    if (
+      isOpen &&
+      pendingUploadAfterProductsCreated &&
+      !hasProcessedPendingUpload &&
+      !editingOrder
+    ) {
+      setHasProcessedPendingUpload(true);
+      // Switch to upload tab if not already there
+      setActiveTab('upload');
+      
+      // Small delay to ensure tab switch completes before processing
+      const timeoutId = setTimeout(() => {
+        // Process the pending upload to continue the import
+        processParsedOrders(pendingUploadAfterProductsCreated)
+          .then(() => {
+            // Import completed successfully - onSuccess callback will be called by processParsedOrders
+            // The ref will be cleared by DashboardLayout when modal closes
+          })
+          .catch(err => {
+            console.error('Error continuing import after product creation:', err);
+            const errorMessage = err instanceof Error ? err.message : 'Failed to continue import.';
+            showError(errorMessage);
+            setHasProcessedPendingUpload(false); // Reset on error so user can retry
+          });
+      }, 100);
+      
+      return () => clearTimeout(timeoutId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    isOpen,
+    pendingUploadAfterProductsCreated,
+    hasProcessedPendingUpload,
+    editingOrder,
+    showError,
+    // Note: processParsedOrders is defined in the component but stable enough for this use case
+  ]);
 
   // Local validator function
   const validateManualOrder = (o: OrderInput) => {
@@ -376,9 +423,12 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
         // Check for missing products before inserting
         setUploadProgress('Checking for missing products...');
         
-        // Collect all distinct product names from valid orders
+        // Collect all distinct product names from raw parsed orders
+        // Use 'orders' (raw parsed rows) instead of 'validOrders' because
+        // validateAndMapProducts may exclude rows with non-existent products,
+        // and we need to detect ALL product names from the file
         const productNamesFromFile = new Set<string>();
-        validOrders.forEach(order => {
+        orders.forEach(order => {
           const productName = (order.product || '').trim();
           if (productName) {
             productNamesFromFile.add(productName);
@@ -718,8 +768,11 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
       }
       
       // Check for missing products again
+      // Use 'orders' (raw parsed rows from payload) instead of 'revalidatedOrders'
+      // because validateAndMapProducts may exclude rows with non-existent products,
+      // and we need to detect ALL product names from the file
       const productNamesFromFile = new Set<string>();
-      revalidatedOrders.forEach(order => {
+      orders.forEach(order => {
         const productName = (order.product || '').trim();
         if (productName) {
           productNamesFromFile.add(productName);

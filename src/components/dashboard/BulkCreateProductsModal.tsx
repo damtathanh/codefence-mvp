@@ -11,6 +11,7 @@ import { PRODUCT_CATEGORIES } from '../../constants/productCategories';
 import type { Product } from '../../types/supabase';
 
 interface ProductFormData {
+  productId: string;
   name: string;
   category: string;
   price: string;
@@ -52,6 +53,7 @@ export const BulkCreateProductsModal: React.FC<BulkCreateProductsModalProps> = (
         // Keep existing form data if available, otherwise use defaults
         const existing = productFormData.get(productName);
         initialFormData.set(productName, existing || {
+          productId: '',
           name: productName,
           category: '',
           price: '',
@@ -89,6 +91,7 @@ export const BulkCreateProductsModal: React.FC<BulkCreateProductsModalProps> = (
     setProductFormData(prev => {
       const next = new Map(prev);
       const current = next.get(productName) || {
+        productId: '',
         name: productName,
         category: '',
         price: '',
@@ -138,6 +141,11 @@ export const BulkCreateProductsModal: React.FC<BulkCreateProductsModalProps> = (
         }
 
         // Validate required fields
+        if (!formData.productId.trim()) {
+          errors.push(`${productName}: Product ID is required`);
+          return;
+        }
+        
         if (!formData.category.trim()) {
           errors.push(`${productName}: Category is required`);
           return;
@@ -157,10 +165,8 @@ export const BulkCreateProductsModal: React.FC<BulkCreateProductsModalProps> = (
           return;
         }
 
-        // Generate unique product_id from name (use first 3 letters + timestamp + index + random)
-        const timestamp = Date.now();
-        const random = Math.random().toString(36).substring(2, 8);
-        const productId = `${productName.substring(0, 3).toUpperCase()}-${timestamp}-${index}-${random}`;
+        // Use productId from form data (trimmed)
+        const productId = formData.productId.trim();
 
         productsToCreate.push({
           user_id: user.id,
@@ -214,13 +220,13 @@ export const BulkCreateProductsModal: React.FC<BulkCreateProductsModalProps> = (
       await refetchProducts();
 
       // Call onSuccess callback with pendingUpload to continue import
+      // The handler (handleBulkCreateProductsModalSuccess) will close the modal
       if (onSuccess) {
         await onSuccess(pendingUpload || null);
       }
 
-      // Close modal and reset form
+      // Reset form (modal will be closed by the onSuccess handler)
       setProductFormData(new Map());
-      onClose();
     } catch (err) {
       console.error('Error creating products:', err);
       const errorMessage = err instanceof Error ? err.message : 'Failed to create products. Please try again.';
@@ -295,6 +301,7 @@ export const BulkCreateProductsModal: React.FC<BulkCreateProductsModalProps> = (
               <table className="w-full text-sm border-collapse">
                 <thead>
                   <tr className="bg-[#1E223D]/50 border-b border-[#1E223D]">
+                    <th className="text-left py-3 px-4 text-[#E5E7EB] font-medium">Product ID</th>
                     <th className="text-left py-3 px-4 text-[#E5E7EB] font-medium">Product Name</th>
                     <th className="text-left py-3 px-4 text-[#E5E7EB] font-medium">Category</th>
                     <th className="text-left py-3 px-4 text-[#E5E7EB] font-medium">Price (VND)</th>
@@ -305,6 +312,7 @@ export const BulkCreateProductsModal: React.FC<BulkCreateProductsModalProps> = (
                 <tbody>
                   {missingProducts.map((productName, idx) => {
                     const formData = productFormData.get(productName) || {
+                      productId: '',
                       name: productName,
                       category: '',
                       price: '',
@@ -314,6 +322,17 @@ export const BulkCreateProductsModal: React.FC<BulkCreateProductsModalProps> = (
                     
                     return (
                       <tr key={idx} className="border-b border-[#1E223D]/30 hover:bg-white/5 transition-colors">
+                        <td className="py-3 px-4">
+                          <Input
+                            type="text"
+                            value={formData.productId}
+                            onChange={(e) => handleProductFormChange(productName, 'productId', e.target.value)}
+                            placeholder="e.g., PROD-001"
+                            className="w-full !py-2 text-sm"
+                            required
+                            disabled={loading}
+                          />
+                        </td>
                         <td className="py-3 px-4 text-white/90">
                           <span className="font-medium">{productName}</span>
                         </td>
