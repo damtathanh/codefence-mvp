@@ -5,13 +5,19 @@ import { supabase } from '../lib/supabaseClient';
 interface UseSupabaseTableOptions<T> {
   tableName: string;
   enableRealtime?: boolean;
+  userId?: string; // Optional explicit user ID to avoid repeated auth calls
 }
 
 /**
  * Helper function to get the current authenticated user ID
  * Throws an error if user is not authenticated
+ * If explicitUserId is provided, returns it directly (avoids auth call)
  */
-async function getCurrentUserId(): Promise<string> {
+async function getCurrentUserId(explicitUserId?: string): Promise<string> {
+  if (explicitUserId) {
+    return explicitUserId;
+  }
+
   const { data: { user }, error } = await supabase.auth.getUser();
   
   if (error) {
@@ -29,7 +35,7 @@ async function getCurrentUserId(): Promise<string> {
 export function useSupabaseTable<T extends { id: string; user_id: string }>(
   options: UseSupabaseTableOptions<T>
 ) {
-  const { tableName, enableRealtime = false } = options;
+  const { tableName, enableRealtime = false, userId: explicitUserId } = options;
   const [data, setData] = useState<T[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -41,7 +47,7 @@ export function useSupabaseTable<T extends { id: string; user_id: string }>(
       setError(null);
 
       // Get authenticated user ID
-      const userId = await getCurrentUserId();
+      const userId = await getCurrentUserId(explicitUserId);
       console.log(`[${tableName}] Fetching items for user ${userId}`);
 
       const { data: items, error: fetchError } = await supabase
@@ -90,7 +96,7 @@ export function useSupabaseTable<T extends { id: string; user_id: string }>(
     async (item: Omit<T, 'id' | 'user_id' | 'created_at' | 'updated_at'> & { id?: string }) => {
       try {
         // Get authenticated user ID
-        const userId = await getCurrentUserId();
+        const userId = await getCurrentUserId(explicitUserId);
         console.log(`[${tableName}] Adding item for user ${userId}:`, item);
 
         // Prepare item with user_id and timestamps
@@ -140,7 +146,7 @@ export function useSupabaseTable<T extends { id: string; user_id: string }>(
   const updateItem = useCallback(
     async (id: string, updates: Partial<Omit<T, 'id' | 'user_id' | 'created_at'>>) => {
       try {
-        const userId = await getCurrentUserId();
+        const userId = await getCurrentUserId(explicitUserId);
   
         // Không thêm updated_at thủ công (DB trigger tự cập nhật)
         const updateData: any = { ...updates };
@@ -182,7 +188,7 @@ export function useSupabaseTable<T extends { id: string; user_id: string }>(
   const deleteItem = useCallback(
     async (id: string) => {
       try {
-        const userId = await getCurrentUserId();
+        const userId = await getCurrentUserId(explicitUserId);
         console.log(`[${tableName}] Deleting item ${id} for user ${userId}`);
   
         const { error: deleteError } = await supabase

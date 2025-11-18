@@ -3,10 +3,10 @@ import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Ca
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Download, Filter } from 'lucide-react';
-import { useSupabaseTable } from '../../hooks/useSupabaseTable';
 import { supabase } from '../../lib/supabaseClient';
 import { useAuth } from '../../features/auth';
 import type { Invoice, Order } from '../../types/supabase';
+import { ensureInvoicePdfStored } from '../../features/invoices/invoiceStorage';
 
 interface InvoiceWithCustomer extends Invoice {
   customer_name?: string;
@@ -14,79 +14,196 @@ interface InvoiceWithCustomer extends Invoice {
 
 export const InvoicePage: React.FC = () => {
   const { user } = useAuth();
-  const {
-    data: invoices,
-    loading,
-    error,
-    updateItem,
-  } = useSupabaseTable<Invoice>({ tableName: 'invoices', enableRealtime: true });
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [invoicesWithCustomers, setInvoicesWithCustomers] = useState<InvoiceWithCustomer[]>([]);
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [ordersMap, setOrdersMap] = useState<Map<string, Order>>(new Map());
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [statusFilter, setStatusFilter] = useState('all');
   const [dateFilter, setDateFilter] = useState('');
 
-  // Fetch orders to get customer names
+  // Fetch invoices on mount and when user changes
   useEffect(() => {
     if (!user) return;
-    const fetchOrders = async () => {
-      const { data } = await supabase
-        .from('orders')
-        .select('id, customer_name')
-        .eq('user_id', user.id);
-      if (data) setOrders(data as Order[]);
+
+    // Fetch invoices and related orders
+    const fetchInvoices = async () => {
+      setLoading(true);
+      setError(null);
+      
+      try {
+        // First, fetch invoices
+        const { data: invoicesData, error: invoicesError } = await supabase
+          .from('invoices')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false });
+
+        if (invoicesError) {
+          throw invoicesError;
+        }
+
+        if (!invoicesData || invoicesData.length === 0) {
+          setInvoices([]);
+          setLoading(false);
+          return;
+        }
+
+        // Then, fetch related orders (full order data for PDF generation)
+        const orderIds = invoicesData.map(inv => inv.order_id).filter(Boolean);
+        
+        let ordersMap = new Map<string, { order_id: string | null; customer_name: string | null }>();
+        let fullOrdersMap = new Map<string, Order>();
+        
+        if (orderIds.length > 0) {
+          const { data: ordersData, error: ordersError } = await supabase
+            .from('orders')
+            .select('id, order_id, customer_name, phone, address, product, amount')
+            .eq('user_id', user.id)
+            .in('id', orderIds);
+
+          if (!ordersError && ordersData) {
+            ordersData.forEach(order => {
+              ordersMap.set(order.id, {
+                order_id: order.order_id || null,
+                customer_name: order.customer_name || null,
+              });
+              fullOrdersMap.set(order.id, order as Order);
+            });
+          }
+        }
+
+        // Merge invoices with order data
+        const invoicesWithOrders = invoicesData.map(invoice => ({
+          ...invoice,
+          orders: ordersMap.get(invoice.order_id) || null,
+        }));
+
+        setInvoices(invoicesWithOrders as Invoice[]);
+        setOrdersMap(fullOrdersMap);
+      } catch (err) {
+        console.error('Error fetching invoices:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load invoices');
+      } finally {
+        setLoading(false);
+      }
     };
-    fetchOrders();
+
+    fetchInvoices();
+
+    // Set up real-time subscription
+    const channel = supabase
+      .channel('invoices-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'invoices',
+          filter: `user_id=eq.${user.id}`,
+        },
+        () => {
+          fetchInvoices();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [user]);
 
-  // Merge invoices with customer names
+  // Merge invoices with customer names from joined orders
   useEffect(() => {
-    const merged = invoices.map(invoice => {
-      const order = orders.find(o => o.id === invoice.order_id);
-      return { ...invoice, customer_name: order?.customer_name || 'Unknown Customer' };
-    });
+    const merged = invoices.map(invoice => ({
+      ...invoice,
+      customer_name: invoice.orders?.customer_name || 'Unknown Customer',
+    }));
     setInvoicesWithCustomers(merged);
-  }, [invoices, orders]);
+  }, [invoices]);
 
-  const handleDownload = (invoice: InvoiceWithCustomer) => {
-    // In a real app, this would generate/download a PDF
-    alert(`Downloading invoice ${invoice.id}`);
+  // Helper to check if invoice can be downloaded
+  const canDownloadInvoice = (invoice: Invoice) => {
+    return invoice.status === 'Paid' || invoice.status === 'Refunded';
   };
 
-  const handleDownloadAll = () => {
-    if (selectedIds.size === 0) {
-      alert('Please select at least one invoice to download');
+  const handleDownload = async (invoice: InvoiceWithCustomer) => {
+    if (!canDownloadInvoice(invoice)) {
+      alert('Only Paid or Refunded invoices can be downloaded.');
       return;
     }
-    const selectedInvoices = invoicesWithCustomers.filter(inv => selectedIds.has(inv.id));
-    // In a real app, this would generate/download multiple PDFs or a zip file
-    alert(`Downloading ${selectedIds.size} invoice(s): ${selectedInvoices.map(inv => inv.id).join(', ')}`);
+
+    try {
+      // If pdf_url exists, open it directly
+      if (invoice.pdf_url) {
+        window.open(invoice.pdf_url, '_blank');
+        return;
+      }
+
+      // If pdf_url is missing, generate and upload it
+      const order = ordersMap.get(invoice.order_id);
+      if (!order) {
+        console.error('Order not found for invoice', invoice.id);
+        alert('Order not found for this invoice.');
+        return;
+      }
+
+      const pdfUrl = await ensureInvoicePdfStored(invoice, order);
+      if (pdfUrl) {
+        window.open(pdfUrl, '_blank');
+      } else {
+        alert('Failed to generate invoice PDF. Please try again.');
+      }
+    } catch (err) {
+      console.error('Failed to download invoice PDF', err);
+      alert('Failed to download invoice PDF. Please try again.');
+    }
   };
 
-  const handleStatusUpdate = async (id: string, newStatus: 'paid' | 'pending' | 'overdue') => {
-    try {
-      await updateItem(id, { status: newStatus });
-    } catch (err) {
-      console.error('Error updating invoice status:', err);
-      alert('Failed to update invoice status. Please try again.');
+  const handleDownloadAll = async () => {
+    const selectedDownloadable = invoicesWithCustomers.filter(
+      (inv) => selectedIds.has(inv.id) && canDownloadInvoice(inv)
+    );
+
+    if (selectedDownloadable.length === 0) {
+      alert('No downloadable invoices selected. Only Paid or Refunded invoices can be downloaded.');
+      return;
+    }
+
+    // Download each invoice PDF sequentially
+    for (const inv of selectedDownloadable) {
+      await handleDownload(inv);
+      // Small delay between downloads to avoid browser blocking
+      await new Promise(resolve => setTimeout(resolve, 300));
     }
   };
 
   const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'paid':
+    // Normalize to handle both old lowercase and new capitalized values
+    const normalizedStatus = status === 'Paid' || status === 'paid' ? 'Paid' :
+                            status === 'Cancelled' || status === 'cancelled' ? 'Cancelled' :
+                            'Pending';
+    
+    switch (normalizedStatus) {
+      case 'Paid':
         return { className: 'bg-green-500/20 text-green-400', label: 'Paid' };
-      case 'overdue':
-        return { className: 'bg-red-500/20 text-red-400', label: 'Overdue' };
+      case 'Cancelled':
+        return { className: 'bg-gray-500/20 text-gray-400', label: 'Cancelled' };
       default:
         return { className: 'bg-yellow-500/20 text-yellow-400', label: 'Pending' };
     }
   };
 
   const filteredInvoices = invoicesWithCustomers.filter(invoice => {
-    const matchesSearch = invoice.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      invoice.order_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    const invoiceCode = invoice.invoice_code || 
+      (invoice.orders?.order_id ? `INV-${invoice.orders.order_id}` : `INV-${invoice.id.slice(0, 8).toUpperCase()}`);
+    const orderCode = invoice.orders?.order_id || '';
+    
+    const matchesSearch = !searchQuery || 
+      invoiceCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      orderCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (invoice.customer_name?.toLowerCase().includes(searchQuery.toLowerCase()) || false);
     const matchesStatus = statusFilter === 'all' || invoice.status === statusFilter;
     const matchesDate = !dateFilter || invoice.date === dateFilter;
@@ -165,9 +282,10 @@ export const InvoicePage: React.FC = () => {
                 className="w-full h-10 pr-10 px-3 py-2 bg-white/10 backdrop-blur-md border border-white/20 rounded-lg text-[#E5E7EB] text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
               >
                 <option value="all">All Status</option>
-                <option value="paid">Paid</option>
-                <option value="pending">Pending</option>
-                <option value="overdue">Overdue</option>
+                <option value="Paid">Paid</option>
+                <option value="Pending">Pending</option>
+                <option value="Refunded">Refunded</option>
+                <option value="Cancelled">Cancelled</option>
               </select>
               <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
@@ -184,7 +302,7 @@ export const InvoicePage: React.FC = () => {
       </Card>
 
       <Card className="flex-1 flex flex-col min-h-0">
-        <CardHeader className="!pt-4 !pb-3 !px-6 flex-shrink-0">
+        <CardHeader className="!pt-4 !pb-1 !px-6 flex-shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <button
@@ -201,12 +319,23 @@ export const InvoicePage: React.FC = () => {
                 </span>
               )}
             </div>
-            {selectedIds.size > 0 && (
-              <Button onClick={handleDownloadAll} size="sm">
-                <Download size={16} className="mr-2" />
-                Download All ({selectedIds.size})
-              </Button>
-            )}
+            {selectedIds.size > 0 && (() => {
+              const selectedDownloadable = invoicesWithCustomers.filter(
+                (inv) => selectedIds.has(inv.id) && canDownloadInvoice(inv)
+              );
+              const selectedDownloadableCount = selectedDownloadable.length;
+              
+              return (
+                <Button 
+                  onClick={handleDownloadAll} 
+                  size="sm"
+                  disabled={selectedDownloadableCount === 0}
+                >
+                  <Download size={16} className="mr-2" />
+                  Download All ({selectedDownloadableCount})
+                </Button>
+              );
+            })()}
           </div>
         </CardHeader>
         <CardContent className="flex-1 min-h-0 overflow-y-auto p-0">
@@ -214,7 +343,7 @@ export const InvoicePage: React.FC = () => {
             <table className="min-w-[1100px] w-full border-separate border-spacing-0">
               <thead>
                 <tr className="border-b border-[#1E223D]">
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap w-12">
+                  <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap w-12">
                     <input
                       type="checkbox"
                       checked={selectedIds.size === filteredInvoices.length && filteredInvoices.length > 0}
@@ -222,13 +351,13 @@ export const InvoicePage: React.FC = () => {
                       className="w-4 h-4 rounded border-white/20 bg-white/5 text-[#8B5CF6] focus:ring-[#8B5CF6] focus:ring-offset-0 cursor-pointer"
                     />
                   </th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Invoice ID</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Order ID</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Customer</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Amount (VND)</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Date</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Status</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Actions</th>
+                  <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Invoice ID</th>
+                  <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Order ID</th>
+                  <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Customer</th>
+                  <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Amount (VND)</th>
+                  <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Date</th>
+                  <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Status</th>
+                  <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -245,10 +374,14 @@ export const InvoicePage: React.FC = () => {
                         />
                       </td>
                       <td className="px-6 py-4 text-sm text-[#E5E7EB] font-medium whitespace-nowrap align-middle">
-                        {invoice.id}
+                        {invoice.invoice_code
+                          ? invoice.invoice_code
+                          : invoice.orders?.order_id
+                            ? `INV-${invoice.orders.order_id}`
+                            : `INV-${invoice.id.slice(0, 8).toUpperCase()}`}
                       </td>
                       <td className="px-6 py-4 text-sm text-[#E5E7EB] whitespace-nowrap align-middle">
-                        {invoice.order_id}
+                        {invoice.orders?.order_id ?? '—'}
                       </td>
                       <td
                         className="px-6 py-4 text-sm text-[#E5E7EB] align-middle"
@@ -270,7 +403,7 @@ export const InvoicePage: React.FC = () => {
                         </span>
                       </td>
                       <td className="px-6 py-4 align-middle">
-                        <div className="flex gap-2">
+                        {canDownloadInvoice(invoice) ? (
                           <button
                             onClick={() => handleDownload(invoice)}
                             className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-[#E5E7EB] transition"
@@ -278,15 +411,11 @@ export const InvoicePage: React.FC = () => {
                             <Download size={16} />
                             <span className="text-sm">Download</span>
                           </button>
-                          {invoice.status !== 'paid' && (
-                            <button
-                              onClick={() => handleStatusUpdate(invoice.id, 'paid')}
-                              className="px-3 py-2 rounded-lg bg-green-500/20 hover:bg-green-500/30 text-green-400 transition text-sm"
-                            >
-                              Mark Paid
-                            </button>
-                          )}
-                        </div>
+                        ) : (
+                          <span className="text-xs text-white/40 italic">
+                            Available after Paid
+                          </span>
+                        )}
                       </td>
                     </tr>
                   );

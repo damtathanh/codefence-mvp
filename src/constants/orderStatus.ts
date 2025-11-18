@@ -1,0 +1,16 @@
+export const ORDER_STATUS = {
+  PENDING_REVIEW: "Pending Review",
+  VERIFICATION_REQUIRED: "Verification Required",
+  ORDER_CONFIRMATION_SENT: "Order Confirmation Sent",
+  ORDER_CONFIRMED: "Order Confirmed",
+  CUSTOMER_CONFIRMED: "Customer Confirmed",
+  CUSTOMER_CANCELLED: "Customer Cancelled",
+  ORDER_PAID: "Order Paid",
+  ORDER_REJECTED: "Order Rejected",
+  DELIVERING: "Delivering",
+  COMPLETED: "Completed",
+  CUSTOMER_UNREACHABLE: "Customer Unreachable",
+} as const;
+
+export type OrderStatus = (typeof ORDER_STATUS)[keyof typeof ORDER_STATUS];
+

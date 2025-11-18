@@ -1,5 +1,4 @@
 import { useCallback } from "react";
-import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../features/auth";
 import type { Order, Product } from "../types/supabase";
 import * as XLSX from "xlsx";
@@ -8,6 +7,10 @@ import Papa from "papaparse";
 // Smart header mapping
 import { validateAndMapHeaders, normalize } from "../utils/smartColumnMapper";
 import { computeRiskScoreV1, evaluateRisk } from "../utils/riskEngine";
+import { insertOrder, fetchPastOrdersByPhones } from "../features/orders/services/ordersService";
+import { insertOrderEvent } from "../features/orders/services/orderEventsService";
+import { ORDER_STATUS } from "../constants/orderStatus";
+import { markInvoicePaidForOrder } from "../features/invoices/invoiceService";
 
 export interface ParsedOrderRow {
   order_id: string;
@@ -318,9 +321,42 @@ export const useOrders = () => {
   /** DATABASE INSERT */
   const insertOrders = useCallback(
     async (orders: OrderInput[]) => {
+      if (!user?.id) {
+        return { success: 0, failed: 0, errors: ["User not authenticated"] };
+      }
+
       let success = 0,
         failed = 0,
         errors: string[] = [];
+
+      // Batch fetch past orders for all unique phones
+      const uniquePhones = Array.from(
+        new Set(
+          orders
+            .map(o => o.phone)
+            .filter((p): p is string => Boolean(p && p.trim()))
+        )
+      );
+
+      let historyByPhone = new Map<string, { status: string | null }[]>();
+      
+      if (uniquePhones.length > 0) {
+        const { data: pastOrdersData, error: pastError } = await fetchPastOrdersByPhones(
+          user.id,
+          uniquePhones
+        );
+
+        if (pastError) {
+          console.error('Error fetching past orders for risk evaluation:', pastError);
+        } else {
+          // Build map: phone -> pastOrders[]
+          for (const row of pastOrdersData ?? []) {
+            const list = historyByPhone.get(row.phone) ?? [];
+            list.push({ status: row.status });
+            historyByPhone.set(row.phone, list);
+          }
+        }
+      }
 
       for (const order of orders) {
         try {
@@ -335,38 +371,25 @@ export const useOrders = () => {
           const paymentMethod = rawPaymentMethod.toUpperCase();
           const isCod = paymentMethod === "COD";
 
-          // Query past orders for risk evaluation
+          // Get past orders from the batch-fetched map
           const phone = order.phone || '';
-          let pastOrders: { status: string | null }[] = [];
-          
-          if (phone && user?.id) {
-            const { data: pastOrdersData, error: pastError } = await supabase
-              .from('orders')
-              .select('status')
-              .eq('user_id', user.id)
-              .eq('phone', phone);
-            
-            if (pastError) {
-              console.error('Error fetching past orders for risk evaluation:', pastError);
-            } else {
-              pastOrders = pastOrdersData || [];
-            }
-          }
+          const pastOrders = historyByPhone.get(phone) || [];
 
           // Evaluate risk using new risk engine
-          const { score: riskScore, level: riskLevel, reasons } = evaluateRisk({
+          const { score: riskScore, level: riskLevel, reasons, version } = evaluateRisk({
             paymentMethod,
             amountVnd: amount,
             phone,
             address: order.address,
             pastOrders,
+            productName: order.product,
           });
 
-          const baseStatus = isCod ? "Pending Review" : "Order Paid";
+          const baseStatus = isCod ? ORDER_STATUS.PENDING_REVIEW : ORDER_STATUS.ORDER_PAID;
           const paidAt = isCod ? null : now;
 
           const payload = {
-            user_id: user?.id,
+            user_id: user.id,
             order_id: order.order_id,
             customer_name: order.customer_name,
             phone: order.phone,
@@ -383,30 +406,53 @@ export const useOrders = () => {
 
           console.log('[DEBUG] insert payload:', payload);
 
-          const { data: insertedData, error } = await supabase.from("orders").insert(payload).select().single();
+          const { data: insertedData, error } = await insertOrder(payload);
 
           if (error) throw error;
 
           // Insert RISK_EVALUATED event
           if (insertedData && insertedData.id) {
-            const { error: eventError } = await supabase
-              .from('order_events')
-              .insert([
-                {
-                  order_id: insertedData.id,
-                  event_type: 'RISK_EVALUATED',
-                  payload_json: {
-                    score: riskScore,
-                    level: riskLevel,
-                    reasons,
-                    source: 'import_rule_engine',
-                  },
-                },
-              ]);
+            const { error: eventError } = await insertOrderEvent({
+              order_id: insertedData.id,
+              event_type: 'RISK_EVALUATED',
+              payload_json: {
+                score: riskScore,
+                level: riskLevel,
+                reasons,
+                source: 'import_rule_engine',
+                rule_version: version || "v1",
+              },
+            });
 
             if (eventError) {
               console.error('Error inserting RISK_EVALUATED event:', eventError);
               // Don't fail the whole import if event insert fails
+            }
+          }
+
+          // Create Paid invoice for non-COD orders (they are paid immediately)
+          if (insertedData && !isCod) {
+            const fullOrder = {
+              ...insertedData,
+              user_id: user.id,
+              amount: insertedData.amount,
+            };
+            await markInvoicePaidForOrder(fullOrder);
+            
+            // Generate and upload PDF if in browser environment
+            if (typeof window !== 'undefined' && user.id) {
+              try {
+                const { getInvoiceByOrderId } = await import('../features/invoices/invoiceService');
+                const { ensureInvoicePdfStored } = await import('../features/invoices/invoiceStorage');
+                
+                const invoice = await getInvoiceByOrderId(fullOrder.id, user.id);
+                if (invoice) {
+                  await ensureInvoicePdfStored(invoice, fullOrder);
+                }
+              } catch (pdfError) {
+                console.error('[useOrders] Failed to store invoice PDF', pdfError);
+                // Don't break the import flow if PDF upload fails
+              }
             }
           }
 

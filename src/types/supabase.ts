@@ -1,4 +1,5 @@
 // TypeScript types for Supabase tables
+import type { OrderStatus } from "../constants/orderStatus";
 
 export interface Product {
   id: string; // UUID primary key (never editable)
@@ -23,7 +24,7 @@ export interface Order {
   product_id: string | null; // UUID reference to products table
   product?: string; // Legacy field (for backward compatibility during migration)
   amount: number;
-  status: string; // Default: 'Pending'
+  status: OrderStatus;
   risk_score: number | null; // Numeric value or null (displayed as 'N/A' in UI when null)
   risk_level: string | null; // 'Low' | 'Medium' | 'High'
   created_at?: string;
@@ -58,10 +59,18 @@ export interface Invoice {
   user_id: string;
   order_id: string;
   amount: number;
-  status: 'paid' | 'pending' | 'overdue';
+  status: 'Pending' | 'Paid' | 'Refunded' | 'Cancelled';
   date: string;
+  invoice_code?: string | null;
+  paid_at?: string | null;
+  pdf_url?: string | null;
   created_at?: string;
   updated_at?: string;
+  // Joined order data
+  orders?: {
+    order_id?: string | null;
+    customer_name?: string | null;
+  } | null;
 }
 
 export interface History {

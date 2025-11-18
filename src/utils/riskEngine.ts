@@ -164,20 +164,27 @@ export function computeRiskScoreV1(
   };
 }
 
+import type { OrderStatus } from "../constants/orderStatus";
+import { ORDER_STATUS } from "../constants/orderStatus";
+
 // New simplified risk evaluation function for import flow
-export type RiskInput = {
-  paymentMethod: string; // 'COD' | 'BANK' | 'MOMO' | 'ZALOPAY'
+export interface RiskInput {
+  paymentMethod: string | null | undefined;
   amountVnd: number;
   phone: string;
   address?: string | null;
   pastOrders: { status: string | null }[];
-};
+  productName?: string | null;
+}
 
-export type RiskOutput = {
+export type RiskLevel = "Low" | "Medium" | "High";
+
+export interface RiskOutput {
   score: number;            // 0–100
-  level: 'Low' | 'Medium' | 'High';
+  level: RiskLevel;
   reasons: string[];
-};
+  version?: "v1";
+}
 
 export function evaluateRisk(input: RiskInput): RiskOutput {
   const { paymentMethod, amountVnd, phone, address, pastOrders } = input;
@@ -200,9 +207,9 @@ export function evaluateRisk(input: RiskInput): RiskOutput {
   }
 
   // Rule 3: past failed COD orders (based on status)
-  const failedStatuses = ['Customer Cancelled', 'Order Rejected'];
+  const failedStatuses: OrderStatus[] = [ORDER_STATUS.CUSTOMER_CANCELLED, ORDER_STATUS.ORDER_REJECTED];
   const failedCount = pastOrders.filter(o =>
-    o.status && failedStatuses.includes(o.status)
+    o.status && failedStatuses.includes(o.status as OrderStatus)
   ).length;
 
   if (failedCount >= 3) {
@@ -227,10 +234,10 @@ export function evaluateRisk(input: RiskInput): RiskOutput {
   if (score < 0) score = 0;
 
   // Level
-  let level: 'Low' | 'Medium' | 'High' = 'Low';
+  let level: RiskLevel = 'Low';
   if (score >= 70) level = 'High';
   else if (score >= 40) level = 'Medium';
 
-  return { score, level, reasons };
+  return { score, level, reasons, version: "v1" };
 }
 

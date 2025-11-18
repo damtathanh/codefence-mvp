@@ -1,191 +1,87 @@
-# Supabase Database Migrations
+# Supabase CLI Migrations
 
-This directory contains SQL migration files for setting up and managing the CodFence database schema.
+This directory contains the **official Supabase CLI migration history** for the CodFence MVP project.
 
-## Migration Files
+## ⚠️ Important: Do NOT Modify These Files
 
-### `005_fix_profile_update_rls.sql` ⭐ **LATEST - RUN THIS**
-Fixes RLS policy violations when updating user profiles. This migration creates clean, non-recursive RLS policies that allow users to update their own profiles.
+**These migrations are the canonical schema history** and must remain unchanged to ensure:
+- Database can be recreated in other environments
+- Migration history is preserved
+- Supabase CLI can track schema changes correctly
 
-**What it does:**
-- Fixes "new row violates row-level security policy" errors
-- Creates clean RLS policies for SELECT, UPDATE, and INSERT
-- Ensures users can update their own profile (full_name, phone)
-- Allows users to create their own profile if it doesn't exist
-- Admins can view all profiles (non-recursive check)
-- Properly handles `auth.uid() = id` checks for security
+## 📋 Current Migration Files
 
-**Run this migration if:**
-- Seeing "row-level security policy" errors when updating profile
-- Profile update fails with permission denied errors
-- Need to fix RLS policies for users_profile table
+The migrations are numbered sequentially and should be applied in order:
 
-### `004_fix_profile_loading.sql`
-Fixes "Failed to load profile" errors and ensures authenticated users can read & update their profiles.
+- `000_initial_user_setup.sql` - Initial user authentication setup
+- `001_create_user_tables.sql` - User table creation
+- `002_unified_users_profile.sql` - Unified user profile schema
+- `003_fix_rls_and_triggers.sql` - RLS and trigger fixes
+- `004_fix_profile_loading.sql` - Profile loading fixes
+- `005_fix_profile_update_rls.sql` - Profile update RLS policies
+- `006_fix_role_assignment_domain_based.sql` - Role assignment logic
+- `007_fix_profile_sync_complete.sql` - Profile sync completion
+- `008_fix_profile_defaults.sql` - Profile default values
+- `009_add_message_indexes.sql` - Message table indexes
+- `010_create_system_bot.sql` - System bot user creation
+- `011_fix_messages_uuid_columns.sql` - Message UUID column fixes
+- `012_add_orders_indexes.sql` - Orders table indexes
+- `014_add_invoice_order_cascade_delete.sql` - Invoice cascade delete foreign key
+- `015_invoice_foreign_key_and_rls.sql` - Invoice foreign key and RLS policies
 
-**What it does:**
-- Fixes profile loading issues in Settings page
-- Resets RLS policies cleanly
-- Ensures authenticated users can read/update their own profiles
-- Auto-creates missing profiles for existing users
-- Prevents trigger recursion issues
-- Uses proper unified schema
+> **Note:** Migration `013` was removed as it was an empty no-op migration. The migration sequence jumps from `012` to `014` for this reason.
 
-**Run this migration if:**
-- Seeing "Failed to load profile" errors
-- Profile updates are failing
-- Settings page can't load user data
-- Existing users don't have profiles
+## 🚫 What NOT to Do
 
-### `003_fix_rls_and_triggers.sql`
-Fixes RLS policies and triggers to prevent recursive loops and ensure profile updates work correctly.
+- ❌ **Do NOT** combine or squash these migrations
+- ❌ **Do NOT** renumber them
+- ❌ **Do NOT** rewrite the history
+- ❌ **Do NOT** delete old migrations
+- ❌ **Do NOT** modify existing migration SQL (except for critical bug fixes with team approval)
 
-**Note:** Migration `004_fix_profile_loading.sql` includes all fixes from this migration, so you can run `004` directly.
+## ✅ What TO Do
 
-### `002_unified_users_profile.sql` ⭐ **CURRENT**
-The unified migration that creates a single `users_profile` table with role included.
+- ✅ **DO** create new numbered migrations for schema changes
+- ✅ **DO** use descriptive names that explain what the migration does
+- ✅ **DO** test migrations on a development database first
+- ✅ **DO** ensure migrations are idempotent when possible (use `IF NOT EXISTS`, etc.)
+- ✅ **DO** document complex migrations with comments
 
-**Tables Created:**
-- `users_profile` - Unified table storing user profile information AND role
+## 🔧 Using Supabase CLI
 
-**Features:**
-- Automatic role assignment based on email (contact@codfence.com or admin@codfence.com = admin)
-- Automatic profile creation when a new user signs up
-- Trigger-based synchronization with `auth.users`
-- Row Level Security (RLS) policies
-- Indexes for performance
-- Role stored directly in `users_profile` table (no separate `user_roles` table)
-
-**Schema:**
-```sql
-- id (uuid, primary key, references auth.users)
-- email (text, unique, not null)
-- full_name (text)
-- phone (text)
-- company_name (text, default 'CodFence')
-- avatar_url (text)
-- role (text, check: 'admin' or 'user', default 'user')
-- created_at (timestamp)
-```
-
-### `000_initial_user_setup.sql` (DEPRECATED)
-⚠️ **This migration is deprecated.** Please use `002_unified_users_profile.sql` instead.
-
-### `001_create_user_tables.sql` (DEPRECATED)
-⚠️ **This migration is deprecated.** Please use `002_unified_users_profile.sql` instead.
-
-## How to Run Migrations
-
-### Option 1: Supabase Dashboard (Recommended)
-
-1. Go to your Supabase project dashboard
-2. Navigate to **SQL Editor**
-3. Open the migration file you want to run
-4. Copy and paste the SQL into the editor
-5. Click **Run** to execute the migration
-
-### Option 2: Supabase CLI
-
-If you have the Supabase CLI installed:
+### Apply Migrations
 
 ```bash
-# Link to your Supabase project
-supabase link --project-ref your-project-ref
+# Apply all pending migrations
+supabase migration up
 
-# Run migrations
+# Apply migrations to a specific database
 supabase db push
 ```
 
-### Option 3: psql (Direct Database Connection)
+### Create New Migration
 
 ```bash
-psql -h your-db-host -U postgres -d postgres -f supabase/migrations/000_initial_user_setup.sql
+# Create a new migration file
+supabase migration new your_migration_name
+
+# This will create a file like: 016_your_migration_name.sql
 ```
 
-## Migration Order
+### Reset Database
 
-**Recommended:** Run migrations in order:
-1. `002_unified_users_profile.sql` ⭐ (creates unified structure)
-2. `004_fix_profile_loading.sql` (fixes profile loading and RLS issues)
-3. `005_fix_profile_update_rls.sql` ⭐ **RUN THIS** (fixes profile update RLS policy violations)
-
-**Note:** Migration `005` is the latest and fixes the RLS policy issue that prevents profile updates. It can be run after any of the previous migrations to fix the update permission issue.
-
-**Note:** Migration `002_unified_users_profile.sql` is standalone and includes everything you need. It will:
-- Drop the old `user_roles` table (if it exists)
-- Create the new unified `users_profile` table with role included
-- Set up automatic triggers for user synchronization
-
-## What Happens After Migration
-
-Once the migration is applied:
-
-1. **New User Signup:**
-   - When a user signs up through Supabase Auth, the trigger automatically:
-     - Creates a record in `users_profile` table
-     - Assigns role based on email (contact@codfence.com or admin@codfence.com = admin, all others = user)
-     - Extracts full_name from user metadata
-
-2. **Existing Users:**
-   - If you have existing users, you may need to manually create their profile records
-   - You can run this SQL to backfill existing users:
-
-```sql
--- Backfill existing users (run after migration)
-INSERT INTO public.users_profile (id, email, full_name, role)
-SELECT 
-  id,
-  email,
-  coalesce(
-    raw_user_meta_data->>'full_name',
-    raw_user_meta_data->>'fullName',
-    raw_user_meta_data->>'display_name',
-    split_part(email, '@', 1)
-  ) as full_name,
-  CASE 
-    WHEN email = 'admin@codfence.com' OR email = 'contact@codfence.com' THEN 'admin'
-    ELSE 'user'
-  END as role
-FROM auth.users
-ON CONFLICT (id) DO UPDATE SET
-  email = excluded.email,
-  role = excluded.role;
+```bash
+# Reset database and apply all migrations from scratch
+supabase db reset
 ```
 
-## Troubleshooting
+## 📚 Related Documentation
 
-### Error: "relation already exists"
-If you see this error, the tables already exist. You can either:
-1. Drop the tables first (the migration includes DROP statements)
-2. Use the enhanced migration which handles this
+- **Manual Migrations:** See `/migrations/` folder for one-off manual SQL migrations (products, orders fixes)
+- **Migration Guide:** See `MIGRATION_GUIDE.md` in project root for detailed troubleshooting
 
-### Error: "permission denied"
-Make sure you're running the migration as a database admin or with the appropriate permissions.
+## 🔍 Migration History
 
-### Trigger not firing
-Check that:
-1. The trigger was created successfully: `SELECT * FROM pg_trigger WHERE tgname = 'on_auth_user_created';`
-2. The function exists: `SELECT * FROM pg_proc WHERE proname = 'handle_new_user';`
-3. New user signups are going through Supabase Auth (not direct inserts)
+These migrations represent the complete schema evolution of the CodFence MVP database. Each migration builds on the previous ones, so they must be applied in sequential order.
 
-## Schema Reference
-
-### users_profile Table (Unified)
-- `id` (uuid, primary key) - References auth.users(id), on delete cascade
-- `email` (text, unique, not null) - User's email address
-- `full_name` (text) - User's full name
-- `phone` (text) - Phone number
-- `company_name` (text) - Company name (default: 'CodFence')
-- `avatar_url` (text) - Avatar image URL
-- `role` (text) - Either 'admin' or 'user' (default: 'user', check constraint)
-- `created_at` (timestamp) - When the profile was created
-
-## Security
-
-The enhanced migration includes Row Level Security (RLS) policies:
-- Users can only view/update their own profile
-- Admins can view all profiles
-- All operations are restricted by RLS policies
-
-Make sure RLS is enabled on your Supabase project for production use.
-
+For new environments, all migrations will be applied automatically by Supabase CLI when you run `supabase db push` or `supabase migration up`.

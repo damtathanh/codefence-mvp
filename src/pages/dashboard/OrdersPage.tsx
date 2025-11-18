@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useOutletContext } from 'react-router-dom';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
@@ -7,19 +7,23 @@ import { Input } from '../../components/ui/Input';
 import { CheckCircle, XCircle, Filter, Plus, AlertTriangle, Trash2, MoreVertical, ChevronDown, Edit } from 'lucide-react';
 import { useSupabaseTable } from '../../hooks/useSupabaseTable';
 import { useAuth } from '../../features/auth';
-import { supabase } from '../../lib/supabaseClient';
 import { ConfirmModal } from '../../components/ui/ConfirmModal';
 import { useToast } from '../../components/ui/Toast';
 import { logUserAction } from '../../utils/logUserAction';
 import { generateChanges } from '../../utils/generateChanges';
 import { StatusBadge } from '../../components/dashboard/StatusBadge';
 import {
-  sendConfirmation,
+  zaloGateway,
   simulateCustomerConfirmed,
   simulateCustomerCancelled,
   simulateCustomerPaid,
-} from '../../utils/mockZaloService';
+} from '../../features/zalo';
 import RejectOrderModal from '../../components/orders/RejectOrderModal';
+import { supabase } from '../../lib/supabaseClient';
+import { fetchOrdersByUser, updateOrder as updateOrderService, deleteOrders } from '../../features/orders/services/ordersService';
+import { fetchOrderEvents, insertOrderEvent } from '../../features/orders/services/orderEventsService';
+import { ORDER_STATUS } from '../../constants/orderStatus';
+import { deleteInvoicesByOrderIds } from '../../features/invoices/invoiceService';
 
 type RejectMode = 'VERIFICATION_REQUIRED' | 'ORDER_REJECTED';
 import type { Order, OrderEvent, Product } from '../../types/supabase';
@@ -36,6 +40,14 @@ export const OrdersPage: React.FC = () => {
   const { showSuccess, showError, showInfo } = useToast();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Derive available status options from current orders
+  const availableStatusOptions = useMemo(() => {
+    const used = new Set(orders.map(o => o.status).filter(Boolean));
+    return Object.values(ORDER_STATUS).filter(
+      (status) => used.has(status)
+    );
+  }, [orders]);
   const [error, setError] = useState<string | null>(null);
   const [products, setProducts] = useState<SimpleProduct[]>([]);
   const [productCorrections, setProductCorrections] = useState<Map<string, string>>(new Map()); // orderId -> product_id
@@ -65,11 +77,7 @@ export const OrdersPage: React.FC = () => {
 
   // Load order events for a specific order
   const loadOrderEvents = async (orderId: string) => {
-    const { data, error } = await supabase
-      .from('order_events')
-      .select('*')
-      .eq('order_id', orderId)
-      .order('created_at', { ascending: true });
+    const { data, error } = await fetchOrderEvents(orderId);
 
     if (!error && data) {
       setOrderEvents(data);
@@ -124,6 +132,13 @@ export const OrdersPage: React.FC = () => {
     await loadOrderEvents(order.id);
   };
 
+  // Helper to close side panel
+  const closeSidePanel = () => {
+    setIsSidePanelOpen(false);
+    setSelectedOrder(null);
+    setOrderEvents([]);
+  };
+
   // Fetch orders with product joins
   const fetchOrders = async () => {
     if (!user) {
@@ -137,18 +152,7 @@ export const OrdersPage: React.FC = () => {
       setError(null);
       
       // Fetch orders with product join
-      const { data: ordersData, error: ordersError } = await supabase
-        .from('orders')
-        .select(`
-          *,
-          products:product_id (
-            id,
-            name,
-            category
-          )
-        `)
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
+      const { data: ordersData, error: ordersError } = await fetchOrdersByUser(user.id);
 
       if (ordersError) {
         throw ordersError;
@@ -235,15 +239,11 @@ export const OrdersPage: React.FC = () => {
   }, [openActionDropdown]);
 
   // Update order (for status changes and product corrections)
-  const updateOrder = async (orderId: string, updates: Partial<Order>) => {
+  const updateOrderLocal = async (orderId: string, updates: Partial<Order>) => {
     if (!user) return;
     
     try {
-      const { error } = await supabase
-        .from('orders')
-        .update(updates)
-        .eq('id', orderId)
-        .eq('user_id', user.id);
+      const { error } = await updateOrderService(orderId, user.id, updates as any);
 
       if (error) throw error;
       
@@ -272,7 +272,7 @@ export const OrdersPage: React.FC = () => {
     }
 
     try {
-      await sendConfirmation(order);
+      await zaloGateway.sendConfirmation(order);
 
       // Log user action
       if (user) {
@@ -288,7 +288,9 @@ export const OrdersPage: React.FC = () => {
         });
       }
 
-      await fetchOrders();
+      // Update status -> "Confirmation Sent" and refresh orders
+      await updateOrderLocal(orderId, { status: ORDER_STATUS.ORDER_CONFIRMATION_SENT } as Partial<Order>);
+
       showSuccess('Confirmation sent via mock Zalo OA');
     } catch (err) {
       console.error('Error sending confirmation:', err);
@@ -318,6 +320,14 @@ export const OrdersPage: React.FC = () => {
       showError('Order not found');
       return;
     }
+
+    const rawMethod = order.payment_method || 'COD';
+    const method = rawMethod.toUpperCase();
+
+    if (method !== 'COD') {
+      showInfo('Non-COD order is already paid. No rejection needed in this flow.');
+      return;
+    }
     
     setRejectTargetOrder(order);
     setRejectMode('VERIFICATION_REQUIRED');
@@ -342,17 +352,17 @@ export const OrdersPage: React.FC = () => {
     try {
       const nextStatus =
         rejectMode === 'VERIFICATION_REQUIRED'
-          ? 'Verification Required'
-          : 'Order Rejected';
+          ? ORDER_STATUS.VERIFICATION_REQUIRED
+          : ORDER_STATUS.ORDER_REJECTED;
 
-      const updateData: Partial<Order> = {
+      const updateData: any = {
         status: nextStatus,
       };
 
       if (rejectMode === 'VERIFICATION_REQUIRED') {
-        (updateData as any).verification_reason = rejectReason;
+        updateData.verification_reason = rejectReason;
       } else {
-        (updateData as any).reject_reason = rejectReason;
+        updateData.reject_reason = rejectReason;
       }
 
       const previousData = {
@@ -362,11 +372,7 @@ export const OrdersPage: React.FC = () => {
       const changes = generateChanges(previousData, updateData);
 
       // Update order
-      const { error: updateError } = await supabase
-        .from('orders')
-        .update(updateData)
-        .eq('id', orderId)
-        .eq('user_id', user.id);
+      const { error: updateError } = await updateOrderService(orderId, user.id, updateData);
 
       if (updateError) {
         throw updateError;
@@ -378,19 +384,15 @@ export const OrdersPage: React.FC = () => {
           ? 'VERIFICATION_REQUIRED'
           : 'ORDER_REJECTED';
 
-      const { error: eventError } = await supabase
-        .from('order_events')
-        .insert([
-          {
-            order_id: orderId,
-            event_type: eventType,
-            payload_json: {
-              reason: rejectReason,
-              mode: rejectMode,
-              source: 'panel_action',
-            },
-          },
-        ]);
+      const { error: eventError } = await insertOrderEvent({
+        order_id: orderId,
+        event_type: eventType,
+        payload_json: {
+          reason: rejectReason,
+          mode: rejectMode,
+          source: 'ui',
+        },
+      });
 
       if (eventError) {
         throw eventError;
@@ -445,29 +447,21 @@ export const OrdersPage: React.FC = () => {
     const now = new Date().toISOString();
 
     try {
-      const { error: updateError } = await supabase
-        .from('orders')
-        .update({
-          status: 'Delivering',
-          shipped_at: now,
-        })
-        .eq('id', order.id)
-        .eq('user_id', user.id);
+      const { error: updateError } = await updateOrderService(order.id, user.id, {
+        status: ORDER_STATUS.DELIVERING,
+        shipped_at: now,
+      });
 
       if (updateError) throw updateError;
 
-      const { error: eventError } = await supabase
-        .from('order_events')
-        .insert([
-          {
-            order_id: order.id,
-            event_type: 'ORDER_SHIPPED',
-            payload_json: {
-              shipped_at: now,
-              source: 'panel_action',
-            },
-          },
-        ]);
+      const { error: eventError } = await insertOrderEvent({
+        order_id: order.id,
+        event_type: 'ORDER_SHIPPED',
+        payload_json: {
+          shipped_at: now,
+          source: 'ui',
+        },
+      });
 
       if (eventError) throw eventError;
 
@@ -504,29 +498,21 @@ export const OrdersPage: React.FC = () => {
     const now = new Date().toISOString();
 
     try {
-      const { error: updateError } = await supabase
-        .from('orders')
-        .update({
-          status: 'Completed',
-          completed_at: now,
-        })
-        .eq('id', order.id)
-        .eq('user_id', user.id);
+      const { error: updateError } = await updateOrderService(order.id, user.id, {
+        status: ORDER_STATUS.COMPLETED,
+        completed_at: now,
+      });
 
       if (updateError) throw updateError;
 
-      const { error: eventError } = await supabase
-        .from('order_events')
-        .insert([
-          {
-            order_id: order.id,
-            event_type: 'ORDER_COMPLETED',
-            payload_json: {
-              completed_at: now,
-              source: 'panel_action',
-            },
-          },
-        ]);
+      const { error: eventError } = await insertOrderEvent({
+        order_id: order.id,
+        event_type: 'ORDER_COMPLETED',
+        payload_json: {
+          completed_at: now,
+          source: 'ui',
+        },
+      });
 
       if (eventError) throw eventError;
 
@@ -595,7 +581,8 @@ export const OrdersPage: React.FC = () => {
       // Generate changes
       const changes = generateChanges(previousData, updateData);
       
-      await updateOrder(orderId, {
+      if (!user) return;
+      await updateOrderService(orderId, user.id, {
         product_id: productId,
       });
       setProductCorrections(prev => {
@@ -723,24 +710,23 @@ export const OrdersPage: React.FC = () => {
     const ordersToDelete = orders.filter(o => idsToDelete.includes(o.id));
     
     try {
-      // Delete all selected orders in parallel
-      const deletePromises = idsToDelete.map(id =>
-        supabase
-          .from('orders')
-          .delete()
-          .eq('id', id)
-          .eq('user_id', user.id)
-      );
+      // 1) Delete orders
+      const { error: deleteError } = await deleteOrders(user.id, idsToDelete);
       
-      const results = await Promise.all(deletePromises);
-      
-      // Check for errors
-      const errors = results.filter(result => result.error);
-      if (errors.length > 0) {
-        throw new Error(`Failed to delete ${errors.length} order(s).`);
+      if (deleteError) {
+        throw deleteError;
       }
       
-      // Log user actions for each deleted order
+      // 2) Delete related invoices
+      try {
+        await deleteInvoicesByOrderIds(user.id, idsToDelete);
+      } catch (invoiceError) {
+        console.error("Failed to delete related invoices", invoiceError);
+        // Do not rethrow here to avoid breaking the whole flow,
+        // but keep the error logged for debugging.
+      }
+      
+      // 3) Log user actions for each order
       const logPromises = ordersToDelete.map(order =>
         logUserAction({
           userId: user.id,
@@ -751,10 +737,10 @@ export const OrdersPage: React.FC = () => {
       );
       await Promise.all(logPromises);
       
-      // Clear selected IDs
+      // 4) Clear selected IDs
       setSelectedIds(new Set());
       
-      // Refresh orders list
+      // 5) Refresh orders list
       await fetchOrders();
       
       showSuccess(`Successfully deleted ${idsToDelete.length} order${idsToDelete.length > 1 ? 's' : ''}!`);
@@ -903,15 +889,11 @@ export const OrdersPage: React.FC = () => {
                 className="w-full h-10 pr-10 px-3 py-2 bg-white/10 backdrop-blur-md border border-white/20 rounded-lg text-[#E5E7EB] text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
               >
                 <option value="all">All Status</option>
-                <option value="Pending Review">Pending Review</option>
-                <option value="Verification Required">Verification Required</option>
-                <option value="Order Confirmation Sent">Order Confirmation Sent</option>
-                <option value="Customer Confirmed">Customer Confirmed</option>
-                <option value="Customer Cancelled">Customer Cancelled</option>
-                <option value="Order Paid">Order Paid</option>
-                <option value="Delivering">Delivering</option>
-                <option value="Completed">Completed</option>
-                <option value="Order Rejected">Order Rejected</option>
+                {availableStatusOptions.map((status) => (
+                  <option key={status} value={status}>
+                    {status}
+                  </option>
+                ))}
               </select>
               <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
@@ -937,7 +919,7 @@ export const OrdersPage: React.FC = () => {
       </Card>
 
       <Card className="flex-1 flex flex-col min-h-0">
-        <CardHeader className="!pt-4 !pb-3 !px-6 flex-shrink-0">
+        <CardHeader className="!pt-4 !pb-1 !px-6 flex-shrink-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <button
@@ -985,7 +967,7 @@ export const OrdersPage: React.FC = () => {
               <table className="w-full border-separate border-spacing-0 table-fixed">
                   <thead>
                     <tr className="border-b border-[#1E223D]">
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] w-12">
+                      <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] w-12">
                         <input
                           type="checkbox"
                           checked={selectedIds.size === filteredOrders.length && filteredOrders.length > 0}
@@ -994,16 +976,16 @@ export const OrdersPage: React.FC = () => {
                           className="w-4 h-4 rounded border-white/20 bg-white/5 text-[#8B5CF6] focus:ring-[#8B5CF6] focus:ring-offset-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                         />
                       </th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB]">Order ID</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB]">Customer</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB]">Phone</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB]">Address</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB]">Product</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB]">Amount (VND)</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB]">Payment Method</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB]">Risk Score</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB]">Status</th>
-                      <th className="pl-6 pr-10 py-4 text-right text-sm font-semibold text-[#E5E7EB] w-40">Actions</th>
+                      <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Order ID</th>
+                      <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Customer</th>
+                      <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Phone</th>
+                      <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Address</th>
+                      <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Product</th>
+                      <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Amount (VND)</th>
+                      <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Payment Method</th>
+                      <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Risk Score</th>
+                      <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Status</th>
+                      <th className="pl-6 pr-10 py-3 text-right text-sm font-semibold text-[#E5E7EB] w-40">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1216,11 +1198,7 @@ export const OrdersPage: React.FC = () => {
           {/* Backdrop */}
           <div
             className="flex-1 bg-black/40"
-            onClick={() => {
-              setIsSidePanelOpen(false);
-              setSelectedOrder(null);
-              setOrderEvents([]);
-            }}
+            onClick={closeSidePanel}
           />
 
           {/* Side Panel */}
@@ -1232,11 +1210,7 @@ export const OrdersPage: React.FC = () => {
                 <p className="text-sm text-white/60">#{selectedOrder.order_id}</p>
               </div>
               <button
-                onClick={() => {
-                  setIsSidePanelOpen(false);
-                  setSelectedOrder(null);
-                  setOrderEvents([]);
-                }}
+                onClick={closeSidePanel}
                 className="text-white/60 hover:text-white text-xl"
               >
                 ×
@@ -1329,9 +1303,15 @@ export const OrdersPage: React.FC = () => {
               <button
                 className="px-4 py-2 bg-blue-600 rounded text-white"
                 onClick={async () => {
-                  await simulateCustomerConfirmed(selectedOrder);
-                  await loadOrderEvents(selectedOrder.id);
-                  await fetchOrders();
+                  try {
+                    await simulateCustomerConfirmed(selectedOrder);
+                    await loadOrderEvents(selectedOrder.id);
+                    await fetchOrders();
+                    closeSidePanel();
+                  } catch (err) {
+                    console.error('Error simulating confirmed:', err);
+                    // Panel stays open on error
+                  }
                 }}
               >
                 Simulate Confirmed
@@ -1340,9 +1320,15 @@ export const OrdersPage: React.FC = () => {
               <button
                 className="px-4 py-2 bg-yellow-600 rounded text-white"
                 onClick={async () => {
-                  await simulateCustomerCancelled(selectedOrder, 'Dev test');
-                  await loadOrderEvents(selectedOrder.id);
-                  await fetchOrders();
+                  try {
+                    await simulateCustomerCancelled(selectedOrder, 'Dev test');
+                    await loadOrderEvents(selectedOrder.id);
+                    await fetchOrders();
+                    closeSidePanel();
+                  } catch (err) {
+                    console.error('Error simulating cancelled:', err);
+                    // Panel stays open on error
+                  }
                 }}
               >
                 Simulate Cancelled
@@ -1351,26 +1337,41 @@ export const OrdersPage: React.FC = () => {
               <button
                 className="px-4 py-2 bg-green-600 rounded text-white"
                 onClick={async () => {
-                  await simulateCustomerPaid(selectedOrder);
-                  await loadOrderEvents(selectedOrder.id);
-                  await fetchOrders();
+                  try {
+                    await simulateCustomerPaid(selectedOrder);
+                    await loadOrderEvents(selectedOrder.id);
+                    await fetchOrders();
+                    closeSidePanel();
+                  } catch (err) {
+                    console.error('Error simulating paid:', err);
+                    // Panel stays open on error
+                  }
                 }}
               >
                 Simulate Paid
               </button>
 
-              {selectedOrder.status === 'Order Paid' && (
-                <button
-                  className="px-4 py-2 bg-indigo-600 rounded text-white"
-                  onClick={async () => {
-                    await handleMarkShipped(selectedOrder);
-                  }}
-                >
-                  Mark as Delivering
-                </button>
-              )}
+              {(() => {
+                const rawMethod = selectedOrder?.payment_method || 'COD';
+                const method = rawMethod.toUpperCase();
+                const isCOD = method === 'COD';
+                const canMarkAsDelivering =
+                  selectedOrder?.status === ORDER_STATUS.ORDER_PAID ||
+                  (selectedOrder?.status === ORDER_STATUS.CUSTOMER_CONFIRMED && isCOD);
+                
+                return canMarkAsDelivering && (
+                  <button
+                    className="px-4 py-2 bg-indigo-600 rounded text-white"
+                    onClick={async () => {
+                      await handleMarkShipped(selectedOrder);
+                    }}
+                  >
+                    Mark as Delivering
+                  </button>
+                );
+              })()}
 
-              {selectedOrder.status === 'Delivering' && (
+              {selectedOrder.status === ORDER_STATUS.DELIVERING && (
                 <button
                   className="px-4 py-2 bg-emerald-600 rounded text-white"
                   onClick={async () => {

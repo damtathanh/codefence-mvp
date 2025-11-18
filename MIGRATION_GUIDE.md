@@ -1,8 +1,89 @@
-# 🚀 Products Table Migration Guide
+# 🚀 Database Migration Guide for CodFence MVP
 
-This guide will help you fix the `products` table schema and RLS policies to enable proper update and delete functionality.
+This project uses **two separate migration systems**:
 
-## ⚡ Quick Fix (5 Minutes)
+1. **Supabase CLI Migrations** (`/supabase/migrations/`) - Official schema history managed by Supabase CLI
+2. **Manual SQL Migrations** (`/migrations/`) - One-off manual migrations for MVP fixes
+
+## 📋 Quick Reference
+
+### For New Databases
+
+1. **Apply Supabase CLI migrations** (automatic via `supabase db push` or manual via SQL Editor)
+   - Location: `/supabase/migrations/`
+   - These are numbered sequentially (000, 001, 002, ...)
+   - See `supabase/README.md` for details
+
+2. **Apply manual migrations** (run in Supabase SQL Editor)
+   - Products: `migrations/004_fix_products_schema_cache_and_rls.sql`
+   - Orders: `migrations/010_update_orders_schema.sql`
+   - See `migrations/README.md` for details
+
+### For Existing Production Databases
+
+- **Do NOT** re-run Supabase CLI migrations (they're already applied)
+- **Do NOT** re-run manual migrations unless fixing a specific issue
+- Check migration history in Supabase dashboard to see what's already applied
+
+---
+
+## 🗂️ Migration Systems Explained
+
+### 1. Supabase CLI Migrations (`/supabase/migrations/`)
+
+**Purpose:** Official schema history managed by Supabase CLI
+
+**Characteristics:**
+- ✅ Managed by Supabase CLI (`supabase migration new`, `supabase db push`)
+- ✅ Sequential numbering (000, 001, 002, ...)
+- ✅ **DO NOT modify, combine, or delete** these files
+- ✅ These represent the canonical schema evolution
+- ✅ Used to recreate database in new environments
+
+**Current migrations:**
+- `000_initial_user_setup.sql` through `015_invoice_foreign_key_and_rls.sql`
+- See `supabase/README.md` for full list
+
+**How to use:**
+```bash
+# Apply all pending migrations
+supabase migration up
+
+# Or apply manually via Supabase SQL Editor (copy/paste each file in order)
+```
+
+### 2. Manual SQL Migrations (`/migrations/`)
+
+**Purpose:** One-off manual migrations for MVP-specific fixes
+
+**Characteristics:**
+- ✅ Run manually in Supabase SQL Editor
+- ✅ Idempotent (safe to run multiple times)
+- ✅ Focused on specific table fixes (products, orders)
+- ✅ Not managed by Supabase CLI
+
+**Current canonical migrations:**
+- `004_fix_products_schema_cache_and_rls.sql` - Products table fixes
+- `010_update_orders_schema.sql` - Orders table schema updates
+
+**Legacy migrations (archived):**
+- All older migrations moved to `migrations/archive/`
+- **Do NOT run these on new databases**
+- Kept for reference only
+
+**How to use:**
+1. Open Supabase Dashboard → SQL Editor
+2. Copy/paste the migration SQL
+3. Execute
+4. Verify using queries in the migration file
+
+---
+
+## 🚀 Products Table Migration
+
+### File: `migrations/004_fix_products_schema_cache_and_rls.sql` ⭐
+
+**This is the ONLY products migration you need to run.**
 
 ### Step 1: Run the Migration
 
@@ -17,8 +98,8 @@ This guide will help you fix the `products` table schema and RLS policies to ena
 
 3. **Handle Existing Data (IMPORTANT)**
    - If you have existing products without `user_id`, you need to handle them:
-     - **Option A:** Delete test data (uncomment line 38 in the migration)
-     - **Option B:** Assign to your user (uncomment line 41 and replace `YOUR_USER_ID_HERE` with your actual user UUID)
+     - **Option A:** Delete test data (uncomment the DELETE line in the migration)
+     - **Option B:** Assign to your user (uncomment the UPDATE line and replace `YOUR_USER_ID_HERE` with your actual user UUID)
    - To find your user ID: Run `SELECT auth.uid();` in SQL Editor while logged in
 
 4. **Execute the Migration**
@@ -29,66 +110,67 @@ This guide will help you fix the `products` table schema and RLS policies to ena
    - Check for any errors in the SQL Editor output
    - Run the verification queries at the bottom of the migration file
 
-## ✅ What Gets Fixed
+### ✅ What Gets Fixed
 
-### Schema Changes
-- ✅ Adds `user_id` column (UUID, references `auth.users`)
-- ✅ Adds `updated_at` column (timestamp with time zone)
-- ✅ Adds `created_at` column (timestamp with time zone)
+- ✅ Adds `user_id`, `created_at`, and `updated_at` columns if missing
 - ✅ Creates indexes for performance
-
-### Security Changes
 - ✅ Enables Row-Level Security (RLS)
-- ✅ Creates SELECT policy (users can read their own products)
-- ✅ Creates INSERT policy (users can insert their own products)
-- ✅ Creates UPDATE policy (users can update their own products)
-- ✅ Creates DELETE policy (users can delete their own products)
-
-### Automation Changes
-- ✅ Creates trigger to auto-update `updated_at` timestamp on row update
+- ✅ Creates all required RLS policies (SELECT, INSERT, UPDATE, DELETE)
+- ✅ Creates trigger to auto-update `updated_at` timestamp
 - ✅ Forces schema cache refresh (fixes "Could not find the 'updated_at' column" error)
 
-## 🔍 Verification
+### 🔍 Verification
 
 After running the migration, verify everything works:
 
-### 1. Check Columns Exist
 ```sql
+-- 1. Check columns exist
 SELECT column_name, data_type, is_nullable 
 FROM information_schema.columns 
 WHERE table_name = 'products' 
 AND column_name IN ('user_id', 'created_at', 'updated_at');
-```
 
-**Expected:** Should return 3 rows showing the columns exist.
-
-### 2. Check RLS is Enabled
-```sql
+-- 2. Check RLS is enabled
 SELECT tablename, rowsecurity 
 FROM pg_tables 
 WHERE schemaname = 'public' AND tablename = 'products';
-```
+-- Expected: rowsecurity = true
 
-**Expected:** `rowsecurity = true`
-
-### 3. Check Policies Exist
-```sql
+-- 3. Check policies exist
 SELECT policyname, cmd 
 FROM pg_policies 
 WHERE tablename = 'products';
+-- Expected: 4 policies (SELECT, INSERT, UPDATE, DELETE)
 ```
 
-**Expected:** 4 policies:
-- `Allow select own products` (SELECT)
-- `Allow insert own products` (INSERT)
-- `Allow update own products` (UPDATE)
-- `Allow delete own products` (DELETE)
+---
 
-### 4. Test in Your App
-1. **Create a product** → Should succeed
-2. **Update a product** → Should persist after refresh
-3. **Delete a product** → Should not reappear after refresh
-4. **Check browser console** → Should see operation logs
+## 📦 Orders Table Migration
+
+### File: `migrations/010_update_orders_schema.sql` ⭐
+
+**This is the ONLY orders migration you need to run.**
+
+### What It Does
+
+- ✅ Adds `order_id` column (text, separate from UUID id)
+- ✅ Adds `phone` column (renames `customer_phone` if it exists)
+- ✅ Adds `address` column (nullable)
+- ✅ Adds `product` column (legacy text field for backward compatibility)
+- ✅ Adds `product_id` column (UUID foreign key to products table)
+- ✅ Converts `status` and `risk_score` to TEXT type
+- ✅ Sets default values
+- ✅ Creates indexes
+- ✅ Migrates existing product names to product_id where possible
+
+### How to Run
+
+1. Open Supabase Dashboard → SQL Editor
+2. Copy and paste the contents of `migrations/010_update_orders_schema.sql`
+3. Execute the SQL
+4. The migration is idempotent (safe to run multiple times)
+
+---
 
 ## 🐛 Troubleshooting
 
@@ -117,70 +199,26 @@ WHERE tablename = 'products';
 3. Verify `user_id` matches authenticated user
 4. Check if realtime subscription is re-adding it
 
-## 📋 Code Verification
+---
 
-The `useSupabaseTable.ts` hook is already configured correctly:
+## 📚 Related Documentation
 
-✅ **Authentication:** Uses `getCurrentUserId()` helper  
-✅ **Update:** Filters by `.eq('user_id', userId)`  
-✅ **Delete:** Filters by `.eq('user_id', userId)`  
-✅ **Insert:** Sets `user_id` automatically  
-✅ **Timestamps:** Sets `updated_at` on updates, `created_at` on inserts  
-
-## 🎯 Expected Behavior After Migration
-
-### Before Migration ❌
-- Update shows success toast but doesn't persist
-- Delete shows success toast but item reappears
-- Console shows RLS policy errors
-
-### After Migration ✅
-- Update persists to database immediately
-- Delete removes item permanently
-- No RLS errors in console
-- Products don't reappear after refresh
-- All operations respect user ownership
-
-## 📝 Next Steps
-
-1. ✅ Run the migration (`004_fix_products_schema_cache_and_rls.sql`)
-2. ✅ Verify columns and policies exist
-3. ✅ Verify trigger exists (auto-updates `updated_at`)
-4. ✅ Test create, update, delete operations
-5. ✅ Check browser console for any errors
-6. ✅ Verify products persist after page refresh
-7. ✅ Verify schema cache is refreshed (no "updated_at column" errors)
-
-## 🆘 Still Having Issues?
-
-1. **Check Supabase Logs**
-   - Dashboard → Logs → Postgres Logs
-   - Look for RLS policy violations
-
-2. **Check Browser Console**
-   - Open DevTools → Console
-   - Look for operation logs and errors
-
-3. **Verify Authentication**
-   - Run `SELECT auth.uid();` in SQL Editor
-   - Should return your user UUID
-
-4. **Check Product Ownership**
-   - Run `SELECT id, name, user_id FROM products;`
-   - Verify `user_id` matches your authenticated user ID
+- **Manual Migrations:** See `migrations/README.md` for detailed manual migration guide
+- **Supabase CLI Migrations:** See `supabase/README.md` for Supabase CLI migration management
+- **Migration Files:** 
+  - Products: `migrations/004_fix_products_schema_cache_and_rls.sql`
+  - Orders: `migrations/010_update_orders_schema.sql`
 
 ---
 
-**Migration File:** `migrations/004_fix_products_schema_cache_and_rls.sql`  
+## ⚠️ Important Notes
+
+1. **Legacy migrations** in `migrations/archive/` should **NOT** be run on new databases
+2. **Supabase CLI migrations** in `/supabase/migrations/` should **NOT** be modified
+3. **Always verify** migrations worked using the verification queries
+4. **Back up your database** before running migrations on production
+5. The manual migrations are **idempotent** (safe to run multiple times)
+
+---
+
 **Last Updated:** 2024
-
-## 🎯 Key Features of Latest Migration
-
-The `004_fix_products_schema_cache_and_rls.sql` migration includes:
-
-1. **Schema Cache Refresh:** `NOTIFY pgrst, 'reload schema';` fixes the "Could not find the 'updated_at' column" error
-2. **Auto-Update Trigger:** Automatically updates `updated_at` timestamp on row updates
-3. **Comprehensive RLS Policies:** All 4 policies (SELECT, INSERT, UPDATE, DELETE) with proper permissions
-4. **Idempotent:** Can be run multiple times safely (uses `IF NOT EXISTS` and `DROP IF EXISTS`)
-5. **Verification Queries:** Includes queries to verify the migration succeeded
-

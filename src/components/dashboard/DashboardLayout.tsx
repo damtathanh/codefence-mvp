@@ -770,7 +770,7 @@ export const DashboardLayout: React.FC = () => {
           ref={mainContentRef}
           className="flex-1 min-h-0 bg-[var(--bg-page)] overflow-hidden"
         >
-          <div className="w-full h-full flex flex-col bg-[var(--bg-page)] px-6 py-6">
+          <div className="w-full h-full flex flex-col bg-[var(--bg-page)] px-6 pt-4 pb-6">
             <Outlet context={outletContext} />
           </div>
         </main>
