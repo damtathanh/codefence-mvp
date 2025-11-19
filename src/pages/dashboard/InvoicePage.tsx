@@ -5,6 +5,7 @@ import { Input } from '../../components/ui/Input';
 import { Download, Filter } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient';
 import { useAuth } from '../../features/auth';
+import { useUserProfile } from '../../hooks/useUserProfile';
 import type { Invoice, Order } from '../../types/supabase';
 import { ensureInvoicePdfStored } from '../../features/invoices/invoiceStorage';
 
@@ -14,6 +15,7 @@ interface InvoiceWithCustomer extends Invoice {
 
 export const InvoicePage: React.FC = () => {
   const { user } = useAuth();
+  const { profile } = useUserProfile();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -150,7 +152,41 @@ export const InvoicePage: React.FC = () => {
         return;
       }
 
-      const pdfUrl = await ensureInvoicePdfStored(invoice, order);
+      // Fetch current user's profile for seller info
+      // Use profile from hook if available, otherwise fetch directly
+      let sellerProfile = {
+        company_name: profile?.company_name || undefined,
+        email: profile?.email || undefined,
+        phone: profile?.phone || undefined,
+        website: undefined,
+        address: undefined,
+      };
+
+      // If profile not loaded yet, fetch it directly
+      if (!profile && user) {
+        const { data: authData } = await supabase.auth.getUser();
+        const userId = authData?.user?.id;
+
+        if (userId) {
+          const { data: profileData } = await supabase
+            .from("users_profile")
+            .select("company_name, email, phone, website, address")
+            .eq("id", userId)
+            .maybeSingle();
+
+          if (profileData) {
+            sellerProfile = {
+              company_name: profileData.company_name || undefined,
+              email: profileData.email || undefined,
+              phone: profileData.phone || undefined,
+              website: (profileData as any).website || undefined,
+              address: (profileData as any).address || undefined,
+            };
+          }
+        }
+      }
+
+      const pdfUrl = await ensureInvoicePdfStored(invoice, order, sellerProfile);
       if (pdfUrl) {
         window.open(pdfUrl, '_blank');
       } else {

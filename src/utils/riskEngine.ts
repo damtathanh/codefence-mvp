@@ -177,8 +177,6 @@ export interface RiskInput {
   productName?: string | null;
 }
 
-export type RiskLevel = "Low" | "Medium" | "High";
-
 export interface RiskOutput {
   score: number;            // 0–100
   level: RiskLevel;
@@ -234,9 +232,9 @@ export function evaluateRisk(input: RiskInput): RiskOutput {
   if (score < 0) score = 0;
 
   // Level
-  let level: RiskLevel = 'Low';
-  if (score >= 70) level = 'High';
-  else if (score >= 40) level = 'Medium';
+  let level: RiskLevel = 'low';
+  if (score >= 70) level = 'high';
+  else if (score >= 40) level = 'medium';
 
   return { score, level, reasons, version: "v1" };
 }

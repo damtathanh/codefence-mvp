@@ -12,7 +12,14 @@ import type { Order } from '../../types/supabase';
  */
 export async function ensureInvoicePdfStored(
   invoice: Invoice,
-  order: Order
+  order: Order,
+  sellerProfile: {
+    company_name?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    website?: string | null;
+    address?: string | null;
+  }
 ): Promise<string | null> {
   // Browser check
   if (typeof window === 'undefined') {
@@ -42,7 +49,7 @@ export async function ensureInvoicePdfStored(
   // 2) Nếu không có pdf_url hoặc file bị xoá → tạo PDF mới
   // -----------------------------------------
   try {
-    const pdfBlob = await generateInvoicePdf(invoice, order);
+    const pdfBlob = await generateInvoicePdf(invoice, order, sellerProfile);
 
     const userId = invoice.user_id || order.user_id;
     if (!userId) {

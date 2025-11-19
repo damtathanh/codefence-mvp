@@ -4,6 +4,7 @@ import { updateOrder } from "../orders/services/ordersService";
 import { insertOrderEvent } from "../orders/services/orderEventsService";
 import { ORDER_STATUS } from "../../constants/orderStatus";
 import { ensurePendingInvoiceForOrder, markInvoicePaidForOrder } from "../invoices/invoiceService";
+import { supabase } from "../../lib/supabaseClient";
 
 type ZaloEventType =
   | 'CONFIRMATION_SENT'
@@ -149,7 +150,32 @@ export async function simulateCustomerPaid(order: Order) {
       const invoice = await getInvoiceByOrderId(order.id, order.user_id);
       if (invoice) {
         try {
-          await ensureInvoicePdfStored(invoice, updatedOrder);
+          // Fetch seller profile for PDF generation
+          let sellerProfile = {
+            company_name: undefined,
+            email: undefined,
+            phone: undefined,
+            website: undefined,
+            address: undefined,
+          };
+
+          const { data: profileData } = await supabase
+            .from("users_profile")
+            .select("company_name, email, phone, website, address")
+            .eq("id", order.user_id)
+            .maybeSingle();
+
+          if (profileData) {
+            sellerProfile = {
+              company_name: profileData.company_name || undefined,
+              email: profileData.email || undefined,
+              phone: profileData.phone || undefined,
+              website: (profileData as any).website || undefined,
+              address: (profileData as any).address || undefined,
+            };
+          }
+
+          await ensureInvoicePdfStored(invoice, updatedOrder, sellerProfile);
         } catch (pdfError) {
           console.error('[mockZaloGateway] Failed to store invoice PDF', pdfError);
           // Don't break the flow if PDF upload fails

@@ -3,6 +3,7 @@ import { useAuth } from "../features/auth";
 import type { Order, Product } from "../types/supabase";
 import * as XLSX from "xlsx";
 import Papa from "papaparse";
+import { supabase } from "../lib/supabaseClient";
 
 // Smart header mapping
 import { validateAndMapHeaders, normalize } from "../utils/smartColumnMapper";
@@ -447,7 +448,32 @@ export const useOrders = () => {
                 
                 const invoice = await getInvoiceByOrderId(fullOrder.id, user.id);
                 if (invoice) {
-                  await ensureInvoicePdfStored(invoice, fullOrder);
+                  // Fetch seller profile for PDF generation
+                  let sellerProfile = {
+                    company_name: undefined,
+                    email: undefined,
+                    phone: undefined,
+                    website: undefined,
+                    address: undefined,
+                  };
+
+                  const { data: profileData } = await supabase
+                    .from("users_profile")
+                    .select("company_name, email, phone, website, address")
+                    .eq("id", user.id)
+                    .maybeSingle();
+
+                  if (profileData) {
+                    sellerProfile = {
+                      company_name: profileData.company_name || undefined,
+                      email: profileData.email || undefined,
+                      phone: profileData.phone || undefined,
+                      website: (profileData as any).website || undefined,
+                      address: (profileData as any).address || undefined,
+                    };
+                  }
+
+                  await ensureInvoicePdfStored(invoice, fullOrder, sellerProfile);
                 }
               } catch (pdfError) {
                 console.error('[useOrders] Failed to store invoice PDF', pdfError);

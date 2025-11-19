@@ -1,47 +1,30 @@
 // src/utils/invoicePdf.ts
 import { PDFDocument, rgb } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
-import { supabase } from "../lib/supabaseClient";
 
 /**
  * Generate a premium-style invoice PDF for end customers.
  * - Header: Logo + title
- * - Company info: from users_profile (seller)
+ * - Company info: from sellerProfile parameter
  * - Order detail: subtotal, discount, shipping, total
  */
 export async function generateInvoicePdf(
   invoice: any,
-  order: any
-): Promise<Blob> {
-  // --------- 1. Fetch seller profile (users_profile) ----------
-  const userId = invoice.user_id || order.user_id;
-  let companyName = "";
-  let companyEmail = "";
-  let companyPhone = "";
-  let companyWebsite = "";
-  let companyAddress = "";
-
-  if (userId) {
-    const { data: profile } = await supabase
-      .from("users_profile")
-      .select("company_name, email, phone, website, address")
-      .eq("id", userId)
-      .maybeSingle();
-
-    if (profile) {
-      companyName = profile.company_name || "";
-      companyEmail = profile.email || "";
-      companyPhone = profile.phone || "";
-      companyWebsite = (profile as any).website || "";
-      companyAddress = (profile as any).address || "";
-    }
+  order: any,
+  sellerProfile: {
+    company_name?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    website?: string | null;
+    address?: string | null;
   }
-
-  // Fallback nếu chưa có cấu hình
-  if (!companyName) companyName = "Cửa hàng của bạn";
-  if (!companyEmail) companyEmail = "contact@example.com";
-  if (!companyPhone) companyPhone = "";
-  if (!companyWebsite) companyWebsite = "";
+): Promise<Blob> {
+  // --------- 1. Extract seller profile info ----------
+  const companyName = sellerProfile.company_name || "Cửa hàng của bạn";
+  const companyEmail = sellerProfile.email || "contact@example.com";
+  const companyPhone = sellerProfile.phone || "";
+  const companyWebsite = sellerProfile.website || "";
+  const companyAddress = sellerProfile.address || "";
 
   // --------- 2. Create PDF + fonts + logo ----------
   const pdfDoc = await PDFDocument.create();
@@ -108,7 +91,21 @@ export async function generateInvoicePdf(
     return num.toLocaleString("vi-VN");
   };
 
-  // --------- 3. HEADER: only logo + title ----------
+  const viStatus = (raw: string | null | undefined) => {
+    const s = (raw || "").toLowerCase();
+    switch (s) {
+      case "paid":
+        return "Đã thanh toán";
+      case "pending":
+        return "Chờ thanh toán";
+      case "refunded":
+        return "Đã hoàn tiền";
+      default:
+        return raw || "";
+    }
+  };
+
+  // --------- 3. HEADER: only logo + centered title ----------
   const headerHeight = 110;
 
   page.drawRectangle({
@@ -119,7 +116,7 @@ export async function generateInvoicePdf(
     color: primaryNavy,
   });
 
-  // Logo
+  // Logo (trái)
   const logoWidth = 72;
   const logoHeight = logoWidth * (logo.height / logo.width);
   const logoX = margin;
@@ -132,12 +129,14 @@ export async function generateInvoicePdf(
     height: logoHeight,
   });
 
-  // Title centered
+  // Title căn giữa theo chiều ngang + dọc
   const title = "HÓA ĐƠN THANH TOÁN";
   const titleSize = 22;
   const titleWidth = fontBold.widthOfTextAtSize(title, titleSize);
+
+  const headerCenterY = 842 - headerHeight / 2;
   const titleX = (width - titleWidth) / 2;
-  const titleY = 842 - headerHeight / 2 + 6;
+  const titleY = headerCenterY - titleSize / 2;
 
   page.drawText(title, {
     x: titleX,
@@ -156,24 +155,13 @@ export async function generateInvoicePdf(
     color: primaryNavy,
   });
 
-  // tagline (mặc định theo yêu cầu)
-  drawText("Nền tảng quản lý đơn hàng thông minh", {
-    size: 11,
-    color: rgb(0.2, 0.2, 0.26),
-  });
-
-  if (companyWebsite) {
-    drawText(`Website: ${companyWebsite}`, { size: 11 });
-  }
-
+  // Chỉ email / sđt / địa chỉ như m yêu cầu
   if (companyEmail) {
     drawText(`Email: ${companyEmail}`, { size: 11 });
   }
-
   if (companyPhone) {
     drawText(`Số điện thoại: ${companyPhone}`, { size: 11 });
   }
-
   if (companyAddress) {
     drawText(`Địa chỉ: ${companyAddress}`, { size: 11 });
   }
@@ -191,7 +179,7 @@ export async function generateInvoicePdf(
   const createdDate = new Date(invoice.created_at).toLocaleDateString("vi-VN");
   drawText(`Mã hóa đơn: ${invoice.invoice_code ?? ""}`);
   drawText(`Ngày tạo: ${createdDate}`);
-  drawText(`Trạng thái: ${invoice.status ?? "Paid"}`);
+  drawText(`Trạng thái: ${viStatus(invoice.status)}`);
   y -= 6;
   drawDivider();
 
@@ -243,13 +231,12 @@ export async function generateInvoicePdf(
     drawText(`Phí vận chuyển: ${formatVnd(shipping)} VND`);
   }
 
-  // --------- 8. TỔNG THANH TOÁN – separate block below ----------
-  y -= 10;
-
+  // --------- 8. TỔNG THANH TOÁN – block riêng, đẩy xuống dưới ----------
+  // Không dùng y hiện tại, đặt vị trí cố định tách hẳn khỏi chi tiết đơn hàng
   const totalBoxWidth = 300;
   const totalBoxHeight = 80;
   const totalBoxX = width - margin - totalBoxWidth;
-  const totalBoxY = y - totalBoxHeight + 40;
+  const totalBoxY = 180; // cách footer ~110pt, tách rõ với phần trên
 
   page.drawRectangle({
     x: totalBoxX,
@@ -280,8 +267,6 @@ export async function generateInvoicePdf(
     color: primaryNavy,
   });
 
-  y = totalBoxY - 30;
-
   // --------- 9. FOOTER (thank you from shop) ----------
   page.drawLine({
     start: { x: margin, y: 70 },
@@ -300,12 +285,12 @@ export async function generateInvoicePdf(
     color: primaryNavy,
   });
 
-  const contactLineParts = [];
-  if (companyPhone) contactLineParts.push(`SĐT: ${companyPhone}`);
-  if (companyEmail) contactLineParts.push(`Email: ${companyEmail}`);
-  if (companyWebsite) contactLineParts.push(`Website: ${companyWebsite}`);
+  const contactParts: string[] = [];
+  if (companyPhone) contactParts.push(`SĐT: ${companyPhone}`);
+  if (companyEmail) contactParts.push(`Email: ${companyEmail}`);
+  if (companyWebsite) contactParts.push(`Website: ${companyWebsite}`);
 
-  const contactLine = contactLineParts.join(" | ");
+  const contactLine = contactParts.join(" | ");
 
   if (contactLine) {
     page.drawText(`Mọi thắc mắc vui lòng liên hệ: ${contactLine}`, {
