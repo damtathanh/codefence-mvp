@@ -119,3 +119,77 @@ export interface UserProfile {
   role: 'admin' | 'user';
   created_at: string;
 }
+
+/**
+ * Shared RiskLevel union used across risk-related types
+ */
+export type RiskLevel = "none" | "low" | "medium" | "high";
+
+/**
+ * CustomerBlacklistEntry - matches the customer_blacklist table
+ */
+export interface CustomerBlacklistEntry {
+  id: string;
+  user_id: string;
+  phone: string;
+  address: string | null;
+  reason: string | null;
+  created_at: string;
+}
+
+/**
+ * CustomerStats - aggregated customer statistics per phone number
+ */
+export interface CustomerStats {
+  phone: string;
+  last_customer_name: string | null;
+  last_address: string | null;
+  total_orders: number;
+  successful_orders: number; // e.g. status = "Order Paid" or "Completed"
+  failed_orders: number;     // e.g. "Customer Cancelled", "Customer Unreachable", "Order Rejected"
+  avg_risk_score: number | null;
+  avg_risk_level: RiskLevel;
+  last_order_at: string | null;
+  is_blacklisted: boolean;
+}
+
+/**
+ * AddressRiskStats - matches address_risk_stats table
+ */
+export interface AddressRiskStats {
+  id: string;
+  user_id: string;
+  address_key: string;
+  full_address: string | null;
+  province: string | null;
+  district: string | null;
+  ward: string | null;
+  street: string | null;
+  total_orders: number;
+  success_orders: number;
+  failed_orders: number;
+  boom_orders: number;
+  last_order_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * AreaRiskStats - matches area_risk_stats table
+ */
+export interface AreaRiskStats {
+  id: string;
+  user_id: string;
+  province: string | null;
+  district: string | null;
+  ward: string | null;
+  street: string | null;
+  total_orders: number;
+  success_orders: number;
+  failed_orders: number;
+  boom_orders: number;
+  last_order_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+

@@ -13,6 +13,12 @@ import { generateChanges } from '../../utils/generateChanges';
 import type { Product, Order } from '../../types/supabase';
 import type { HeaderValidationResult } from '../../utils/smartColumnMapper';
 import { normalize } from '../../utils/smartColumnMapper';
+import { evaluateRisk } from '../../utils/riskEngine';
+import { fetchPastOrdersByPhones } from '../../features/orders/services/ordersService';
+import { fetchCustomerBlacklist } from '../../features/customers/services/customersService';
+import { insertOrderEvent } from '../../features/orders/services/orderEventsService';
+import { fetchPastOrdersByPhone } from '../../features/orders/services/ordersService';
+import type { RiskInput } from '../../utils/riskEngine';
 
 interface ParsedUploadPayload {
   validOrders: OrderInput[];
@@ -56,9 +62,9 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
     const num = Number(cleaned);
     return isNaN(num) ? null : num;
   };
-  
+
   // Fetch products for dropdown (only active products)
-  const { data: allProducts = [] } = useSupabaseTable<Product>({ 
+  const { data: allProducts = [] } = useSupabaseTable<Product>({
     tableName: 'products'
   });
   const products = allProducts.filter(p => p.status === 'active');
@@ -72,6 +78,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
     product_id: '',
     amount: 0,
     amountDisplay: '',
+    payment_method: 'COD',
   });
 
   // File upload state
@@ -79,11 +86,11 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
   const [invalidOrders, setInvalidOrders] = useState<InvalidOrderRow[]>([]);
   const [correctedOrders, setCorrectedOrders] = useState<Map<number, string>>(new Map()); // rowIndex -> product_id
   const [showPreview, setShowPreview] = useState(false);
-  
+
   // Missing products state
   const [pendingUpload, setPendingUpload] = useState<ParsedUploadPayload | null>(null);
   const [missingProducts, setMissingProducts] = useState<string[]>([]);
-  
+
   // Flag to track if we've already processed the pending upload after products were created
   // This prevents double-processing when AddOrderModal re-opens
   const [hasProcessedPendingUpload, setHasProcessedPendingUpload] = useState(false);
@@ -108,6 +115,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
         product_id: editingOrder.product_id || '',
         amount: editingOrder.amount || 0,
         amountDisplay: formattedAmount,
+        payment_method: editingOrder.payment_method || 'COD',
       });
       setActiveTab('manual'); // Always show manual entry tab when editing
     } else if (!isOpen) {
@@ -120,6 +128,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
         product_id: '',
         amount: 0,
         amountDisplay: '',
+        payment_method: 'COD',
       });
       setUploadProgress('');
       setUploadedOrders([]);
@@ -148,7 +157,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
       setHasProcessedPendingUpload(true);
       // Switch to upload tab if not already there
       setActiveTab('upload');
-      
+
       // Small delay to ensure tab switch completes before processing
       const timeoutId = setTimeout(() => {
         // Process the pending upload to continue the import
@@ -164,7 +173,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
             setHasProcessedPendingUpload(false); // Reset on error so user can retry
           });
       }, 100);
-      
+
       return () => clearTimeout(timeoutId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -190,7 +199,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
   // Handle manual form submission
   const handleManualSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     setLoading(true);
     try {
       // Validate product is selected
@@ -202,7 +211,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
 
       // Convert formatted amount string back to number (remove commas)
       const numericAmount = formData.amountDisplay ? Number(formData.amountDisplay.replace(/,/g, '')) : 0;
-      
+
       if (numericAmount <= 0) {
         showError('Amount must be greater than 0');
         setLoading(false);
@@ -213,7 +222,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
         // Capture previous data for change tracking
         const previousProduct = products.find(p => p.id === editingOrder.product_id);
         const newProduct = products.find(p => p.id === formData.product_id);
-        
+
         const previousData = {
           order_id: editingOrder.order_id || '',
           customer_name: editingOrder.customer_name || '',
@@ -221,8 +230,9 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
           address: editingOrder.address || '',
           product: previousProduct?.name || editingOrder.product || 'N/A',
           amount: editingOrder.amount || 0,
+          payment_method: editingOrder.payment_method || 'COD',
         };
-        
+
         const updateData = {
           order_id: formData.order_id?.trim() || '',
           customer_name: formData.customer_name?.trim() || '',
@@ -230,11 +240,12 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
           address: formData.address?.trim() || '',
           product: newProduct?.name || 'N/A',
           amount: numericAmount,
+          payment_method: formData.payment_method || 'COD',
         };
-        
+
         // Generate changes before updating
         const changes = generateChanges(previousData, updateData);
-        
+
         // Get product name for the selected product_id
         const selectedProduct = products.find(p => p.id === formData.product_id);
         const productName = selectedProduct?.name || '';
@@ -250,6 +261,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
             product_id: formData.product_id || '',
             product: productName, // Store product name
             amount: numericAmount,
+            payment_method: formData.payment_method || 'COD',
             updated_at: new Date().toISOString(),
           })
           .eq('id', editingOrder.id)
@@ -285,7 +297,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
           product_id: formData.product_id || null,
           product: productName, // Store product name
           amount: numericAmount,
-          payment_method: "COD",
+          payment_method: formData.payment_method || "COD",
         };
 
         // Validate order
@@ -294,6 +306,46 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
           showError(validationError);
           setLoading(false);
           return;
+        }
+
+        // Calculate risk for COD orders
+        let riskScore: number | null = null;
+        let riskLevel: string | null = null;
+        let riskVersion: string | null = null;
+        let riskReasons: any[] = [];
+
+        const paymentMethod = (orderData.payment_method || 'COD').toUpperCase();
+
+        // Only calculate risk for COD
+        if (paymentMethod === 'COD') {
+          try {
+            // 1. Fetch blacklist
+            const { data: blacklistData } = await fetchCustomerBlacklist(user.id);
+            const blacklistSet = new Set((blacklistData || []).map(b => b.phone));
+
+            // 2. Fetch past orders
+            const { data: pastOrders } = await fetchPastOrdersByPhone(user.id, orderData.phone);
+
+            // 3. Evaluate risk
+            const riskInput: RiskInput = {
+              paymentMethod: 'COD',
+              amountVnd: numericAmount,
+              phone: orderData.phone,
+              address: orderData.address,
+              pastOrders: pastOrders || [],
+              productName: productName,
+            };
+
+            const riskOutput = evaluateRisk(riskInput, blacklistSet);
+
+            riskScore = riskOutput.score;
+            riskLevel = riskOutput.level;
+            riskVersion = riskOutput.version || null;
+            riskReasons = riskOutput.reasons;
+          } catch (err) {
+            console.error('Error calculating risk:', err);
+            // Continue without risk score if calculation fails
+          }
         }
 
         // Insert order directly via Supabase
@@ -308,14 +360,31 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
             product_id: orderData.product_id,
             product: productName, // Store product name
             amount: orderData.amount,
+            payment_method: orderData.payment_method,
             status: "Pending",
-            risk_score: null,
+            risk_score: riskScore,
+            risk_level: riskLevel,
+            // risk_version: riskVersion, // Uncomment if column exists, otherwise skip
           })
           .select()
           .single();
 
         if (insertError) throw insertError;
-        
+
+        // Log risk event if we have reasons
+        if (newOrder && riskReasons.length > 0) {
+          await insertOrderEvent({
+            order_id: newOrder.id,
+            event_type: 'RISK_EVALUATED',
+            payload_json: {
+              score: riskScore,
+              level: riskLevel,
+              reasons: riskReasons,
+              version: riskVersion
+            }
+          });
+        }
+
         // Log user action
         if (user && newOrder) {
           await logUserAction({
@@ -325,20 +394,20 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
             orderId: newOrder.order_id ?? "",
           });
         }
-        
+
         showSuccess('Order added successfully!');
       }
-      
+
       // Refresh orders table
       if (onSuccess) {
         onSuccess();
       }
-      
+
       onClose();
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : (isEditMode ? 'Failed to update order' : 'Failed to add order');
       showError(errorMessage);
-      
+
       // Log failed action
       if (user) {
         await logUserAction({
@@ -394,7 +463,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
     try {
       // Parse file (this will reject with header validation errors if any)
       const orders = await parseFile(file);
-      
+
       if (orders.length === 0) {
         showError('No valid orders found in the file.');
         return; // finally block will still execute
@@ -404,11 +473,11 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
 
       // Validate and map products
       const { validOrders, invalidOrders: invalid, warnings } = await validateAndMapProducts(orders);
-      
+
       setUploadedOrders(orders);
       setInvalidOrders(invalid);
       setCorrectedOrders(new Map());
-      
+
       if (invalid.length > 0) {
         // Store pending upload for later (when invalid orders are corrected)
         setPendingUpload({ validOrders, orders });
@@ -419,7 +488,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
       } else {
         // Check for missing products before inserting
         setUploadProgress('Checking for missing products...');
-        
+
         // Collect all distinct product names from raw parsed orders
         // Use 'orders' (raw parsed rows) instead of 'validOrders' because
         // validateAndMapProducts may exclude rows with non-existent products,
@@ -431,7 +500,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
             productNamesFromFile.add(productName);
           }
         });
-        
+
         // Query existing products
         let existingProducts: Array<{ id: string; name: string }> = [];
         if (productNamesFromFile.size > 0 && user?.id) {
@@ -441,18 +510,18 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
             .eq('user_id', user.id)
             .eq('status', 'active')
             .in('name', Array.from(productNamesFromFile));
-          
+
           if (!fetchError && productsData) {
             existingProducts = productsData;
           }
         }
-        
+
         // Build normalized map of existing products
         const existingProductsByName = new Map<string, { id: string; name: string }>();
         existingProducts.forEach(prod => {
           existingProductsByName.set(normalize(prod.name), prod);
         });
-        
+
         // Find missing products
         const missingProductNames: string[] = [];
         productNamesFromFile.forEach(productName => {
@@ -461,11 +530,11 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
             missingProductNames.push(productName);
           }
         });
-        
+
         // If there are missing products, close this modal and open bulk create products modal
         if (missingProductNames.length > 0) {
           const payload: ParsedUploadPayload = { validOrders, orders };
-          
+
           // Reset upload-related state before closing
           setUploadProgress('');
           setUploadedOrders([]);
@@ -475,12 +544,12 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
           setPendingUpload(null);
           setMissingProducts([]);
           setLoading(false);
-          
+
           // Close AddOrderModal and open BulkCreateProductsModal
           if (openBulkCreateProductsModal) {
             // Close AddOrderModal first
             onClose();
-            
+
             // Small delay to ensure modal closes before opening new one
             setTimeout(() => {
               openBulkCreateProductsModal({
@@ -488,7 +557,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
                 pendingUpload: payload,
               });
             }, 100);
-            
+
             return; // Stop here, don't insert anything
           } else {
             // Fallback: keep legacy behavior if prop is not provided
@@ -498,11 +567,11 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
             return;
           }
         }
-        
+
         // No missing products, continue with duplicate check and insert
         // Check for duplicate Order IDs before inserting
         setUploadProgress('Checking for duplicate Order IDs...');
-        
+
         // A. Check for duplicates within the file
         const fileOrderIds = validOrders.map((o, idx) => ({ orderId: o.order_id, rowIndex: idx + 1 }));
         const fileDuplicateMap = new Map<string, number[]>();
@@ -520,7 +589,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
             fileDuplicates.push({ orderId, rows });
           }
         });
-        
+
         // B. Check for duplicates in existing orders
         const orderIdsToCheck = validOrders.map(o => o.order_id).filter(Boolean);
         let existingOrderIds: string[] = [];
@@ -530,12 +599,12 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
             .select('order_id')
             .eq('user_id', user.id)
             .in('order_id', orderIdsToCheck);
-          
+
           if (!fetchError && existingOrders) {
             existingOrderIds = existingOrders.map(o => o.order_id).filter(Boolean) as string[];
           }
         }
-        
+
         // If any duplicates found, show warning and stop
         if (fileDuplicates.length > 0 || existingOrderIds.length > 0) {
           const duplicateMessage = (
@@ -545,7 +614,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
                 <p className="font-semibold text-yellow-300">We couldn't import this file.</p>
                 <p className="text-yellow-300/90 mt-1">Please fix the following issues:</p>
               </div>
-              
+
               {/* Duplicate Order IDs in file - critical (red inside yellow toast) */}
               {fileDuplicates.length > 0 && (
                 <div className="mt-4 bg-red-500/10 border border-red-500/20 rounded-md p-3">
@@ -560,7 +629,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
                   </ul>
                 </div>
               )}
-              
+
               {/* Order IDs that already exist in DB - critical (red inside yellow toast) */}
               {existingOrderIds.length > 0 && (
                 <div className={fileDuplicates.length > 0 ? "mt-3" : "mt-4"}>
@@ -577,21 +646,21 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
                   </div>
                 </div>
               )}
-              
+
               {/* Footer message - normal text */}
               <p className="text-white/80 text-sm mt-3">
                 Order ID must be unique. Please update the values in your spreadsheet and upload again.
               </p>
             </div>
           );
-          
+
           showWarning(duplicateMessage, 0); // Persistent warning toast (yellow wrapper)
           return; // Stop here, don't insert anything
         }
-        
+
         // All orders are valid and no duplicates, insert them
         setUploadProgress(`Inserting ${validOrders.length} orders...`);
-        
+
         // Use insertOrders from useOrders hook (handles payment_method, status, risk_score, paid_at)
         const result = await insertOrders(validOrders);
 
@@ -607,7 +676,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
               });
             }
           }
-          
+
           if (result.failed > 0) {
             // Show detailed error summary
             const errorSummary = result.errors.join('\n');
@@ -615,12 +684,12 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
           } else {
             showSuccess(`Successfully added ${result.success} order(s)!`);
           }
-          
+
           // Refresh orders table
           if (onSuccess) {
             onSuccess();
           }
-          
+
           onClose();
         } else {
           // All failed - show detailed error list
@@ -630,17 +699,17 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : getErrorMessage(err);
-      
+
       // Check if this is a header validation error (user input issue, not system error)
-      const isHeaderValidationError = errorMessage.includes("We couldn't import this file") || 
-          errorMessage.includes("Missing required columns") || 
-          errorMessage.includes("Some column names are invalid") ||
-          errorMessage.includes("Columns with invalid names");
-      
+      const isHeaderValidationError = errorMessage.includes("We couldn't import this file") ||
+        errorMessage.includes("Missing required columns") ||
+        errorMessage.includes("Some column names are invalid") ||
+        errorMessage.includes("Columns with invalid names");
+
       if (isHeaderValidationError) {
         // Extract validation result if available
         const validationResult = (err as any)?.validationResult as HeaderValidationResult | undefined;
-        
+
         // Render structured JSX message with severity-based styling
         const structuredMessage = (
           <div className="space-y-3">
@@ -649,7 +718,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
               <p className="font-semibold text-yellow-300">We couldn't import this file.</p>
               <p className="text-yellow-300/90 mt-1">Please fix the following issues:</p>
             </div>
-            
+
             {/* Missing required columns - critical (red) */}
             {validationResult?.missingRequired && validationResult.missingRequired.length > 0 && (
               <div className="mt-4 bg-red-500/10 border border-red-500/20 rounded-md p-3">
@@ -664,7 +733,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
                 </ul>
               </div>
             )}
-            
+
             {/* Columns with invalid names - non-critical (amber/yellow) */}
             {validationResult?.misnamed && validationResult.misnamed.length > 0 && (
               <div className="mt-3">
@@ -681,7 +750,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
             )}
           </div>
         );
-        
+
         // Show as persistent warning (duration: 0 means no auto-dismiss)
         showWarning(structuredMessage, 0);
       } else {
@@ -700,18 +769,18 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
   // Process parsed orders (reusable function for auto-resume after product creation)
   const processParsedOrders = async (payload: ParsedUploadPayload) => {
     const { validOrders, orders } = payload;
-    
+
     setLoading(true);
     setUploadProgress('Resuming import...');
-    
+
     try {
       // Re-validate products (in case new products were added)
       const { validOrders: revalidatedOrders, invalidOrders: invalid } = await validateAndMapProducts(orders);
-      
+
       setUploadedOrders(orders);
       setInvalidOrders(invalid);
       setCorrectedOrders(new Map());
-      
+
       if (invalid.length > 0) {
         // Still have invalid orders, show preview
         setShowPreview(true);
@@ -720,7 +789,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
         setMissingProducts([]);
         return;
       }
-      
+
       // Check for missing products again
       // Use 'orders' (raw parsed rows from payload) instead of 'revalidatedOrders'
       // because validateAndMapProducts may exclude rows with non-existent products,
@@ -732,7 +801,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
           productNamesFromFile.add(productName);
         }
       });
-      
+
       let existingProducts: Array<{ id: string; name: string }> = [];
       if (productNamesFromFile.size > 0 && user?.id) {
         const { data: productsData, error: fetchError } = await supabase
@@ -741,17 +810,17 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
           .eq('user_id', user.id)
           .eq('status', 'active')
           .in('name', Array.from(productNamesFromFile));
-        
+
         if (!fetchError && productsData) {
           existingProducts = productsData;
         }
       }
-      
+
       const existingProductsByName = new Map<string, { id: string; name: string }>();
       existingProducts.forEach(prod => {
         existingProductsByName.set(normalize(prod.name), prod);
       });
-      
+
       const missingProductNames: string[] = [];
       productNamesFromFile.forEach(productName => {
         const normalized = normalize(productName);
@@ -759,11 +828,11 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
           missingProductNames.push(productName);
         }
       });
-      
+
       // If still missing products, close this modal and open bulk create products modal
       if (missingProductNames.length > 0) {
         const payload: ParsedUploadPayload = { validOrders: revalidatedOrders, orders };
-        
+
         // Reset upload-related state before closing
         setUploadProgress('');
         setUploadedOrders([]);
@@ -773,12 +842,12 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
         setPendingUpload(null);
         setMissingProducts([]);
         setLoading(false);
-        
+
         // Close AddOrderModal and open BulkCreateProductsModal
         if (openBulkCreateProductsModal) {
           // Close AddOrderModal first
           onClose();
-          
+
           // Small delay to ensure modal closes before opening new one
           setTimeout(() => {
             openBulkCreateProductsModal({
@@ -786,7 +855,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
               pendingUpload: payload,
             });
           }, 100);
-          
+
           return;
         } else {
           // Fallback: keep legacy behavior if prop is not provided
@@ -796,10 +865,10 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
           return;
         }
       }
-      
+
       // No missing products, continue with duplicate check and insert
       setUploadProgress('Checking for duplicate Order IDs...');
-      
+
       // Check for duplicate Order IDs
       const fileOrderIds = revalidatedOrders.map((o, idx) => ({ orderId: o.order_id, rowIndex: idx + 1 }));
       const fileDuplicateMap = new Map<string, number[]>();
@@ -817,7 +886,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
           fileDuplicates.push({ orderId, rows });
         }
       });
-      
+
       const orderIdsToCheck = revalidatedOrders.map(o => o.order_id).filter(Boolean);
       let existingOrderIds: string[] = [];
       if (orderIdsToCheck.length > 0 && user?.id) {
@@ -826,12 +895,12 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
           .select('order_id')
           .eq('user_id', user.id)
           .in('order_id', orderIdsToCheck);
-        
+
         if (!fetchError && existingOrders) {
           existingOrderIds = existingOrders.map(o => o.order_id).filter(Boolean) as string[];
         }
       }
-      
+
       if (fileDuplicates.length > 0 || existingOrderIds.length > 0) {
         // Show duplicate error (same as before)
         const duplicateMessage = (
@@ -840,7 +909,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
               <p className="font-semibold text-yellow-300">We couldn't import this file.</p>
               <p className="text-yellow-300/90 mt-1">Please fix the following issues:</p>
             </div>
-            
+
             {fileDuplicates.length > 0 && (
               <div className="mt-4 bg-red-500/10 border border-red-500/20 rounded-md p-3">
                 <p className="font-bold text-red-400 mb-2">Duplicate Order IDs in your file:</p>
@@ -854,7 +923,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
                 </ul>
               </div>
             )}
-            
+
             {existingOrderIds.length > 0 && (
               <div className={fileDuplicates.length > 0 ? "mt-3" : "mt-4"}>
                 <div className="bg-red-500/10 border border-red-500/20 rounded-md p-3">
@@ -870,23 +939,23 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
                 </div>
               </div>
             )}
-            
+
             <p className="text-white/80 text-sm mt-3">
               Order ID must be unique. Please update the values in your spreadsheet and upload again.
             </p>
           </div>
         );
-        
+
         showWarning(duplicateMessage, 0);
         setPendingUpload(null);
         setMissingProducts([]);
         setUploadProgress('');
         return;
       }
-      
+
       // All checks passed, insert orders
       setUploadProgress(`Inserting ${revalidatedOrders.length} orders...`);
-      
+
       // Use insertOrders from useOrders hook (handles payment_method, status, risk_score, paid_at)
       const result = await insertOrders(revalidatedOrders);
 
@@ -902,18 +971,18 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
             });
           }
         }
-        
+
         if (result.failed > 0) {
           const errorSummary = result.errors.join('\n');
           showError(`Successfully added ${result.success} order(s), but ${result.failed} failed:\n${errorSummary}`);
         } else {
           showSuccess(`Successfully added ${result.success} order(s)!`);
         }
-        
+
         if (onSuccess) {
           onSuccess();
         }
-        
+
         // Reset state
         setPendingUpload(null);
         setMissingProducts([]);
@@ -953,7 +1022,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
     try {
       // Merge corrected orders with valid orders
       const allOrders: OrderInput[] = [];
-      
+
       // Add corrected invalid orders
       invalidOrders.forEach(({ order, rowIndex }) => {
         const productId = correctedOrders.get(rowIndex);
@@ -989,7 +1058,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
 
       // Check for duplicate Order IDs before inserting
       setUploadProgress('Checking for duplicate Order IDs...');
-      
+
       // A. Check for duplicates within the file
       const fileOrderIds = finalOrders.map((o, idx) => ({ orderId: o.order_id, rowIndex: idx + 1 }));
       const fileDuplicateMap = new Map<string, number[]>();
@@ -1007,7 +1076,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
           fileDuplicates.push({ orderId, rows });
         }
       });
-      
+
       // B. Check for duplicates in existing orders
       const orderIdsToCheck = finalOrders.map(o => o.order_id).filter(Boolean);
       let existingOrderIds: string[] = [];
@@ -1017,12 +1086,12 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
           .select('order_id')
           .eq('user_id', user.id)
           .in('order_id', orderIdsToCheck);
-        
+
         if (!fetchError && existingOrders) {
           existingOrderIds = existingOrders.map(o => o.order_id).filter(Boolean) as string[];
         }
       }
-      
+
       // If any duplicates found, show warning and stop
       if (fileDuplicates.length > 0 || existingOrderIds.length > 0) {
         const duplicateMessage = (
@@ -1032,7 +1101,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
               <p className="font-semibold text-yellow-300">We couldn't import this file.</p>
               <p className="text-yellow-300/90 mt-1">Please fix the following issues:</p>
             </div>
-            
+
             {/* Duplicate Order IDs in file - critical (red inside yellow toast) */}
             {fileDuplicates.length > 0 && (
               <div className="mt-4 bg-red-500/10 border border-red-500/20 rounded-md p-3">
@@ -1047,7 +1116,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
                 </ul>
               </div>
             )}
-            
+
             {/* Order IDs that already exist in DB - critical (red inside yellow toast) */}
             {existingOrderIds.length > 0 && (
               <div className={fileDuplicates.length > 0 ? "mt-3" : "mt-4"}>
@@ -1064,14 +1133,14 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
                 </div>
               </div>
             )}
-            
+
             {/* Footer message - normal text */}
             <p className="text-white/80 text-sm mt-3">
               Order ID must be unique. Please update the values in your spreadsheet and upload again.
             </p>
           </div>
         );
-        
+
         showWarning(duplicateMessage, 0); // Persistent warning toast (yellow wrapper)
         return; // Stop here, don't insert anything
       }
@@ -1094,7 +1163,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
             });
           }
         }
-        
+
         if (result.failed > 0) {
           // Show detailed error summary
           const errorSummary = result.errors.join('\n');
@@ -1102,12 +1171,12 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
         } else {
           showSuccess(`Successfully added ${result.success} order(s)!`);
         }
-        
+
         // Refresh orders table
         if (onSuccess) {
           onSuccess();
         }
-        
+
         onClose();
       } else {
         // All failed - show detailed error list
@@ -1147,14 +1216,14 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div 
+    <div
       className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm"
       onClick={handleOverlayClick}
       role="dialog"
       aria-modal="true"
       aria-labelledby="add-order-modal-title"
     >
-      <div 
+      <div
         className="bg-gradient-to-br from-[#12163A] to-[#181C3B] rounded-lg border border-[#1E223D] p-6 lg:p-8 max-w-2xl w-full max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
@@ -1178,11 +1247,10 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
           <div className="flex gap-2 mb-6 border-b border-[#1E223D]">
             <button
               onClick={() => setActiveTab('manual')}
-              className={`px-4 py-2 text-sm font-medium transition-colors ${
-                activeTab === 'manual'
-                  ? 'text-[#8B5CF6] border-b-2 border-[#8B5CF6]'
-                  : 'text-[#E5E7EB]/70 hover:text-[#E5E7EB]'
-              }`}
+              className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'manual'
+                ? 'text-[#8B5CF6] border-b-2 border-[#8B5CF6]'
+                : 'text-[#E5E7EB]/70 hover:text-[#E5E7EB]'
+                }`}
               disabled={loading}
             >
               <FileText size={16} className="inline mr-2" />
@@ -1190,11 +1258,10 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
             </button>
             <button
               onClick={() => setActiveTab('upload')}
-              className={`px-4 py-2 text-sm font-medium transition-colors ${
-                activeTab === 'upload'
-                  ? 'text-[#8B5CF6] border-b-2 border-[#8B5CF6]'
-                  : 'text-[#E5E7EB]/70 hover:text-[#E5E7EB]'
-              }`}
+              className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'upload'
+                ? 'text-[#8B5CF6] border-b-2 border-[#8B5CF6]'
+                : 'text-[#E5E7EB]/70 hover:text-[#E5E7EB]'
+                }`}
               disabled={loading}
             >
               <Upload size={16} className="inline mr-2" />
@@ -1272,6 +1339,22 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
               disabled={loading}
               placeholder="e.g., 20,000,000"
             />
+            <label className="block text-sm text-white/80">
+              Payment Method
+              <select
+                value={formData.payment_method}
+                onChange={(e) =>
+                  setFormData((prev) => ({ ...prev, payment_method: e.target.value }))
+                }
+                className="mt-1 w-full h-10 px-3 py-2 rounded-lg bg-white/5 border border-white/20 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
+              >
+                <option value="COD">COD</option>
+                <option value="BANK_TRANSFER">Bank Transfer</option>
+                <option value="MOMO">Momo</option>
+                <option value="ZALO">Zalo</option>
+                <option value="VIETQR">VietQR</option>
+              </select>
+            </label>
             {!isEditMode && (
               <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3">
                 <p className="text-sm text-blue-300">
@@ -1363,9 +1446,12 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
                     <li>Address (optional)</li>
                     <li>Product / Product Name (required) - must match an existing product</li>
                     <li>Amount (required)</li>
+                    <li>Payment Method (optional) – if missing, it will default to "COD".</li>
                   </ul>
-                  <p className="text-xs text-blue-300 mt-2">
-                    <strong>Note:</strong> Status will be set to "Pending" and Risk Score will be set to "N/A" automatically.
+                  <p className="mt-3 text-sm text-white/60">
+                    Note: Status will be set to <strong>Pending</strong>. If your file does not include a
+                    Payment Method column, it will default to <strong>COD</strong>. Risk will be evaluated
+                    automatically in the workflow.
                   </p>
                 </div>
               </>

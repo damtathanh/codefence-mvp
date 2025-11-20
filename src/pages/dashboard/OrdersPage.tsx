@@ -12,6 +12,7 @@ import { useToast } from '../../components/ui/Toast';
 import { logUserAction } from '../../utils/logUserAction';
 import { generateChanges } from '../../utils/generateChanges';
 import { StatusBadge } from '../../components/dashboard/StatusBadge';
+import { RiskBadge } from '../../components/dashboard/RiskBadge';
 import {
   zaloGateway,
   simulateCustomerConfirmed,
@@ -24,6 +25,7 @@ import { fetchOrdersByUser, updateOrder as updateOrderService, deleteOrders } fr
 import { fetchOrderEvents, insertOrderEvent } from '../../features/orders/services/orderEventsService';
 import { ORDER_STATUS } from '../../constants/orderStatus';
 import { deleteInvoicesByOrderIds } from '../../features/invoices/invoiceService';
+import { fetchCustomerBlacklist } from '../../features/customers/services/customersService';
 
 type RejectMode = 'VERIFICATION_REQUIRED' | 'ORDER_REJECTED';
 import type { Order, OrderEvent, Product } from '../../types/supabase';
@@ -70,6 +72,7 @@ export const OrdersPage: React.FC = () => {
   const [isSidePanelOpen, setIsSidePanelOpen] = useState(false);
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
   const [rejectTargetOrder, setRejectTargetOrder] = useState<Order | null>(null);
+  const [blacklistedPhones, setBlacklistedPhones] = useState<Set<string>>(new Set());
   const [rejectMode, setRejectMode] = useState<RejectMode>('VERIFICATION_REQUIRED');
   const [rejectReason, setRejectReason] = useState('');
   const [rejectLoading, setRejectLoading] = useState(false);
@@ -150,7 +153,7 @@ export const OrdersPage: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      
+
       // Fetch orders with product join
       const { data: ordersData, error: ordersError } = await fetchOrdersByUser(user.id);
 
@@ -188,6 +191,22 @@ export const OrdersPage: React.FC = () => {
     });
   };
 
+  // Fetch blacklist on mount
+  useEffect(() => {
+    if (!user) return;
+
+    const loadBlacklist = async () => {
+      try {
+        const { data } = await fetchCustomerBlacklist(user.id);
+        setBlacklistedPhones(new Set((data ?? []).map(entry => entry.phone)));
+      } catch (err) {
+        console.error('Error loading blacklist:', err);
+      }
+    };
+
+    loadBlacklist();
+  }, [user]);
+
   // Fetch orders on mount and when user changes
   useEffect(() => {
     fetchOrders();
@@ -200,7 +219,7 @@ export const OrdersPage: React.FC = () => {
 
     const channel = supabase
       .channel('orders_changes')
-      .on('postgres_changes', 
+      .on('postgres_changes',
         { event: '*', schema: 'public', table: 'orders', filter: `user_id=eq.${user.id}` },
         () => {
           fetchOrders();
@@ -241,12 +260,12 @@ export const OrdersPage: React.FC = () => {
   // Update order (for status changes and product corrections)
   const updateOrderLocal = async (orderId: string, updates: Partial<Order>) => {
     if (!user) return;
-    
+
     try {
       const { error } = await updateOrderService(orderId, user.id, updates as any);
 
       if (error) throw error;
-      
+
       // Refresh orders
       await fetchOrders();
       return true;
@@ -315,7 +334,7 @@ export const OrdersPage: React.FC = () => {
 
   const handleReject = (orderId: string) => {
     const order = orders.find(o => o.id === orderId);
-    
+
     if (!order) {
       showError('Order not found');
       return;
@@ -328,7 +347,7 @@ export const OrdersPage: React.FC = () => {
       showInfo('Non-COD order is already paid. No rejection needed in this flow.');
       return;
     }
-    
+
     setRejectTargetOrder(order);
     setRejectMode('VERIFICATION_REQUIRED');
     setRejectReason('');
@@ -563,24 +582,24 @@ export const OrdersPage: React.FC = () => {
     const order = orders.find(o => o.id === orderId);
     const product = products.find(p => p.id === productId);
     const orderIdentifier = order?.order_id || orderId;
-    
+
     try {
       // Capture previous data for change tracking
       const previousProduct = order?.products || null;
       const previousProductName = previousProduct?.name || order?.product || 'N/A';
       const newProductName = product?.name || 'N/A';
-      
+
       const previousData = {
         product: previousProductName,
       };
-      
+
       const updateData = {
         product: newProductName,
       };
-      
+
       // Generate changes
       const changes = generateChanges(previousData, updateData);
-      
+
       if (!user) return;
       await updateOrderService(orderId, user.id, {
         product_id: productId,
@@ -590,7 +609,7 @@ export const OrdersPage: React.FC = () => {
         next.delete(orderId);
         return next;
       });
-      
+
       // Log user action
       if (user && order) {
         await logUserAction({
@@ -601,13 +620,13 @@ export const OrdersPage: React.FC = () => {
           details: Object.keys(changes).length > 0 ? changes : null,
         });
       }
-      
+
       showSuccess('Product updated successfully!');
     } catch (err) {
       console.error('Error updating product:', err);
       const errorMessage = err instanceof Error ? err.message : 'Failed to update product. Please try again.';
       showError(errorMessage);
-      
+
       // Log failed action
       if (user && order) {
         await logUserAction({
@@ -650,7 +669,7 @@ export const OrdersPage: React.FC = () => {
       order.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
       order.customer_name.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === 'all' || order.status === statusFilter;
-    
+
     // Risk Score filtering
     const matchesRiskScore = (() => {
       if (riskScoreFilter === 'all') return true;
@@ -670,7 +689,7 @@ export const OrdersPage: React.FC = () => {
           return true;
       }
     })();
-    
+
     return matchesSearch && matchesStatus && matchesRiskScore;
   });
 
@@ -708,15 +727,15 @@ export const OrdersPage: React.FC = () => {
     setDeleteAllLoading(true);
     const idsToDelete = Array.from(selectedIds);
     const ordersToDelete = orders.filter(o => idsToDelete.includes(o.id));
-    
+
     try {
       // 1) Delete orders
       const { error: deleteError } = await deleteOrders(user.id, idsToDelete);
-      
+
       if (deleteError) {
         throw deleteError;
       }
-      
+
       // 2) Delete related invoices
       try {
         await deleteInvoicesByOrderIds(user.id, idsToDelete);
@@ -725,7 +744,7 @@ export const OrdersPage: React.FC = () => {
         // Do not rethrow here to avoid breaking the whole flow,
         // but keep the error logged for debugging.
       }
-      
+
       // 3) Log user actions for each order
       const logPromises = ordersToDelete.map(order =>
         logUserAction({
@@ -736,20 +755,20 @@ export const OrdersPage: React.FC = () => {
         })
       );
       await Promise.all(logPromises);
-      
+
       // 4) Clear selected IDs
       setSelectedIds(new Set());
-      
+
       // 5) Refresh orders list
       await fetchOrders();
-      
+
       showSuccess(`Successfully deleted ${idsToDelete.length} order${idsToDelete.length > 1 ? 's' : ''}!`);
       setDeleteAllModal({ isOpen: false, selectedCount: 0 });
     } catch (err) {
       console.error('Error deleting orders:', err);
       const errorMessage = err instanceof Error ? err.message : 'Failed to delete orders. Please try again.';
       showError(errorMessage);
-      
+
       // Log failed actions
       const logPromises = ordersToDelete.map(order =>
         logUserAction({
@@ -760,7 +779,7 @@ export const OrdersPage: React.FC = () => {
         })
       );
       await Promise.all(logPromises);
-      
+
       // Refetch on error to ensure UI reflects current database state
       try {
         await fetchOrders();
@@ -786,23 +805,23 @@ export const OrdersPage: React.FC = () => {
         const dropdownWidth = 192; // w-48 = 192px
         const dropdownHeight = 144; // Approximate height of 3 menu items (48px each)
         const padding = 8; // Space between button and dropdown
-        
+
         // Calculate available space below and above
         const spaceBelow = window.innerHeight - rect.bottom;
         const spaceAbove = rect.top;
-        
+
         // Determine placement: show below if enough space, otherwise show above
         const placement: 'bottom' | 'top' = spaceBelow >= dropdownHeight + padding ? 'bottom' : 'top';
-        
+
         // Calculate x position (align to right edge of button)
         const x = rect.right - dropdownWidth;
-        
+
         // Calculate y position based on placement
-        const y = placement === 'bottom' 
-          ? rect.bottom + padding 
+        const y = placement === 'bottom'
+          ? rect.bottom + padding
           : rect.top - dropdownHeight - padding;
-        
-        setDropdownPosition({ 
+
+        setDropdownPosition({
           x: Math.max(8, Math.min(x, window.innerWidth - dropdownWidth - 8)), // Keep within viewport with 8px margin
           y: Math.max(8, Math.min(y, window.innerHeight - dropdownHeight - 8)), // Keep within viewport with 8px margin
           placement
@@ -837,7 +856,7 @@ export const OrdersPage: React.FC = () => {
       // Check if click is outside both the button container and the dropdown menu
       const isOutsideButton = !target.closest('.action-dropdown-container');
       const isOutsideDropdown = !target.closest('[data-dropdown-menu]');
-      
+
       if (isOutsideButton && isOutsideDropdown) {
         setOpenActionDropdown(null);
       }
@@ -920,33 +939,33 @@ export const OrdersPage: React.FC = () => {
 
       <Card className="flex-1 flex flex-col min-h-0">
         <CardHeader className="!pt-4 !pb-1 !px-6 flex-shrink-0">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <button
-                  onClick={handleSelectAll}
-                  className="text-sm text-[var(--text-muted)] hover:text-[var(--text-main)] transition"
-                  disabled={loading}
-                >
-                  {selectedIds.size === filteredOrders.length && filteredOrders.length > 0
-                    ? 'Deselect All'
-                    : 'Select All'}
-                </button>
-                {selectedIds.size > 0 && (
-                  <span className="text-sm text-[var(--text-muted)]">
-                    {selectedIds.size} selected
-                  </span>
-                )}
-              </div>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={handleSelectAll}
+                className="text-sm text-[var(--text-muted)] hover:text-[var(--text-main)] transition"
+                disabled={loading}
+              >
+                {selectedIds.size === filteredOrders.length && filteredOrders.length > 0
+                  ? 'Deselect All'
+                  : 'Select All'}
+              </button>
               {selectedIds.size > 0 && (
-                <button
-                  onClick={handleDeleteAllClick}
-                  className="px-4 py-2 text-sm font-semibold rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-400 hover:text-red-300 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-red-500/50 focus:ring-offset-2 focus:ring-offset-[#0B0F28] flex items-center gap-2"
-                >
-                  <Trash2 size={16} />
-                  Delete All
-                </button>
+                <span className="text-sm text-[var(--text-muted)]">
+                  {selectedIds.size} selected
+                </span>
               )}
             </div>
+            {selectedIds.size > 0 && (
+              <button
+                onClick={handleDeleteAllClick}
+                className="px-4 py-2 text-sm font-semibold rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-400 hover:text-red-300 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-red-500/50 focus:ring-offset-2 focus:ring-offset-[#0B0F28] flex items-center gap-2"
+              >
+                <Trash2 size={16} />
+                Delete All
+              </button>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="flex-1 min-h-0 overflow-y-auto p-0">
           {error ? (
@@ -965,150 +984,150 @@ export const OrdersPage: React.FC = () => {
           ) : (
             <>
               <table className="w-full border-separate border-spacing-0 table-fixed">
-                  <thead>
-                    <tr className="border-b border-[#1E223D]">
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] w-12">
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.size === filteredOrders.length && filteredOrders.length > 0}
-                          onChange={handleSelectAll}
-                          disabled={loading}
-                          className="w-4 h-4 rounded border-white/20 bg-white/5 text-[#8B5CF6] focus:ring-[#8B5CF6] focus:ring-offset-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                        />
-                      </th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Order ID</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Customer</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Phone</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Address</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Product</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Amount (VND)</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Payment Method</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Risk Score</th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Status</th>
-                      <th className="pl-6 pr-10 py-3 text-right text-sm font-semibold text-[#E5E7EB] w-40">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredOrders.map((order) => {
-                      return (
-                        <tr 
-                          key={order.id} 
-                          onClick={() => handleRowClick(order)}
-                          className="border-b border-[#1E223D] hover:bg-white/5 transition cursor-pointer"
+                <thead>
+                  <tr className="border-b border-[#1E223D]">
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] w-12">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.size === filteredOrders.length && filteredOrders.length > 0}
+                        onChange={handleSelectAll}
+                        disabled={loading}
+                        className="w-4 h-4 rounded border-white/20 bg-white/5 text-[#8B5CF6] focus:ring-[#8B5CF6] focus:ring-offset-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                      />
+                    </th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Order ID</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Customer</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Phone</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Address</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Product</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Amount (VND)</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Payment Method</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Risk Score</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Status</th>
+                    <th className="pl-6 pr-10 py-3 text-right text-sm font-semibold text-[#E5E7EB] w-40">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredOrders.map((order) => {
+                    return (
+                      <tr
+                        key={order.id}
+                        onClick={() => handleRowClick(order)}
+                        className="border-b border-[#1E223D] hover:bg-white/5 transition cursor-pointer"
+                      >
+                        <td className="px-6 py-4 align-middle" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(order.id)}
+                            onChange={() => handleToggleSelect(order.id)}
+                            className="w-4 h-4 rounded border-white/20 bg-white/5 text-[#8B5CF6] focus:ring-[#8B5CF6] focus:ring-offset-0 cursor-pointer"
+                          />
+                        </td>
+                        <td
+                          className="px-6 py-4 text-sm text-[#E5E7EB] font-medium align-middle max-w-[140px] truncate whitespace-nowrap"
+                          title={order.order_id || order.id}
                         >
-                          <td className="px-6 py-4 align-middle" onClick={(e) => e.stopPropagation()}>
-                            <input
-                              type="checkbox"
-                              checked={selectedIds.has(order.id)}
-                              onChange={() => handleToggleSelect(order.id)}
-                              className="w-4 h-4 rounded border-white/20 bg-white/5 text-[#8B5CF6] focus:ring-[#8B5CF6] focus:ring-offset-0 cursor-pointer"
-                            />
-                          </td>
-                          <td 
-                            className="px-6 py-4 text-sm text-[#E5E7EB] font-medium align-middle max-w-[140px] truncate whitespace-nowrap"
-                            title={order.order_id || order.id}
-                          >
-                            {order.order_id || order.id}
-                          </td>
-                          <td
-                            className="px-6 py-4 text-sm text-[#E5E7EB] align-middle max-w-[200px] leading-snug whitespace-normal break-words overflow-hidden max-h-[3.2rem]"
-                            title={order.customer_name}
-                          >
-                            {order.customer_name}
-                          </td>
-                          <td 
-                            className="px-6 py-4 text-sm text-[#E5E7EB] align-middle whitespace-nowrap"
-                            title={order.phone || undefined}
-                          >
-                            {order.phone || '-'}
-                          </td>
-                          <td
-                            className="px-6 py-4 text-sm text-[#E5E7EB] align-middle max-w-[220px] leading-snug whitespace-normal break-words overflow-hidden max-h-[3.2rem]"
-                            title={order.address || undefined}
-                          >
-                            {order.address || '-'}
-                          </td>
-                          <td className="px-6 py-4 align-middle max-w-[260px] leading-snug whitespace-normal break-words overflow-hidden max-h-[3.2rem]" onClick={(e) => e.stopPropagation()}>
-                            {isInvalidProduct(order) ? (
-                              <div className="space-y-2 min-w-0">
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <span 
-                                    className="inline-flex items-center gap-1 px-2 py-1 rounded bg-red-900/40 border border-red-600 text-red-300 text-xs break-words overflow-hidden"
-                                    title={getProductName(order)}
-                                  >
-                                    <AlertTriangle size={12} className="flex-shrink-0" />
-                                    <span className="break-words overflow-hidden">{getProductName(order)}</span>
-                                  </span>
-                                </div>
-                                <div className="relative">
-                                  <select
-                                    value={productCorrections.get(order.id) || ''}
-                                    onChange={(e) => {
-                                      if (e.target.value) {
-                                        setProductCorrections(prev => {
-                                          const next = new Map(prev);
-                                          next.set(order.id, e.target.value);
-                                          return next;
-                                        });
-                                        handleProductCorrection(order.id, e.target.value);
-                                      }
-                                    }}
-                                    className="w-full pr-10 px-2 py-1.5 text-xs bg-white/5 backdrop-blur-xl border border-white/10 rounded-lg text-[#E5E7EB] appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6] focus:border-[#8B5CF6]/50"
-                                  >
-                                    <option value="">Select product</option>
-                                    {products.map((product) => (
-                                      <option key={product.id} value={product.id}>
-                                        {product.name}
-                                      </option>
-                                    ))}
-                                  </select>
-                                  <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                                  </svg>
-                                </div>
-                                <p className="text-xs text-red-400">Invalid product. Please select from the list.</p>
+                          {order.order_id || order.id}
+                        </td>
+                        <td
+                          className="px-6 py-4 text-sm text-[#E5E7EB] align-middle max-w-[200px] leading-snug whitespace-normal break-words overflow-hidden max-h-[3.2rem]"
+                          title={order.customer_name}
+                        >
+                          {order.customer_name}
+                        </td>
+                        <td
+                          className="px-6 py-4 text-sm text-[#E5E7EB] align-middle whitespace-nowrap"
+                          title={order.phone || undefined}
+                        >
+                          {order.phone || '-'}
+                        </td>
+                        <td
+                          className="px-6 py-4 text-sm text-[#E5E7EB] align-middle max-w-[220px] leading-snug whitespace-normal break-words overflow-hidden max-h-[3.2rem]"
+                          title={order.address || undefined}
+                        >
+                          {order.address || '-'}
+                        </td>
+                        <td className="px-6 py-4 align-middle max-w-[260px] leading-snug whitespace-normal break-words overflow-hidden max-h-[3.2rem]" onClick={(e) => e.stopPropagation()}>
+                          {isInvalidProduct(order) ? (
+                            <div className="space-y-2 min-w-0">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span
+                                  className="inline-flex items-center gap-1 px-2 py-1 rounded bg-red-900/40 border border-red-600 text-red-300 text-xs break-words overflow-hidden"
+                                  title={getProductName(order)}
+                                >
+                                  <AlertTriangle size={12} className="flex-shrink-0" />
+                                  <span className="break-words overflow-hidden">{getProductName(order)}</span>
+                                </span>
                               </div>
-                            ) : (
-                              <div 
-                                className="text-sm text-[#E5E7EB] break-words overflow-hidden"
-                                title={getProductName(order)}
-                              >
-                                {getProductName(order)}
+                              <div className="relative">
+                                <select
+                                  value={productCorrections.get(order.id) || ''}
+                                  onChange={(e) => {
+                                    if (e.target.value) {
+                                      setProductCorrections(prev => {
+                                        const next = new Map(prev);
+                                        next.set(order.id, e.target.value);
+                                        return next;
+                                      });
+                                      handleProductCorrection(order.id, e.target.value);
+                                    }
+                                  }}
+                                  className="w-full pr-10 px-2 py-1.5 text-xs bg-white/5 backdrop-blur-xl border border-white/10 rounded-lg text-[#E5E7EB] appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6] focus:border-[#8B5CF6]/50"
+                                >
+                                  <option value="">Select product</option>
+                                  {products.map((product) => (
+                                    <option key={product.id} value={product.id}>
+                                      {product.name}
+                                    </option>
+                                  ))}
+                                </select>
+                                <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                                </svg>
                               </div>
-                            )}
-                          </td>
-                          <td className="px-6 py-4 text-sm text-[#E5E7EB] align-middle whitespace-nowrap">
-                            {order.amount.toLocaleString('vi-VN')}
-                          </td>
-                          <td className="px-6 py-4 text-sm text-[#E5E7EB] align-middle whitespace-nowrap">
-                            {order.payment_method || 'COD'}
-                          </td>
-                          <td className="px-6 py-4 text-sm text-[#E5E7EB] align-middle whitespace-nowrap">
-                            {order.risk_score !== null && order.risk_score !== undefined ? order.risk_score : 'N/A'}
-                          </td>
-                          <td className="px-6 py-4 text-sm text-[#E5E7EB] align-middle whitespace-nowrap">
-                            <StatusBadge status={order.status} />
-                          </td>
-                          <td className="px-6 py-3 text-right" onClick={(e) => e.stopPropagation()}>
-                            <div className="relative action-dropdown-container flex justify-end">
-                              <Button
-                                onClick={(e) => toggleActionDropdown(order.id, e)}
-                                size="sm"
-                                className="!px-3 !py-1.5 !text-xs"
-                              >
-                                <span>Action</span>
-                                <ChevronDown 
-                                  size={14} 
-                                  className={`ml-1.5 transition-transform duration-200 ${openActionDropdown === order.id ? 'rotate-180' : ''}`}
-                                />
-                              </Button>
+                              <p className="text-xs text-red-400">Invalid product. Please select from the list.</p>
                             </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                          ) : (
+                            <div
+                              className="text-sm text-[#E5E7EB] break-words overflow-hidden"
+                              title={getProductName(order)}
+                            >
+                              {getProductName(order)}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-[#E5E7EB] align-middle whitespace-nowrap">
+                          {order.amount.toLocaleString('vi-VN')}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-[#E5E7EB] align-middle whitespace-nowrap">
+                          {order.payment_method || 'COD'}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-[#E5E7EB] align-middle whitespace-nowrap">
+                          <RiskBadge score={order.risk_score} />
+                        </td>
+                        <td className="px-6 py-4 text-sm text-[#E5E7EB] align-middle whitespace-nowrap">
+                          <StatusBadge status={order.status} />
+                        </td>
+                        <td className="px-6 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                          <div className="relative action-dropdown-container flex justify-end">
+                            <Button
+                              onClick={(e) => toggleActionDropdown(order.id, e)}
+                              size="sm"
+                              className="!px-3 !py-1.5 !text-xs"
+                            >
+                              <span>Action</span>
+                              <ChevronDown
+                                size={14}
+                                className={`ml-1.5 transition-transform duration-200 ${openActionDropdown === order.id ? 'rotate-180' : ''}`}
+                              />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
               {filteredOrders.length === 0 && !loading && (
                 <div className="p-12 text-center text-[var(--text-muted)]">
                   {orders.length === 0
@@ -1125,13 +1144,13 @@ export const OrdersPage: React.FC = () => {
       {openActionDropdown && typeof document !== 'undefined' && (() => {
         const order = filteredOrders.find(o => o.id === openActionDropdown);
         if (!order) return null;
-        
+
         const dropdownContent = (
           <div
             data-dropdown-menu
             className="fixed z-[9999] w-48 bg-[#1E223D] border border-white/20 rounded-lg shadow-xl overflow-hidden backdrop-blur-md"
-            style={{ 
-              top: `${dropdownPosition.y}px`, 
+            style={{
+              top: `${dropdownPosition.y}px`,
               left: `${dropdownPosition.x}px`,
               // Add animation based on placement
               transformOrigin: dropdownPosition.placement === 'top' ? 'bottom center' : 'top center',
@@ -1160,7 +1179,7 @@ export const OrdersPage: React.FC = () => {
             </button>
           </div>
         );
-        
+
         // Render dropdown via Portal to document.body to escape parent containers
         return createPortal(dropdownContent, document.body);
       })()}
@@ -1219,6 +1238,14 @@ export const OrdersPage: React.FC = () => {
 
             {/* Content */}
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              {/* Blacklist Warning Banner */}
+              {selectedOrder.phone && blacklistedPhones.has(selectedOrder.phone) && (
+                <div className="mb-3 rounded-lg border border-red-500/50 bg-red-500/10 px-3 py-2 text-sm text-red-300 flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4" />
+                  <span>This customer is in your blacklist. Future orders should be treated as high risk or require prepayment.</span>
+                </div>
+              )}
+
               {/* Basic Info */}
               <section className="space-y-1">
                 <div className="text-sm text-white/60">Customer</div>
@@ -1237,9 +1264,7 @@ export const OrdersPage: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-white/60">Risk</span>
                   <span className="text-sm text-white">
-                    {selectedOrder.risk_level
-                      ? `${selectedOrder.risk_level} (${selectedOrder.risk_score ?? 0})`
-                      : selectedOrder.risk_score ?? 'N/A'}
+                    <RiskBadge score={selectedOrder.risk_score} />
                   </span>
                 </div>
 
@@ -1358,7 +1383,7 @@ export const OrdersPage: React.FC = () => {
                 const canMarkAsDelivering =
                   selectedOrder?.status === ORDER_STATUS.ORDER_PAID ||
                   (selectedOrder?.status === ORDER_STATUS.CUSTOMER_CONFIRMED && isCOD);
-                
+
                 return canMarkAsDelivering && (
                   <button
                     className="px-4 py-2 bg-indigo-600 rounded text-white"

@@ -30,6 +30,7 @@ import {
   Info,
   Shield,
   ArrowLeft,
+  Users,
 } from 'lucide-react';
 
 interface SidebarItem {
@@ -50,6 +51,7 @@ const sidebarItems: SidebarItem[] = [
   { icon: BarChart3, label: 'Analytics', path: '/dashboard/analytics', id: 'analytics' },
   { icon: Package, label: 'Products', path: '/dashboard/products', id: 'products' },
   { icon: ShoppingCart, label: 'Orders', path: '/dashboard/orders', id: 'orders' },
+  { icon: Users, label: 'Customers', path: '/dashboard/customers', id: 'customers' },
   { icon: FileText, label: 'Invoice', path: '/dashboard/invoice', id: 'invoice' },
   { icon: History, label: 'History', path: '/dashboard/history', id: 'history' },
   { icon: MessageSquare, label: 'Message', path: '/dashboard/message', id: 'message' },
@@ -72,7 +74,7 @@ export const DashboardLayout: React.FC = () => {
   const { profile, refreshProfile } = useUserProfile();
   const { role } = useRole();
   const isAdmin = isAdminByEmail(user);
-  
+
   // Detect if current page is Message page (user or admin)
   const isMessagePage =
     location.pathname.startsWith("/dashboard/message") ||
@@ -88,7 +90,7 @@ export const DashboardLayout: React.FC = () => {
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
   const [orderModalEditingOrder, setOrderModalEditingOrder] = useState<Order | null>(null);
   const orderModalSuccessRef = useRef<(() => void) | null>(null);
-  
+
   // Product modal state
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [productModalInitialName, setProductModalInitialName] = useState<string>('');
@@ -163,11 +165,11 @@ export const DashboardLayout: React.FC = () => {
   const handleBulkCreateProductsModalSuccess = useCallback(async (pendingUpload?: any) => {
     // Close bulk modal first
     closeBulkCreateProductsModal();
-    
+
     // Store pendingUpload in ref so AddOrderModal can access it
     if (pendingUpload) {
       bulkCreateProductsModalPendingUpload.current = pendingUpload;
-      
+
       // Small delay to ensure modal closes, then re-open AddOrderModal
       setTimeout(() => {
         openAddOrderModal({
@@ -177,7 +179,7 @@ export const DashboardLayout: React.FC = () => {
         });
       }, 150);
     }
-    
+
     if (bulkCreateProductsModalSuccessRef.current) {
       await bulkCreateProductsModalSuccessRef.current(pendingUpload);
     }
@@ -193,13 +195,13 @@ export const DashboardLayout: React.FC = () => {
     }),
     [openAddOrderModal, openAddProductModal, refetchProducts]
   );
-  
+
   // Filter sidebar items based on role
   const filteredSidebarItems = useMemo(() => {
     if (isAdmin || role === 'admin') {
       // Admin sees: Dashboard (admin), History, Message, Settings
-      return sidebarItems.filter(item => 
-        item.id === 'dashboard' || 
+      return sidebarItems.filter(item =>
+        item.id === 'dashboard' ||
         item.id === 'analytics' ||
         item.id === 'message' ||
         item.id === 'settings'
@@ -305,7 +307,7 @@ export const DashboardLayout: React.FC = () => {
     window.scrollTo(0, 0);
     document.documentElement.scrollTop = 0;
     document.body.scrollTop = 0;
-    
+
     // Reset main content scroll
     if (mainContentRef.current) {
       mainContentRef.current.scrollTop = 0;
@@ -337,7 +339,7 @@ export const DashboardLayout: React.FC = () => {
       const diffMs = now.getTime() - date.getTime();
       const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
       const diffDays = Math.floor(diffHours / 24);
-      
+
       let timeStr = '';
       if (diffHours < 1) {
         timeStr = 'Just now';
@@ -421,7 +423,7 @@ export const DashboardLayout: React.FC = () => {
     const fullName = profile?.full_name || '';
     const firstName = fullName ? fullName.trim().split(' ')[0] : (user?.email?.split('@')[0] || '');
     const userName = firstName;
-    
+
     // Map paths to page info
     const pageMap: Record<string, { title: string; subtitle: string }> = {
       '/dashboard': {
@@ -464,6 +466,10 @@ export const DashboardLayout: React.FC = () => {
         title: 'History',
         subtitle: 'Verification logs and activity history'
       },
+      '/dashboard/customers': {
+        title: 'Customers',
+        subtitle: 'Manage customer profiles and blacklist'
+      },
       '/dashboard/message': {
         title: 'Message',
         subtitle: 'Chat with CodFence support team'
@@ -473,19 +479,19 @@ export const DashboardLayout: React.FC = () => {
         subtitle: 'Chat with CodFence support team'
       }
     };
-    
+
     // Get page info or default
     const pageInfo = pageMap[path] || {
       title: path.split('/').pop()?.replace(/-/g, ' ') || 'Dashboard',
       subtitle: 'Dashboard overview'
     };
-    
+
     // Capitalize title
     pageInfo.title = pageInfo.title
       .split(' ')
       .map(word => word.charAt(0).toUpperCase() + word.slice(1))
       .join(' ');
-    
+
     return pageInfo;
   };
 
@@ -536,15 +542,15 @@ export const DashboardLayout: React.FC = () => {
         className={`fixed top-0 left-0 h-full z-40 transition-[width,background,box-shadow] duration-300 ease-in-out flex flex-col ${
           // Mobile: slide in/out
           sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
-        } ${
+          } ${
           // Width: expanded on hover (desktop) or when open (mobile)
           expanded ? 'w-[200px]' : 'w-20'
-        } ${
+          } ${
           // Overlay styling when expanded on desktop
           expanded && isDesktop
             ? 'bg-[var(--bg-sidebar)]/95 backdrop-blur-md border-r border-[var(--border-subtle)] shadow-xl'
             : 'bg-[var(--bg-sidebar)] border-r border-[var(--border-subtle)]'
-        }`}
+          }`}
       >
         {/* Logo */}
         <div className="flex items-center justify-between h-16 px-5 border-b border-[var(--border-subtle)]">
@@ -588,13 +594,11 @@ export const DashboardLayout: React.FC = () => {
               <button
                 key={item.id}
                 onClick={() => handleNavigation(item.path)}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
-                  expanded ? 'justify-start' : 'justify-center'
-                } ${
-                  active
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${expanded ? 'justify-start' : 'justify-center'
+                  } ${active
                     ? 'bg-[#8B5CF6] text-white shadow-lg'
                     : 'text-[var(--text-muted)] hover:bg-[var(--bg-card-soft)] hover:text-[var(--text-main)]'
-                }`}
+                  }`}
               >
                 <Icon size={28} />
                 {expanded && (
@@ -616,9 +620,8 @@ export const DashboardLayout: React.FC = () => {
         <div className="p-4 border-t border-[var(--border-subtle)]">
           <button
             onClick={handleLogout}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-red-400 hover:bg-red-500/10 transition-all ${
-              expanded ? 'justify-start' : 'justify-center'
-            }`}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-red-400 hover:bg-red-500/10 transition-all ${expanded ? 'justify-start' : 'justify-center'
+              }`}
           >
             <LogOut size={28} />
             {expanded && (
@@ -642,7 +645,7 @@ export const DashboardLayout: React.FC = () => {
             >
               <Menu size={20} />
             </button>
-            
+
             {/* Page Title and Subtitle */}
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-semibold text-[var(--text-main)] tracking-wide">
@@ -706,9 +709,8 @@ export const DashboardLayout: React.FC = () => {
                           <div
                             key={notification.id}
                             onClick={() => markAsRead(notification.id)}
-                            className={`p-4 hover:bg-[var(--bg-card-soft)] transition cursor-pointer ${
-                              !notification.read ? 'bg-[#8B5CF6]/10' : ''
-                            }`}
+                            className={`p-4 hover:bg-[var(--bg-card-soft)] transition cursor-pointer ${!notification.read ? 'bg-[#8B5CF6]/10' : ''
+                              }`}
                           >
                             <div className="flex gap-3">
                               <div className="flex-shrink-0 mt-0.5">
@@ -776,18 +778,18 @@ export const DashboardLayout: React.FC = () => {
         </main>
       </div>
 
-        <AddOrderModal
-          isOpen={isOrderModalOpen}
-          onClose={closeAddOrderModal}
-          onSuccess={handleOrderModalSuccess}
-          editingOrder={orderModalEditingOrder ?? undefined}
-          openAddProductModal={openAddProductModal}
-          refetchProducts={async () => {
-            await refetchProducts();
-          }}
-          openBulkCreateProductsModal={openBulkCreateProductsModal}
-          pendingUploadAfterProductsCreated={bulkCreateProductsModalPendingUpload.current}
-        />
+      <AddOrderModal
+        isOpen={isOrderModalOpen}
+        onClose={closeAddOrderModal}
+        onSuccess={handleOrderModalSuccess}
+        editingOrder={orderModalEditingOrder ?? undefined}
+        openAddProductModal={openAddProductModal}
+        refetchProducts={async () => {
+          await refetchProducts();
+        }}
+        openBulkCreateProductsModal={openBulkCreateProductsModal}
+        pendingUploadAfterProductsCreated={bulkCreateProductsModalPendingUpload.current}
+      />
 
       <AddProductModal
         isOpen={isProductModalOpen}
@@ -854,20 +856,18 @@ export const DashboardLayout: React.FC = () => {
                     <div
                       key={notification.id}
                       onClick={() => markAsRead(notification.id)}
-                      className={`p-5 rounded-lg border transition-all cursor-pointer ${
-                        !notification.read
+                      className={`p-5 rounded-lg border transition-all cursor-pointer ${!notification.read
                           ? 'bg-[#8B5CF6]/10 border-[#8B5CF6]/30 hover:bg-[#8B5CF6]/15'
                           : 'bg-[var(--bg-card-soft)] border-[var(--border-subtle)] hover:bg-[var(--bg-card-soft)]'
-                      }`}
+                        }`}
                     >
                       <div className="flex gap-4">
                         <div className="flex-shrink-0 mt-1">
-                          <div className={`p-2 rounded-lg ${
-                            notification.type === 'success' ? 'bg-green-500/20' :
-                            notification.type === 'info' ? 'bg-blue-500/20' :
-                            notification.type === 'warning' ? 'bg-yellow-500/20' :
-                            'bg-purple-500/20'
-                          }`}>
+                          <div className={`p-2 rounded-lg ${notification.type === 'success' ? 'bg-green-500/20' :
+                              notification.type === 'info' ? 'bg-blue-500/20' :
+                                notification.type === 'warning' ? 'bg-yellow-500/20' :
+                                  'bg-purple-500/20'
+                            }`}>
                             {getNotificationIcon(notification.type)}
                           </div>
                         </div>
@@ -889,12 +889,11 @@ export const DashboardLayout: React.FC = () => {
                             {notification.message}
                           </p>
                           <div className="mt-3 flex items-center gap-2">
-                            <span className={`text-xs px-2 py-1 rounded-full ${
-                              notification.type === 'success' ? 'bg-green-500/20 text-green-300' :
-                              notification.type === 'info' ? 'bg-blue-500/20 text-blue-300' :
-                              notification.type === 'warning' ? 'bg-yellow-500/20 text-yellow-300' :
-                              'bg-purple-500/20 text-purple-300'
-                            }`}>
+                            <span className={`text-xs px-2 py-1 rounded-full ${notification.type === 'success' ? 'bg-green-500/20 text-green-300' :
+                                notification.type === 'info' ? 'bg-blue-500/20 text-blue-300' :
+                                  notification.type === 'warning' ? 'bg-yellow-500/20 text-yellow-300' :
+                                    'bg-purple-500/20 text-purple-300'
+                              }`}>
                               {notification.type.charAt(0).toUpperCase() + notification.type.slice(1)}
                             </span>
                             {!notification.read && (

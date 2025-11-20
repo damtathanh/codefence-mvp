@@ -1,7 +1,5 @@
 // src/utils/riskEngine.ts
 
-import type { OrderInput } from "../hooks/useOrders";
-
 export type RiskLevel = "none" | "low" | "medium" | "high";
 
 export interface RiskFactor {
@@ -19,6 +17,15 @@ export interface RiskScoreResult {
   score: number | null;
   level: RiskLevel;
   factors: RiskFactor[];
+}
+
+// This is a lightweight shape of an order used for risk breakdown UI.
+// It intentionally does NOT import from useOrders to avoid circular deps.
+export interface SimpleOrderInput {
+  payment_method?: string | null;
+  amount?: number | null;
+  phone?: string | null;
+  product?: string | null;
 }
 
 const normStr = (v: string | null | undefined) =>
@@ -46,8 +53,14 @@ function hasManyRepeatedDigits(raw: string): boolean {
   return /(.)\1{5,}/.test(digits);
 }
 
+/**
+ * computeRiskScoreV1
+ * Used for detailed risk breakdown in the UI (side panel).
+ * - Only applies to COD orders.
+ * - Non-COD returns: { score: null, level: "none", factors: [] }.
+ */
 export function computeRiskScoreV1(
-  order: OrderInput,
+  order: SimpleOrderInput,
   history?: CustomerHistoryStats
 ): RiskScoreResult {
   const paymentMethod = normStr(order.payment_method).toUpperCase();
@@ -62,11 +75,13 @@ export function computeRiskScoreV1(
   }
 
   const factors: RiskFactor[] = [];
-  const amount = order.amount || 0;
+
+  const amount = order.amount ?? 0;
   const phoneRaw = normStr(order.phone);
   const phoneNormalized = normalizeVNPhone(phoneRaw);
   const productName = normStr(order.product).toLowerCase();
 
+  // Amount factor
   let amountScore = 0;
   if (amount <= 300_000) amountScore = 5;
   else if (amount <= 700_000) amountScore = 10;
@@ -81,6 +96,7 @@ export function computeRiskScoreV1(
     });
   }
 
+  // Phone factor
   let phoneScore = 0;
   if (!isValidVNPhone(phoneRaw)) {
     phoneScore += 40;
@@ -96,6 +112,7 @@ export function computeRiskScoreV1(
     });
   }
 
+  // Product factor
   let productScore = 0;
   const riskyKeywords = [
     "giảm cân",
@@ -104,6 +121,8 @@ export function computeRiskScoreV1(
     "detox",
     "trắng da",
     "serum b",
+    "kem trộn",
+    "kích trắng",
   ];
 
   if (productName && riskyKeywords.some((kw) => productName.includes(kw))) {
@@ -118,10 +137,8 @@ export function computeRiskScoreV1(
     });
   }
 
-  const stats: CustomerHistoryStats = history || {
-    badOrders: 0,
-    goodOrders: 0,
-  };
+  // History factor (if provided)
+  const stats: CustomerHistoryStats = history || { badOrders: 0, goodOrders: 0 };
 
   let historyScore = 0;
   let historyDiscount = 0;
@@ -152,7 +169,7 @@ export function computeRiskScoreV1(
   let total = factors.reduce((sum, f) => sum + f.score, 0);
   total = Math.max(0, Math.min(total, 100));
 
-  let level: RiskLevel = "low";
+  let level: RiskLevel;
   if (total <= 30) level = "low";
   else if (total <= 70) level = "medium";
   else level = "high";
@@ -164,10 +181,11 @@ export function computeRiskScoreV1(
   };
 }
 
+// ===== Simplified risk evaluation for import flow =====
+
 import type { OrderStatus } from "../constants/orderStatus";
 import { ORDER_STATUS } from "../constants/orderStatus";
 
-// New simplified risk evaluation function for import flow
 export interface RiskInput {
   paymentMethod: string | null | undefined;
   amountVnd: number;
@@ -178,64 +196,96 @@ export interface RiskInput {
 }
 
 export interface RiskOutput {
-  score: number;            // 0–100
+  score: number | null;     // 0–100 for COD, null for non-COD
   level: RiskLevel;
-  reasons: string[];
+  reasons: (string | { factor: string; score: number; desc: string })[];
   version?: "v1";
 }
 
-export function evaluateRisk(input: RiskInput): RiskOutput {
+/**
+ * evaluateRisk
+ * - Used when importing orders.
+ * - Only COD orders get a risk score.
+ * - Non-COD orders → score = null, level = "none".
+ * - Thresholds:
+ *   - 0–30   = low
+ *   - 31–70  = medium
+ *   - 71–100 = high
+ */
+export function evaluateRisk(input: RiskInput, blacklistPhones?: Set<string>): RiskOutput {
   const { paymentMethod, amountVnd, phone, address, pastOrders } = input;
 
-  let score = 0;
-  const reasons: string[] = [];
+  const method = (paymentMethod || "").toUpperCase();
 
-  const method = (paymentMethod || '').toUpperCase();
+  // ❗ Non-COD: không chấm risk
+  if (method && method !== "COD") {
+    return {
+      score: null,
+      level: "none",
+      reasons: [],
+      version: "v1",
+    };
+  }
+
+  let score = 0;
+  const reasons: (string | { factor: string; score: number; desc: string })[] = [];
 
   // Rule 1: COD base risk
-  if (method === 'COD') {
-    score += 30;
-    reasons.push('COD order');
-  }
+  score += 30;
+  reasons.push("COD order");
 
   // Rule 2: high amount
   if (amountVnd >= 1_000_000) {
     score += 20;
-    reasons.push('High order value (>= 1M VND)');
+    reasons.push("High order value (>= 1M VND)");
   }
 
   // Rule 3: past failed COD orders (based on status)
-  const failedStatuses: OrderStatus[] = [ORDER_STATUS.CUSTOMER_CANCELLED, ORDER_STATUS.ORDER_REJECTED];
-  const failedCount = pastOrders.filter(o =>
-    o.status && failedStatuses.includes(o.status as OrderStatus)
+  const failedStatuses: OrderStatus[] = [
+    ORDER_STATUS.CUSTOMER_CANCELLED,
+    ORDER_STATUS.ORDER_REJECTED,
+  ];
+
+  const failedCount = pastOrders.filter(
+    (o) => o.status && failedStatuses.includes(o.status as OrderStatus)
   ).length;
 
   if (failedCount >= 3) {
     score += 30;
-    reasons.push('Customer has 3+ failed COD orders');
+    reasons.push("Customer has 3+ failed COD orders");
   } else if (failedCount >= 1) {
     score += 10;
-    reasons.push('Customer previously failed COD');
+    reasons.push("Customer previously failed COD");
   }
 
-  // Rule 4: address heuristic
+  // Rule 4: address heuristic (ví dụ khu công nghiệp)
   if (address) {
     const lower = address.toLowerCase();
-    if (lower.includes('khu công nghiệp')) {
+    if (lower.includes("khu công nghiệp")) {
       score += 10;
-      reasons.push('Address in industrial area');
+      reasons.push("Address in industrial area");
     }
   }
 
-  // Clamp
+  // Rule 5: Blacklist Override
+  if (blacklistPhones?.has(phone)) {
+    score = Math.max(score, 80);
+    reasons.push({
+      factor: "blacklist",
+      score: 50,
+      desc: "Customer is in blacklist (forced high risk)"
+    });
+  }
+
+  // Clamp 0–100
   if (score > 100) score = 100;
   if (score < 0) score = 0;
 
-  // Level
-  let level: RiskLevel = 'low';
-  if (score >= 70) level = 'high';
-  else if (score >= 40) level = 'medium';
+  // Mapping level theo chuẩn của m: <=30 / 31–70 / 71+
+  let level: RiskLevel;
+  if (score <= 30) level = "low";
+  else if (score <= 70) level = "medium";
+  else level = "high";
 
   return { score, level, reasons, version: "v1" };
 }
-

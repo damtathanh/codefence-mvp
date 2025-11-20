@@ -1,477 +1,238 @@
-import { useCallback } from "react";
-import { useAuth } from "../features/auth";
-import type { Order, Product } from "../types/supabase";
-import * as XLSX from "xlsx";
-import Papa from "papaparse";
-import { supabase } from "../lib/supabaseClient";
-
-// Smart header mapping
-import { validateAndMapHeaders, normalize } from "../utils/smartColumnMapper";
-import { computeRiskScoreV1, evaluateRisk } from "../utils/riskEngine";
-import { insertOrder, fetchPastOrdersByPhones } from "../features/orders/services/ordersService";
-import { insertOrderEvent } from "../features/orders/services/orderEventsService";
-import { ORDER_STATUS } from "../constants/orderStatus";
-import { markInvoicePaidForOrder } from "../features/invoices/invoiceService";
-
-export interface ParsedOrderRow {
-  order_id: string;
-  customer_name: string;
-  phone: string;
-  address: string | null;
-  product: string;
-  amount: number;
-  payment_method: string; // raw from file (COD, Bank, Momo, ZaloPay, etc.)
-}
+import { useState } from 'react';
+import { read, utils } from 'xlsx';
+import { supabase } from '../lib/supabaseClient';
+import { useAuth } from '../features/auth';
+import { evaluateRisk } from '../utils/riskEngine';
+import {
+    insertOrders as insertOrdersService,
+    fetchPastOrdersByPhones,
+    type InsertOrderPayload
+} from '../features/orders/services/ordersService';
+import type { Product } from '../types/supabase';
+import { normalize, validateAndMapHeaders, type HeaderValidationResult } from '../utils/smartColumnMapper';
 
 export interface OrderInput {
-  order_id: string;
-  customer_name: string;
-  phone: string;
-  address: string | null;
-  product_id?: string | null; // set after product mapping
-  product: string; // raw product name
-  amount: number;
-  payment_method: string; // normalized (e.g., COD/BANK/MOMO/ZALOPAY)
+    order_id: string;
+    customer_name: string;
+    phone: string;
+    address: string | null;
+    product_id: string | null;
+    product?: string; // Product name
+    amount: number;
+    payment_method?: string;
+}
+
+export interface ParsedOrderRow {
+    order_id: string;
+    customer_name: string;
+    phone: string;
+    address: string | null;
+    product: string;
+    amount: number;
+    payment_method: string;
 }
 
 export interface InvalidOrderRow {
-  order: any;
-  rowIndex: number;
-  reason: string;
+    order: ParsedOrderRow;   // the invalid row
+    rowIndex: number;        // row number in the uploaded file
+    reason: string;          // why this row is invalid
 }
 
-export const useOrders = () => {
-  const { user } = useAuth();
+export function useOrders() {
+    const { user } = useAuth();
 
-  /** LOAD PRODUCTS */
-  const fetchProducts = useCallback(async (): Promise<Array<{ id: string; name: string }>> => {
-    if (!user) return [];
-    const { data, error } = await supabase
-      .from("products")
-      .select("id, name")
-      .eq("user_id", user.id)
-      .eq("status", "active");
+    const parseFile = async (file: File): Promise<ParsedOrderRow[]> => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const data = e.target?.result;
+                    const workbook = read(data, { type: 'binary' });
+                    const sheetName = workbook.SheetNames[0];
+                    const sheet = workbook.Sheets[sheetName];
 
-    return error ? [] : (data ?? []);
-  }, [user]);
+                    // Get headers
+                    const jsonData = utils.sheet_to_json(sheet, { header: 1 });
+                    if (jsonData.length === 0) {
+                        reject(new Error('File is empty'));
+                        return;
+                    }
 
-  // ========== Pure Helper Functions ==========
-  
-  /** SAFE STRING CONVERSION */
-  const toStr = (value: any): string => {
-    if (value === null || value === undefined) return "";
-    return String(value).trim();
-  };
+                    const headers = jsonData[0] as string[];
+                    const validationResult = validateAndMapHeaders(headers);
 
-  /** CLEAN NUMBER */
-  const parseNumeric = (v: any): number | null => {
-    if (v === null || v === undefined) return null;
-    const cleaned = String(v).replace(/,/g, "").trim();
-    const num = Number(cleaned);
-    return isNaN(num) ? null : num;
-  };
+                    if (validationResult.error) {
+                        // Attach validation result to error object for UI to display
+                        const error = new Error(validationResult.error);
+                        (error as any).validationResult = validationResult;
+                        reject(error);
+                        return;
+                    }
 
-  /** VALIDATE ORDER INPUT */
-  const validateOrder = (o: Partial<OrderInput>): string | null => {
-    if (!o.order_id) return "Order ID missing";
-    if (!o.customer_name) return "Customer name missing";
-    if (!o.phone) return "Phone missing";
-    if (!o.product) return "Product name missing";
-    if (!o.amount || o.amount <= 0) return "Amount invalid";
-    return null;
-  };
+                    const mapping = validationResult.mapping;
+                    const rows = jsonData.slice(1); // Skip header
 
-  /** PARSE ROW FROM HEADER MAPPING (shared logic for CSV/XLSX) */
-  const parseRowFromMapping = (
-    rowByHeader: Record<string, any>,
-    headerMapping: ReturnType<typeof validateAndMapHeaders>['mapping']
-  ): ParsedOrderRow | null => {
-    const getValue = (key: keyof typeof headerMapping): string => {
-      const headerName = headerMapping[key];
-      if (!headerName) return '';
-      const value = rowByHeader[headerName];
-      return value !== undefined && value !== null ? String(value).trim() : '';
+                    const parsedRows: ParsedOrderRow[] = rows.map((row: any) => {
+                        const obj: any = {};
+                        // Map columns based on mapping
+                        Object.entries(mapping).forEach(([key, headerName]) => {
+                            const colIndex = headers.indexOf(headerName);
+                            if (colIndex !== -1) {
+                                obj[key] = row[colIndex];
+                            }
+                        });
+                        return obj as ParsedOrderRow;
+                    });
+
+                    resolve(parsedRows);
+                } catch (err) {
+                    reject(err);
+                }
+            };
+            reader.onerror = (err) => reject(err);
+            reader.readAsBinaryString(file);
+        });
     };
 
-    const order_id = getValue('order_id');
-    const customer_name = getValue('customer_name');
-    const phone = getValue('phone');
-    const address = getValue('address');
-    const product = getValue('product');
-    const amountRaw = getValue('amount');
-    const paymentMethodRaw = getValue('payment_method');
+    const validateAndMapProducts = async (rows: ParsedOrderRow[]) => {
+        if (!user) throw new Error('User not authenticated');
 
-    if (!order_id || !customer_name || !product || !amountRaw) {
-      return null; // skip invalid rows
-    }
+        // Fetch active products
+        const { data: products } = await supabase
+            .from('products')
+            .select('id, name')
+            .eq('user_id', user.id)
+            .eq('status', 'active');
 
-    const amount = Number(String(amountRaw).replace(/[.,\s]/g, ''));
-    const payment_method = paymentMethodRaw
-      ? paymentMethodRaw.toString().trim()
-      : 'COD';
+        const productMap = new Map<string, string>(); // normalized name -> id
+        if (products) {
+            products.forEach(p => {
+                productMap.set(normalize(p.name), p.id);
+            });
+        }
+
+        const validOrders: OrderInput[] = [];
+        const invalidOrders: InvalidOrderRow[] = [];
+        const warnings: string[] = [];
+
+        rows.forEach((row, index) => {
+            const errors: string[] = [];
+            const rowNum = index + 1;
+
+            // Basic validation
+            if (!row.order_id) errors.push('Missing Order ID');
+            if (!row.customer_name) errors.push('Missing Customer Name');
+            if (!row.phone) errors.push('Missing Phone');
+
+            // Amount parsing
+            let amount = 0;
+            if (row.amount) {
+                const cleaned = row.amount.toString().replace(/,/g, '').trim();
+                amount = Number(cleaned);
+            }
+            if (isNaN(amount) || amount <= 0) errors.push('Invalid Amount');
+
+            // Product mapping
+            let productId: string | null = null;
+            const productName = row.product ? row.product.toString().trim() : '';
+
+            if (!productName) {
+                errors.push('Missing Product Name');
+            } else {
+                const normalized = normalize(productName);
+                if (productMap.has(normalized)) {
+                    productId = productMap.get(normalized)!;
+                } else {
+                    errors.push(`Product not found: ${productName}`);
+                }
+            }
+
+            if (errors.length > 0) {
+                invalidOrders.push({
+                    rowIndex: rowNum,
+                    order: row,
+                    reason: errors.join(', ')
+                });
+            } else {
+                validOrders.push({
+                    order_id: row.order_id!.toString(),
+                    customer_name: row.customer_name!.toString(),
+                    phone: row.phone!.toString(),
+                    address: row.address ? row.address.toString() : null,
+                    product_id: productId,
+                    product: productName,
+                    amount,
+                    payment_method: row.payment_method ? row.payment_method.toString() : 'COD'
+                });
+            }
+        });
+
+        return { validOrders, invalidOrders, warnings };
+    };
+
+    const insertOrders = async (orders: OrderInput[]) => {
+        if (!user) throw new Error('User not authenticated');
+
+        // 1. Fetch past orders for risk evaluation
+        const phones = Array.from(new Set(orders.map(o => o.phone)));
+        const { data: pastOrdersData } = await fetchPastOrdersByPhones(user.id, phones);
+
+        const pastOrdersMap = new Map<string, { status: string | null }[]>();
+        if (pastOrdersData) {
+            pastOrdersData.forEach(po => {
+                const p = po.phone;
+                if (!pastOrdersMap.has(p)) {
+                    pastOrdersMap.set(p, []);
+                }
+                pastOrdersMap.get(p)!.push({ status: po.status });
+            });
+        }
+
+        // 2. Prepare payloads with risk scores
+        const payloads: InsertOrderPayload[] = orders.map(order => {
+            const pastOrders = pastOrdersMap.get(order.phone) || [];
+
+            const riskOutput = evaluateRisk({
+                paymentMethod: order.payment_method,
+                amountVnd: order.amount,
+                phone: order.phone,
+                address: order.address,
+                pastOrders: pastOrders,
+                productName: order.product
+            });
+
+            const isNonCOD = order.payment_method && order.payment_method.toUpperCase() !== 'COD';
+
+            return {
+                user_id: user.id,
+                order_id: order.order_id,
+                customer_name: order.customer_name,
+                phone: order.phone,
+                address: order.address,
+                product_id: order.product_id,
+                product: order.product || '',
+                amount: order.amount,
+                status: isNonCOD ? 'Order Paid' : 'Pending Review', // Default status
+                risk_score: riskOutput.score,
+                risk_level: riskOutput.level,
+                payment_method: order.payment_method || 'COD',
+                paid_at: isNonCOD ? new Date().toISOString() : null
+            };
+        });
+
+        // 3. Insert
+        const { error } = await insertOrdersService(payloads);
+
+        if (error) {
+            return { success: 0, failed: orders.length, errors: [error.message] };
+        }
+
+        return { success: orders.length, failed: 0, errors: [] };
+    };
 
     return {
-      order_id,
-      customer_name,
-      phone,
-      address: address || null,
-      product,
-      amount,
-      payment_method,
+        parseFile,
+        validateAndMapProducts,
+        insertOrders
     };
-  };
-
-  /** MAP PRODUCT NAME → ID */
-  const validateAndMapProducts = useCallback(
-    async (rows: ParsedOrderRow[]) => {
-      if (!user) {
-        return { validOrders: [], invalidOrders: [], warnings: [] };
-      }
-
-      // Fetch all active products for the user (equivalent to per-row lookup but more efficient)
-      // This matches: .from('products').select('id, name').eq('user_id', user.id).eq('name', productName).maybeSingle()
-      const products = await fetchProducts();
-      const productMap = new Map(
-        products.map((p) => [normalize(p.name), p])
-      );
-
-      const valid: OrderInput[] = [];
-      const invalid: InvalidOrderRow[] = [];
-      const warnings: Array<{ rowIndex: number; message: string }> = [];
-
-      rows.forEach((row, idx) => {
-        const productName = (row.product || "").trim();
-        const normalizedProductName = normalize(productName);
-        const prod = productMap.get(normalizedProductName);
-
-        // Always create the order, but set product_id to null if product not found
-        const orderData: OrderInput = {
-          order_id: row.order_id || "",
-          customer_name: row.customer_name || "",
-          phone: row.phone || "",
-          address: row.address || null,
-          product_id: prod ? prod.id : null,
-          product: productName,
-          amount: parseNumeric(row.amount) ?? 0,
-          payment_method: row.payment_method || "COD",
-        };
-
-        // Validate required fields
-        const validationError = validateOrder(orderData);
-        if (validationError) {
-          invalid.push({
-            rowIndex: idx + 1,
-            order: row,
-            reason: validationError,
-          });
-        } else {
-          valid.push(orderData);
-          
-          // Add warning if product not found (but row is still valid)
-          if (!prod && productName) {
-            warnings.push({
-              rowIndex: idx + 1,
-              message: `Product "${productName}" not found; please correct it in the Orders table.`,
-            });
-          }
-        }
-      });
-
-      return { validOrders: valid, invalidOrders: invalid, warnings };
-    },
-    [fetchProducts, user]
-  );
-
-  /** CSV PARSE */
-  const parseCSV = useCallback((file: File) => {
-    return new Promise<ParsedOrderRow[]>((resolve, reject) => {
-      Papa.parse(file, {
-        header: true,
-        skipEmptyLines: true,
-        complete: (res) => {
-          try {
-            const headers = res.meta.fields || [];
-            
-            // Validate headers and check for missing/misnamed columns
-            const validationResult = validateAndMapHeaders(headers);
-            if (validationResult.error) {
-              const error = new Error(validationResult.error);
-              // Attach validation result to error for structured error display
-              (error as any).validationResult = validationResult;
-              reject(error);
-              return;
-            }
-            const headerMapping = validationResult.mapping;
-
-            const rows: ParsedOrderRow[] = res.data
-              .map((r: any) => {
-                const rowByHeader: Record<string, any> = {};
-                headers.forEach((header) => {
-                  rowByHeader[header] = r[header];
-                });
-
-                const parsedRow = parseRowFromMapping(rowByHeader, headerMapping);
-                if (parsedRow) {
-                  console.log('[DEBUG] parsed CSV row:', parsedRow);
-                }
-                return parsedRow;
-              })
-              .filter((o): o is ParsedOrderRow => o !== null);
-
-            resolve(rows);
-          } catch (err) {
-            reject(err);
-          }
-        },
-        error: reject,
-      });
-    });
-  }, []);
-
-  /** XLSX PARSE */
-  const parseXLSX = useCallback((file: File) => {
-    return new Promise<ParsedOrderRow[]>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        try {
-          const wb = XLSX.read(e.target?.result, { type: "array" });
-          const sheet = wb.Sheets[wb.SheetNames[0]];
-          
-          // Get raw data as array of arrays (first row is headers)
-          const rawData = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null }) as any[][];
-          
-          if (!rawData || rawData.length < 2) {
-            reject(new Error("File appears to be empty or has no data rows."));
-            return;
-          }
-
-          const headers = rawData[0].map((h: any) => String(h || '').trim());
-          const dataRows = rawData.slice(1);
-
-          // Validate headers and check for missing/misnamed columns
-          const validationResult = validateAndMapHeaders(headers);
-          if (validationResult.error) {
-            const error = new Error(validationResult.error);
-            // Attach validation result to error for structured error display
-            (error as any).validationResult = validationResult;
-            reject(error);
-            return;
-          }
-          const headerMapping = validationResult.mapping;
-
-          const rows: ParsedOrderRow[] = [];
-
-          dataRows.forEach((row) => {
-            const rowByHeader: Record<string, any> = {};
-            headers.forEach((header, index) => {
-              rowByHeader[header] = row[index];
-            });
-
-            const parsedRow = parseRowFromMapping(rowByHeader, headerMapping);
-            if (parsedRow) {
-              console.log('[DEBUG] parsed XLSX row:', parsedRow);
-              rows.push(parsedRow);
-            }
-          });
-
-          resolve(rows);
-        } catch (err) {
-          reject(err);
-        }
-      };
-      reader.readAsArrayBuffer(file);
-    });
-  }, []);
-
-  /** UNIVERSAL PARSER */
-  const parseFile = useCallback(
-    async (file: File): Promise<ParsedOrderRow[]> => {
-      const name = file.name.toLowerCase();
-      if (name.endsWith(".csv")) return parseCSV(file);
-      if (name.endsWith(".xls") || name.endsWith(".xlsx")) return parseXLSX(file);
-      throw new Error("Unsupported file");
-    },
-    [parseCSV, parseXLSX]
-  );
-
-  /** DATABASE INSERT */
-  const insertOrders = useCallback(
-    async (orders: OrderInput[]) => {
-      if (!user?.id) {
-        return { success: 0, failed: 0, errors: ["User not authenticated"] };
-      }
-
-      let success = 0,
-        failed = 0,
-        errors: string[] = [];
-
-      // Batch fetch past orders for all unique phones
-      const uniquePhones = Array.from(
-        new Set(
-          orders
-            .map(o => o.phone)
-            .filter((p): p is string => Boolean(p && p.trim()))
-        )
-      );
-
-      let historyByPhone = new Map<string, { status: string | null }[]>();
-      
-      if (uniquePhones.length > 0) {
-        const { data: pastOrdersData, error: pastError } = await fetchPastOrdersByPhones(
-          user.id,
-          uniquePhones
-        );
-
-        if (pastError) {
-          console.error('Error fetching past orders for risk evaluation:', pastError);
-        } else {
-          // Build map: phone -> pastOrders[]
-          for (const row of pastOrdersData ?? []) {
-            const list = historyByPhone.get(row.phone) ?? [];
-            list.push({ status: row.status });
-            historyByPhone.set(row.phone, list);
-          }
-        }
-      }
-
-      for (const order of orders) {
-        try {
-          const validation = validateOrder(order);
-          if (validation) throw new Error(validation);
-
-          const amount = parseNumeric(order.amount);
-          if (!amount) throw new Error("Amount invalid");
-
-          const now = new Date().toISOString();
-          const rawPaymentMethod = order.payment_method || "COD";
-          const paymentMethod = rawPaymentMethod.toUpperCase();
-          const isCod = paymentMethod === "COD";
-
-          // Get past orders from the batch-fetched map
-          const phone = order.phone || '';
-          const pastOrders = historyByPhone.get(phone) || [];
-
-          // Evaluate risk using new risk engine
-          const { score: riskScore, level: riskLevel, reasons, version } = evaluateRisk({
-            paymentMethod,
-            amountVnd: amount,
-            phone,
-            address: order.address,
-            pastOrders,
-            productName: order.product,
-          });
-
-          const baseStatus = isCod ? ORDER_STATUS.PENDING_REVIEW : ORDER_STATUS.ORDER_PAID;
-          const paidAt = isCod ? null : now;
-
-          const payload = {
-            user_id: user.id,
-            order_id: order.order_id,
-            customer_name: order.customer_name,
-            phone: order.phone,
-            address: order.address,
-            product_id: order.product_id ?? null,
-            product: order.product,
-            amount,
-            status: baseStatus,
-            risk_score: riskScore,
-            risk_level: riskLevel,
-            payment_method: paymentMethod,
-            paid_at: paidAt,
-          };
-
-          console.log('[DEBUG] insert payload:', payload);
-
-          const { data: insertedData, error } = await insertOrder(payload);
-
-          if (error) throw error;
-
-          // Insert RISK_EVALUATED event
-          if (insertedData && insertedData.id) {
-            const { error: eventError } = await insertOrderEvent({
-              order_id: insertedData.id,
-              event_type: 'RISK_EVALUATED',
-              payload_json: {
-                score: riskScore,
-                level: riskLevel,
-                reasons,
-                source: 'import_rule_engine',
-                rule_version: version || "v1",
-              },
-            });
-
-            if (eventError) {
-              console.error('Error inserting RISK_EVALUATED event:', eventError);
-              // Don't fail the whole import if event insert fails
-            }
-          }
-
-          // Create Paid invoice for non-COD orders (they are paid immediately)
-          if (insertedData && !isCod) {
-            const fullOrder = {
-              ...insertedData,
-              user_id: user.id,
-              amount: insertedData.amount,
-            };
-            await markInvoicePaidForOrder(fullOrder);
-            
-            // Generate and upload PDF if in browser environment
-            if (typeof window !== 'undefined' && user.id) {
-              try {
-                const { getInvoiceByOrderId } = await import('../features/invoices/invoiceService');
-                const { ensureInvoicePdfStored } = await import('../features/invoices/invoiceStorage');
-                
-                const invoice = await getInvoiceByOrderId(fullOrder.id, user.id);
-                if (invoice) {
-                  // Fetch seller profile for PDF generation
-                  let sellerProfile = {
-                    company_name: undefined,
-                    email: undefined,
-                    phone: undefined,
-                    website: undefined,
-                    address: undefined,
-                  };
-
-                  const { data: profileData } = await supabase
-                    .from("users_profile")
-                    .select("company_name, email, phone, website, address")
-                    .eq("id", user.id)
-                    .maybeSingle();
-
-                  if (profileData) {
-                    sellerProfile = {
-                      company_name: profileData.company_name || undefined,
-                      email: profileData.email || undefined,
-                      phone: profileData.phone || undefined,
-                      website: (profileData as any).website || undefined,
-                      address: (profileData as any).address || undefined,
-                    };
-                  }
-
-                  await ensureInvoicePdfStored(invoice, fullOrder, sellerProfile);
-                }
-              } catch (pdfError) {
-                console.error('[useOrders] Failed to store invoice PDF', pdfError);
-                // Don't break the import flow if PDF upload fails
-              }
-            }
-          }
-
-          success++;
-        } catch (err: any) {
-          failed++;
-          errors.push(err.message);
-        }
-      }
-
-      return { success, failed, errors };
-    },
-    [user]
-  );
-
-  return {
-    parseFile,
-    validateAndMapProducts,
-    insertOrders,
-  };
-};
+}

@@ -23,6 +23,7 @@ import { InvoicePage } from "./pages/dashboard/InvoicePage";
 import { HistoryPage } from "./pages/dashboard/HistoryPage";
 import { MessagePage } from "./pages/dashboard/MessagePage";
 import { SettingsPage } from "./pages/dashboard/SettingsPage";
+import { CustomersPage } from "./pages/dashboard/CustomersPage";
 import { AdminDashboard } from "./pages/admin/AdminDashboard";
 import { AdminMessagePage } from "./pages/admin/AdminMessagePage";
 import { ToastProvider } from "./components/ui";
@@ -113,6 +114,7 @@ function App() {
                 <Route path="orders" element={<OrdersPage />} />
                 <Route path="invoice" element={<InvoicePage />} />
                 <Route path="history" element={<HistoryPage />} />
+                <Route path="customers" element={<CustomersPage />} />
                 <Route path="message" element={<MessagePage />} />
                 <Route path="settings" element={<SettingsPage />} />
               </Route>
