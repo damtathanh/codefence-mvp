@@ -5,6 +5,7 @@ export const statusStyles: Record<OrderStatus, string> = {
   // ✅ SUCCESS / COMPLETED (green)
   [ORDER_STATUS.ORDER_PAID]: "bg-green-600/20 text-green-300 border-green-600/40",
   [ORDER_STATUS.ORDER_CONFIRMED]: "bg-green-600/20 text-green-300 border-green-600/40",
+  [ORDER_STATUS.CUSTOMER_CONFIRMED]: "bg-green-600/20 text-green-300 border-green-600/40",
   [ORDER_STATUS.COMPLETED]: "bg-green-600/20 text-green-300 border-green-600/40",
 
   // ⏳ IN PROGRESS (yellow/amber)

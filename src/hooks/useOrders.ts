@@ -55,6 +55,8 @@ export const useOrders = () => {
     return error ? [] : (data ?? []);
   }, [user]);
 
+  // ========== Pure Helper Functions ==========
+  
   /** SAFE STRING CONVERSION */
   const toStr = (value: any): string => {
     if (value === null || value === undefined) return "";
@@ -69,14 +71,54 @@ export const useOrders = () => {
     return isNaN(num) ? null : num;
   };
 
-  /** VALIDATE */
-  const validateOrder = (o: Partial<OrderInput>) => {
+  /** VALIDATE ORDER INPUT */
+  const validateOrder = (o: Partial<OrderInput>): string | null => {
     if (!o.order_id) return "Order ID missing";
     if (!o.customer_name) return "Customer name missing";
     if (!o.phone) return "Phone missing";
     if (!o.product) return "Product name missing";
     if (!o.amount || o.amount <= 0) return "Amount invalid";
     return null;
+  };
+
+  /** PARSE ROW FROM HEADER MAPPING (shared logic for CSV/XLSX) */
+  const parseRowFromMapping = (
+    rowByHeader: Record<string, any>,
+    headerMapping: ReturnType<typeof validateAndMapHeaders>['mapping']
+  ): ParsedOrderRow | null => {
+    const getValue = (key: keyof typeof headerMapping): string => {
+      const headerName = headerMapping[key];
+      if (!headerName) return '';
+      const value = rowByHeader[headerName];
+      return value !== undefined && value !== null ? String(value).trim() : '';
+    };
+
+    const order_id = getValue('order_id');
+    const customer_name = getValue('customer_name');
+    const phone = getValue('phone');
+    const address = getValue('address');
+    const product = getValue('product');
+    const amountRaw = getValue('amount');
+    const paymentMethodRaw = getValue('payment_method');
+
+    if (!order_id || !customer_name || !product || !amountRaw) {
+      return null; // skip invalid rows
+    }
+
+    const amount = Number(String(amountRaw).replace(/[.,\s]/g, ''));
+    const payment_method = paymentMethodRaw
+      ? paymentMethodRaw.toString().trim()
+      : 'COD';
+
+    return {
+      order_id,
+      customer_name,
+      phone,
+      address: address || null,
+      product,
+      amount,
+      payment_method,
+    };
   };
 
   /** MAP PRODUCT NAME → ID */
@@ -168,45 +210,11 @@ export const useOrders = () => {
                   rowByHeader[header] = r[header];
                 });
 
-                const getValue = (key: keyof typeof headerMapping): string => {
-                  const headerName = headerMapping[key];
-                  if (!headerName) return '';
-
-                  const value = rowByHeader[headerName];
-                  return value !== undefined && value !== null ? String(value).trim() : '';
-                };
-
-                const order_id = getValue('order_id');
-                const customer_name = getValue('customer_name');
-                const phone = getValue('phone');
-                const address = getValue('address');
-                const product = getValue('product');
-                const amountRaw = getValue('amount');
-                const paymentMethodRaw = getValue('payment_method');
-
-                if (!order_id || !customer_name || !product || !amountRaw) {
-                  return null; // skip invalid rows
+                const parsedRow = parseRowFromMapping(rowByHeader, headerMapping);
+                if (parsedRow) {
+                  console.log('[DEBUG] parsed CSV row:', parsedRow);
                 }
-
-                const amount = Number(String(amountRaw).replace(/[.,\s]/g, ''));
-
-                const payment_method = paymentMethodRaw
-                  ? paymentMethodRaw.toString().trim()
-                  : 'COD';
-
-                const row: ParsedOrderRow = {
-                  order_id,
-                  customer_name,
-                  phone,
-                  address: address || null,
-                  product,
-                  amount,
-                  payment_method,
-                };
-
-                console.log('[DEBUG] parsed CSV row:', row);
-
-                return row;
+                return parsedRow;
               })
               .filter((o): o is ParsedOrderRow => o !== null);
 
@@ -259,44 +267,11 @@ export const useOrders = () => {
               rowByHeader[header] = row[index];
             });
 
-            const get = (key: keyof typeof headerMapping): string => {
-              const headerName = headerMapping[key];
-              if (!headerName) return '';
-              const value = rowByHeader[headerName];
-              return value !== undefined && value !== null ? String(value).trim() : '';
-            };
-
-            const order_id = get('order_id');
-            const customer_name = get('customer_name');
-            const phone = get('phone');
-            const address = get('address');
-            const product = get('product');
-            const amountRaw = get('amount');
-            const paymentMethodRaw = get('payment_method');
-
-            if (!order_id || !customer_name || !product || !amountRaw) {
-              return; // skip invalid rows
+            const parsedRow = parseRowFromMapping(rowByHeader, headerMapping);
+            if (parsedRow) {
+              console.log('[DEBUG] parsed XLSX row:', parsedRow);
+              rows.push(parsedRow);
             }
-
-            const amount = Number(String(amountRaw).replace(/[.,\s]/g, ''));
-
-            const payment_method = paymentMethodRaw
-              ? paymentMethodRaw.toString().trim()
-              : 'COD';
-
-            const parsedRow: ParsedOrderRow = {
-              order_id,
-              customer_name,
-              phone,
-              address: address || null,
-              product,
-              amount,
-              payment_method,
-            };
-
-            console.log('[DEBUG] parsed XLSX row:', parsedRow);
-
-            rows.push(parsedRow);
           });
 
           resolve(rows);

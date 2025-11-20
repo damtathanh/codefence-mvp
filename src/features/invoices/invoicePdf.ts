@@ -1,4 +1,4 @@
-// src/utils/invoicePdf.ts
+// src/features/invoices/invoicePdf.ts
 import { PDFDocument, rgb } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 

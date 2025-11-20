@@ -1,6 +1,6 @@
 // src/features/invoices/invoiceStorage.ts
 import { supabase } from '../../lib/supabaseClient';
-import { generateInvoicePdf } from '../../utils/invoicePdf';
+import { generateInvoicePdf } from './invoicePdf';
 import type { Invoice } from '../../types/supabase';
 import type { Order } from '../../types/supabase';
 
