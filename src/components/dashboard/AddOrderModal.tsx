@@ -19,6 +19,7 @@ import { fetchCustomerBlacklist } from '../../features/customers/services/custom
 import { insertOrderEvent } from '../../features/orders/services/orderEventsService';
 import { fetchPastOrdersByPhone } from '../../features/orders/services/ordersService';
 import type { RiskInput } from '../../utils/riskEngine';
+import { markInvoicePaidForOrder } from '../../features/invoices/services/invoiceService';
 
 interface ParsedUploadPayload {
   validOrders: OrderInput[];
@@ -74,7 +75,10 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
     order_id: '',
     customer_name: '',
     phone: '',
-    address: '',
+    address_detail: '',
+    ward: '',
+    district: '',
+    province: '',
     product_id: '',
     amount: 0,
     amountDisplay: '',
@@ -111,7 +115,10 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
         order_id: editingOrder.order_id || '',
         customer_name: editingOrder.customer_name || '',
         phone: editingOrder.phone || '',
-        address: editingOrder.address || '',
+        address_detail: editingOrder.address_detail || editingOrder.address || '',
+        ward: editingOrder.ward || '',
+        district: editingOrder.district || '',
+        province: editingOrder.province || '',
         product_id: editingOrder.product_id || '',
         amount: editingOrder.amount || 0,
         amountDisplay: formattedAmount,
@@ -124,7 +131,10 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
         order_id: '',
         customer_name: '',
         phone: '',
-        address: '',
+        address_detail: '',
+        ward: '',
+        district: '',
+        province: '',
         product_id: '',
         amount: 0,
         amountDisplay: '',
@@ -233,11 +243,18 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
           payment_method: editingOrder.payment_method || 'COD',
         };
 
+        const fullAddress = [
+          formData.address_detail,
+          formData.ward,
+          formData.district,
+          formData.province
+        ].filter(Boolean).map(s => s?.trim()).filter(s => s && s.length > 0).join(', ');
+
         const updateData = {
           order_id: formData.order_id?.trim() || '',
           customer_name: formData.customer_name?.trim() || '',
           phone: formData.phone?.trim() || '',
-          address: formData.address?.trim() || '',
+          address: fullAddress,
           product: newProduct?.name || 'N/A',
           amount: numericAmount,
           payment_method: formData.payment_method || 'COD',
@@ -257,7 +274,11 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
             order_id: formData.order_id?.trim() || '',
             customer_name: formData.customer_name?.trim() || '',
             phone: formData.phone?.trim() || '',
-            address: formData.address?.trim() || null,
+            address: fullAddress || null,
+            address_detail: formData.address_detail?.trim() || null,
+            ward: formData.ward?.trim() || null,
+            district: formData.district?.trim() || null,
+            province: formData.province?.trim() || null,
             product_id: formData.product_id || '',
             product: productName, // Store product name
             amount: numericAmount,
@@ -289,11 +310,23 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
         // Insert new order
         const selectedProduct = products.find(p => p.id === formData.product_id);
         const productName = selectedProduct?.name || '';
+
+        const fullAddress = [
+          formData.address_detail,
+          formData.ward,
+          formData.district,
+          formData.province
+        ].filter(Boolean).map(s => s?.trim()).filter(s => s && s.length > 0).join(', ');
+
         const orderData: OrderInput = {
           order_id: formData.order_id || '',
           customer_name: formData.customer_name || '',
           phone: formData.phone || '',
-          address: formData.address || null,
+          address: fullAddress || null,
+          address_detail: formData.address_detail || null,
+          ward: formData.ward || null,
+          district: formData.district || null,
+          province: formData.province || null,
           product_id: formData.product_id || null,
           product: productName, // Store product name
           amount: numericAmount,
@@ -357,6 +390,10 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
             customer_name: orderData.customer_name,
             phone: orderData.phone,
             address: orderData.address,
+            address_detail: orderData.address_detail,
+            ward: orderData.ward,
+            district: orderData.district,
+            province: orderData.province,
             product_id: orderData.product_id,
             product: productName, // Store product name
             amount: orderData.amount,
@@ -393,6 +430,12 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
             status: 'success',
             orderId: newOrder.order_id ?? "",
           });
+
+          // Create invoice for non-COD orders
+          const pm = newOrder.payment_method?.toUpperCase() || 'COD';
+          if (pm !== 'COD') {
+            await markInvoicePaidForOrder(newOrder);
+          }
         }
 
         showSuccess('Order added successfully!');
@@ -1295,12 +1338,40 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
               required
               disabled={loading}
             />
-            <Input
-              label="Address"
-              value={formData.address || ''}
-              onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-              disabled={loading}
-            />
+            <div className="space-y-3 bg-white/5 p-4 rounded-xl border border-white/10">
+              <div className="text-sm font-medium text-white/80">Address Details</div>
+              <Input
+                label="Address Number"
+                value={formData.address_detail || ''}
+                onChange={(e) => setFormData({ ...formData, address_detail: e.target.value })}
+                required
+                disabled={loading}
+                placeholder="House number, street..."
+              />
+              <div className="grid grid-cols-3 gap-3">
+                <Input
+                  label="Ward"
+                  value={formData.ward || ''}
+                  onChange={(e) => setFormData({ ...formData, ward: e.target.value })}
+                  disabled={loading}
+                  placeholder="Ward"
+                />
+                <Input
+                  label="District"
+                  value={formData.district || ''}
+                  onChange={(e) => setFormData({ ...formData, district: e.target.value })}
+                  disabled={loading}
+                  placeholder="District"
+                />
+                <Input
+                  label="Province"
+                  value={formData.province || ''}
+                  onChange={(e) => setFormData({ ...formData, province: e.target.value })}
+                  disabled={loading}
+                  placeholder="Province"
+                />
+              </div>
+            </div>
             <div>
               <label className="block text-sm font-medium text-[#E5E7EB]/90 mb-2">
                 Product <span className="text-red-400">*</span>

@@ -8,7 +8,8 @@ import {
     fetchPastOrdersByPhones,
     type InsertOrderPayload
 } from '../features/orders/services/ordersService';
-import type { Product } from '../types/supabase';
+import { markInvoicePaidForOrder } from "../features/invoices/services/invoiceService";
+import type { Product, Order } from '../types/supabase';
 import { normalize, validateAndMapHeaders, type HeaderValidationResult } from '../utils/smartColumnMapper';
 
 export interface OrderInput {
@@ -20,6 +21,10 @@ export interface OrderInput {
     product?: string; // Product name
     amount: number;
     payment_method?: string;
+    address_detail?: string | null;
+    ward?: string | null;
+    district?: string | null;
+    province?: string | null;
 }
 
 export interface ParsedOrderRow {
@@ -30,6 +35,10 @@ export interface ParsedOrderRow {
     product: string;
     amount: number;
     payment_method: string;
+    address_detail?: string;
+    ward?: string;
+    district?: string;
+    province?: string;
 }
 
 export interface InvalidOrderRow {
@@ -162,7 +171,11 @@ export function useOrders() {
                     product_id: productId,
                     product: productName,
                     amount,
-                    payment_method: row.payment_method ? row.payment_method.toString() : 'COD'
+                    payment_method: row.payment_method ? row.payment_method.toString() : 'COD',
+                    address_detail: row.address_detail ? row.address_detail.toString() : null,
+                    ward: row.ward ? row.ward.toString() : null,
+                    district: row.district ? row.district.toString() : null,
+                    province: row.province ? row.province.toString() : null
                 });
             }
         });
@@ -192,11 +205,26 @@ export function useOrders() {
         const payloads: InsertOrderPayload[] = orders.map(order => {
             const pastOrders = pastOrdersMap.get(order.phone) || [];
 
+            // Construct full address from normalized fields if available
+            const fullAddressParts = [
+                order.address_detail,
+                order.ward,
+                order.district,
+                order.province
+            ].filter(Boolean).map(s => s?.trim()).filter(s => s && s.length > 0);
+
+            let finalAddress = order.address;
+            if (fullAddressParts.length > 0) {
+                finalAddress = fullAddressParts.join(', ');
+            } else if (order.address_detail) {
+                finalAddress = order.address_detail;
+            }
+
             const riskOutput = evaluateRisk({
                 paymentMethod: order.payment_method,
                 amountVnd: order.amount,
                 phone: order.phone,
-                address: order.address,
+                address: finalAddress,
                 pastOrders: pastOrders,
                 productName: order.product
             });
@@ -208,7 +236,7 @@ export function useOrders() {
                 order_id: order.order_id,
                 customer_name: order.customer_name,
                 phone: order.phone,
-                address: order.address,
+                address: finalAddress,
                 product_id: order.product_id,
                 product: order.product || '',
                 amount: order.amount,
@@ -216,15 +244,33 @@ export function useOrders() {
                 risk_score: riskOutput.score,
                 risk_level: riskOutput.level,
                 payment_method: order.payment_method || 'COD',
-                paid_at: isNonCOD ? new Date().toISOString() : null
+                paid_at: isNonCOD ? new Date().toISOString() : null,
+                address_detail: order.address_detail,
+                ward: order.ward,
+                district: order.district,
+                province: order.province
             };
         });
 
         // 3. Insert
-        const { error } = await insertOrdersService(payloads);
+        const { data: insertedOrders, error } = await insertOrdersService(payloads);
 
         if (error) {
             return { success: 0, failed: orders.length, errors: [error.message] };
+        }
+
+        // 4. Create invoices for non-COD orders
+        if (insertedOrders && insertedOrders.length > 0) {
+            // We can run this in background or await it. 
+            // Awaiting ensures data consistency before returning.
+            await Promise.all(
+                insertedOrders.map(async (order) => {
+                    const pm = order.payment_method?.toUpperCase() || 'COD';
+                    if (pm !== 'COD') {
+                        await markInvoicePaidForOrder(order);
+                    }
+                })
+            );
         }
 
         return { success: orders.length, failed: 0, errors: [] };

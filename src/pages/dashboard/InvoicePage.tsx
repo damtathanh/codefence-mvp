@@ -7,7 +7,7 @@ import { supabase } from '../../lib/supabaseClient';
 import { useAuth } from '../../features/auth';
 import { useUserProfile } from '../../hooks/useUserProfile';
 import type { Invoice, Order } from '../../types/supabase';
-import { ensureInvoicePdfStored } from '../../features/invoices/invoiceStorage';
+import { ensureInvoicePdfStored } from '../../features/invoices/services/invoiceStorage';
 
 interface InvoiceWithCustomer extends Invoice {
   customer_name?: string;
@@ -34,7 +34,7 @@ export const InvoicePage: React.FC = () => {
     const fetchInvoices = async () => {
       setLoading(true);
       setError(null);
-      
+
       try {
         // First, fetch invoices
         const { data: invoicesData, error: invoicesError } = await supabase
@@ -55,10 +55,10 @@ export const InvoicePage: React.FC = () => {
 
         // Then, fetch related orders (full order data for PDF generation)
         const orderIds = invoicesData.map(inv => inv.order_id).filter(Boolean);
-        
+
         let ordersMap = new Map<string, { order_id: string | null; customer_name: string | null }>();
         let fullOrdersMap = new Map<string, Order>();
-        
+
         if (orderIds.length > 0) {
           const { data: ordersData, error: ordersError } = await supabase
             .from('orders')
@@ -219,9 +219,9 @@ export const InvoicePage: React.FC = () => {
   const getStatusBadge = (status: string) => {
     // Normalize to handle both old lowercase and new capitalized values
     const normalizedStatus = status === 'Paid' || status === 'paid' ? 'Paid' :
-                            status === 'Cancelled' || status === 'cancelled' ? 'Cancelled' :
-                            'Pending';
-    
+      status === 'Cancelled' || status === 'cancelled' ? 'Cancelled' :
+        'Pending';
+
     switch (normalizedStatus) {
       case 'Paid':
         return { className: 'bg-green-500/20 text-green-400', label: 'Paid' };
@@ -233,11 +233,11 @@ export const InvoicePage: React.FC = () => {
   };
 
   const filteredInvoices = invoicesWithCustomers.filter(invoice => {
-    const invoiceCode = invoice.invoice_code || 
+    const invoiceCode = invoice.invoice_code ||
       (invoice.orders?.order_id ? `INV-${invoice.orders.order_id}` : `INV-${invoice.id.slice(0, 8).toUpperCase()}`);
     const orderCode = invoice.orders?.order_id || '';
-    
-    const matchesSearch = !searchQuery || 
+
+    const matchesSearch = !searchQuery ||
       invoiceCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
       orderCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (invoice.customer_name?.toLowerCase().includes(searchQuery.toLowerCase()) || false);
@@ -360,10 +360,10 @@ export const InvoicePage: React.FC = () => {
                 (inv) => selectedIds.has(inv.id) && canDownloadInvoice(inv)
               );
               const selectedDownloadableCount = selectedDownloadable.length;
-              
+
               return (
-                <Button 
-                  onClick={handleDownloadAll} 
+                <Button
+                  onClick={handleDownloadAll}
                   size="sm"
                   disabled={selectedDownloadableCount === 0}
                 >

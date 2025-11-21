@@ -1,4 +1,5 @@
 // src/features/invoices/invoicePdf.ts
+import type { Invoice, Order, UserProfile } from "../../../types/supabase";
 import { PDFDocument, rgb } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 

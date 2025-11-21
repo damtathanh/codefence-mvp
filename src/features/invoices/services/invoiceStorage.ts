@@ -1,8 +1,8 @@
 // src/features/invoices/invoiceStorage.ts
-import { supabase } from '../../lib/supabaseClient';
+import { supabase } from '../../../lib/supabaseClient';
 import { generateInvoicePdf } from './invoicePdf';
-import type { Invoice } from '../../types/supabase';
-import type { Order } from '../../types/supabase';
+import type { Invoice } from '../../../types/supabase';
+import type { Order } from '../../../types/supabase';
 
 /**
  * Ensure invoice PDF exists.

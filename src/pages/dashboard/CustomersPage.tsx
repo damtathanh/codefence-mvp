@@ -15,7 +15,10 @@ import {
   addToBlacklist,
   removeFromBlacklist,
   type CustomerStats,
+  fetchCustomerOrdersForUser,
 } from "../../features/customers/services/customersService";
+import { CustomerInsightPanel } from "../../features/customers/components/CustomerInsightPanel";
+import type { Order } from "../../types/supabase";
 
 const formatDate = (iso: string | null) => {
   if (!iso) return "N/A";
@@ -35,6 +38,12 @@ export const CustomersPage: React.FC = () => {
   const [search, setSearch] = useState("");
   const [blacklistPhones, setBlacklistPhones] = useState<Set<string>>(new Set());
   const [loadingBlacklist, setLoadingBlacklist] = useState(false);
+
+  // Insight Panel State
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerStats | null>(null);
+  const [customerOrders, setCustomerOrders] = useState<Order[]>([]);
+  const [insightOpen, setInsightOpen] = useState(false);
+  const [insightLoading, setInsightLoading] = useState(false);
 
   // Load customer stats
   useEffect(() => {
@@ -75,6 +84,30 @@ export const CustomersPage: React.FC = () => {
     if (!user) return;
     await removeFromBlacklist(user.id, phone);
     reloadBlacklist();
+  };
+
+  const handleRowClick = async (customer: CustomerStats) => {
+    if (!user) return;
+    setSelectedCustomer(customer);
+    setInsightOpen(true);
+    setInsightLoading(true);
+    try {
+      const { data, error } = await fetchCustomerOrdersForUser(user.id, customer.phone);
+      if (!error && data) {
+        setCustomerOrders(data);
+      } else {
+        setCustomerOrders([]);
+        console.error("Error loading customer orders:", error);
+      }
+    } finally {
+      setInsightLoading(false);
+    }
+  };
+
+  const handleCloseInsight = () => {
+    setInsightOpen(false);
+    setSelectedCustomer(null);
+    setCustomerOrders([]);
   };
 
   const filtered = useMemo(() => {
@@ -139,7 +172,11 @@ export const CustomersPage: React.FC = () => {
 
                 <tbody>
                   {filtered.map((c) => (
-                    <tr key={c.phone} className="border-b border-[#1E223D] hover:bg-white/5 transition">
+                    <tr
+                      key={c.phone}
+                      className="border-b border-[#1E223D] hover:bg-white/5 transition cursor-pointer"
+                      onClick={() => handleRowClick(c)}
+                    >
                       <td className="px-6 py-4 text-sm text-[#E5E7EB]">{c.phone}</td>
                       <td className="px-6 py-4 text-sm text-[#E5E7EB]">{c.lastName || "—"}</td>
                       <td className="px-6 py-4 text-sm text-center">{c.totalOrders}</td>
@@ -152,19 +189,25 @@ export const CustomersPage: React.FC = () => {
                       <td className="px-6 py-4 text-center">
                         {blacklistPhones.has(c.phone) ? (
                           <button
-                            onClick={() => handleRemove(c.phone)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRemove(c.phone);
+                            }}
                             disabled={loadingBlacklist}
                             className="px-3 py-1 text-xs bg-red-600/30 text-red-300 border border-red-400/50 rounded"
                           >
-                            Remove
+                            Unblacklist
                           </button>
                         ) : (
                           <button
-                            onClick={() => handleAdd(c.phone)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleAdd(c.phone);
+                            }}
                             disabled={loadingBlacklist}
                             className="px-3 py-1 text-xs bg-purple-600/30 text-purple-300 border border-purple-400/50 rounded"
                           >
-                            Add
+                            Blacklist
                           </button>
                         )}
                       </td>
@@ -176,6 +219,14 @@ export const CustomersPage: React.FC = () => {
           )}
         </CardContent>
       </Card>
+
+      {/* Customer Insight Panel */}
+      <CustomerInsightPanel
+        customer={selectedCustomer}
+        orders={customerOrders}
+        isOpen={insightOpen}
+        onClose={handleCloseInsight}
+      />
     </div>
   );
 };

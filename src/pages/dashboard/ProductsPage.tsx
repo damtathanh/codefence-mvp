@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
+import { PrimaryActionButton } from '../../components/dashboard/PrimaryActionButton';
+import { ProductStatusBadge } from '../../features/products/components/ProductStatusBadge';
 import { ConfirmModal } from '../../components/ui/ConfirmModal';
 import { AddProductModal } from '../../components/dashboard/AddProductModal';
 import { Plus, Edit, Trash2, X, Filter, ChevronDown } from 'lucide-react';
@@ -144,12 +146,12 @@ export const ProductsPage: React.FC = () => {
       // Convert formatted price string back to number (remove commas)
       const numericPrice = formData.price ? Number(formData.price.replace(/,/g, '')) : 0;
       const stock = parseInt(formData.stock);
-      
+
       if (isNaN(numericPrice) || numericPrice < 0) {
         showError('Please enter a valid price');
         return;
       }
-      
+
       if (isNaN(stock) || stock < 0) {
         showError('Please enter a valid stock quantity');
         return;
@@ -185,10 +187,10 @@ export const ProductsPage: React.FC = () => {
 
         // updateItem uses UUID (selectedProduct.id) for WHERE condition
         const updatedProduct = await updateItem(selectedProduct.id, updateData);
-        
+
         // Explicitly refetch to ensure UI is in sync with database
         await fetchAll();
-        
+
         // Log user action (use product_id for logging)
         if (user) {
           await logUserAction({
@@ -199,7 +201,7 @@ export const ProductsPage: React.FC = () => {
             details: Object.keys(changes).length > 0 ? changes : null,
           });
         }
-        
+
         showSuccess('Product updated successfully!');
         closeModal();
       } else {
@@ -214,10 +216,10 @@ export const ProductsPage: React.FC = () => {
         };
 
         const newProduct = await addItem(productData);
-        
+
         // Explicitly refetch to ensure UI is in sync with database
         await fetchAll();
-        
+
         // Log user action (use product_id for logging)
         if (user && newProduct) {
           await logUserAction({
@@ -227,16 +229,16 @@ export const ProductsPage: React.FC = () => {
             orderId: newProduct.product_id ?? "",
           });
         }
-        
+
         const categoryName = getCategoryDisplayName(formData.category);
-        showSuccess(`Product added successfully under category: ${categoryName}`);
+        showSuccess(`Product added successfully under category: ${categoryName} `);
         closeModal();
       }
     } catch (err) {
       console.error('Error saving product:', err);
       const errorMessage = err instanceof Error ? err.message : 'Failed to save product. Please try again.';
       showError(errorMessage);
-      
+
       // Log failed action
       if (user) {
         await logUserAction({
@@ -246,7 +248,7 @@ export const ProductsPage: React.FC = () => {
           orderId: isEditMode ? (selectedProduct?.product_id ?? "") : "",
         });
       }
-      
+
       // Refetch on error to ensure UI reflects current database state
       try {
         await fetchAll();
@@ -270,25 +272,25 @@ export const ProductsPage: React.FC = () => {
     setDeleteLoading(true);
     const productId = confirmModal.productId;
     const productName = confirmModal.productName;
-    
+
     // Find the product to get its product_id before deleting
     const productToDelete = products.find(p => p.id === productId);
     const customProductId = productToDelete?.product_id ?? "";
-    
+
     try {
       // Delete the product from Supabase
       await deleteItem(productId);
-      
+
       // Remove from selected IDs if it was selected
       setSelectedIds(prev => {
         const next = new Set(prev);
         next.delete(productId);
         return next;
       });
-      
+
       // Explicitly refetch to ensure UI is in sync with database
       await fetchAll();
-      
+
       // Log user action
       if (user) {
         await logUserAction({
@@ -298,14 +300,14 @@ export const ProductsPage: React.FC = () => {
           orderId: customProductId,
         });
       }
-      
+
       showSuccess(`Product "${productName}" deleted successfully!`);
       setConfirmModal({ isOpen: false, productId: null, productName: '' });
     } catch (err) {
       console.error('Error deleting product:', err);
       const errorMessage = err instanceof Error ? err.message : 'Failed to delete product. Please try again.';
       showError(errorMessage);
-      
+
       // Log failed action
       if (user) {
         await logUserAction({
@@ -315,7 +317,7 @@ export const ProductsPage: React.FC = () => {
           orderId: customProductId,
         });
       }
-      
+
       // Refetch on error to ensure UI reflects current database state
       try {
         await fetchAll();
@@ -345,13 +347,13 @@ export const ProductsPage: React.FC = () => {
     setDeleteAllLoading(true);
     const idsToDelete = Array.from(selectedIds);
     const productsToDelete = products.filter(p => idsToDelete.includes(p.id));
-    
+
     try {
       const deletePromises = idsToDelete.map(id => deleteItem(id));
-      
+
       // Delete all selected items in parallel
       await Promise.all(deletePromises);
-      
+
       // Log user actions for each deleted product
       if (user) {
         const logPromises = productsToDelete.map(product =>
@@ -364,20 +366,20 @@ export const ProductsPage: React.FC = () => {
         );
         await Promise.all(logPromises);
       }
-      
+
       // Clear selected IDs
       setSelectedIds(new Set());
-      
+
       // Explicitly refetch to ensure UI is in sync with database
       await fetchAll();
-      
-      showSuccess(`Successfully deleted ${idsToDelete.length} product${idsToDelete.length > 1 ? 's' : ''}!`);
+
+      showSuccess(`Successfully deleted ${idsToDelete.length} product${idsToDelete.length > 1 ? 's' : ''} !`);
       setDeleteAllModal({ isOpen: false, selectedCount: 0 });
     } catch (err) {
       console.error('Error deleting products:', err);
       const errorMessage = err instanceof Error ? err.message : 'Failed to delete products. Please try again.';
       showError(errorMessage);
-      
+
       // Log failed actions
       if (user) {
         const logPromises = productsToDelete.map(product =>
@@ -390,7 +392,7 @@ export const ProductsPage: React.FC = () => {
         );
         await Promise.all(logPromises);
       }
-      
+
       // Refetch on error to ensure UI reflects current database state
       try {
         await fetchAll();
@@ -411,12 +413,22 @@ export const ProductsPage: React.FC = () => {
     cat => cat && !getAllCategorySlugs().includes(cat.toLowerCase())
   );
 
-  const filteredProducts = products.filter(product => {
-    const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase());
+  const filteredProducts = products.filter((product) => {
+    const term = searchQuery.trim().toLowerCase();
+
+    const matchesSearch =
+      term === "" ||
+      product.name.toLowerCase().includes(term) ||
+      (product.product_id?.toLowerCase().includes(term) ?? false);
+
     // Compare categories case-insensitively for backward compatibility
-    const matchesCategory = categoryFilter === 'all' || 
+    const matchesCategory =
+      categoryFilter === "all" ||
       product.category.toLowerCase() === categoryFilter.toLowerCase();
-    const matchesStatus = statusFilter === 'all' || product.status === statusFilter;
+
+    const matchesStatus =
+      statusFilter === "all" || product.status === statusFilter;
+
     return matchesSearch && matchesCategory && matchesStatus;
   });
 
@@ -450,23 +462,23 @@ export const ProductsPage: React.FC = () => {
         const dropdownWidth = 192; // w-48 = 192px
         const dropdownHeight = 96; // Approximate height of 2 menu items (48px each)
         const padding = 8; // Space between button and dropdown
-        
+
         // Calculate available space below and above
         const spaceBelow = window.innerHeight - rect.bottom;
         const spaceAbove = rect.top;
-        
+
         // Determine placement: show below if enough space, otherwise show above
         const placement: 'bottom' | 'top' = spaceBelow >= dropdownHeight + padding ? 'bottom' : 'top';
-        
+
         // Calculate x position (align to right edge of button)
         const x = rect.right - dropdownWidth;
-        
+
         // Calculate y position based on placement
-        const y = placement === 'bottom' 
-          ? rect.bottom + padding 
+        const y = placement === 'bottom'
+          ? rect.bottom + padding
           : rect.top - dropdownHeight - padding;
-        
-        setDropdownPosition({ 
+
+        setDropdownPosition({
           x: Math.max(8, Math.min(x, window.innerWidth - dropdownWidth - 8)), // Keep within viewport with 8px margin
           y: Math.max(8, Math.min(y, window.innerHeight - dropdownHeight - 8)), // Keep within viewport with 8px margin
           placement
@@ -495,7 +507,7 @@ export const ProductsPage: React.FC = () => {
       // Check if click is outside both the button container and the dropdown menu
       const isOutsideButton = !target.closest('.action-dropdown-container');
       const isOutsideDropdown = !target.closest('[data-dropdown-menu]');
-      
+
       if (isOutsideButton && isOutsideDropdown) {
         setOpenActionDropdown(null);
       }
@@ -553,10 +565,7 @@ export const ProductsPage: React.FC = () => {
               <Filter size={18} />
               Filters
             </CardTitle>
-            <Button onClick={openAddModal} size="sm" className="w-full sm:w-auto">
-              <Plus size={16} className="mr-2" />
-              Add Product
-            </Button>
+            <PrimaryActionButton label="Add Product" onClick={openAddModal} />
           </div>
         </CardHeader>
         <CardContent className="!pt-0 !px-4 !pb-3">
@@ -617,32 +626,32 @@ export const ProductsPage: React.FC = () => {
 
       <Card className="flex-1 flex flex-col min-h-0">
         <CardHeader className="!pt-4 !pb-1 !px-6 flex-shrink-0">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <button
-                  onClick={handleSelectAll}
-                  className="text-sm text-[var(--text-muted)] hover:text-[var(--text-main)] transition"
-                >
-                  {selectedIds.size === filteredProducts.length && filteredProducts.length > 0
-                    ? 'Deselect All'
-                    : 'Select All'}
-                </button>
-                {selectedIds.size > 0 && (
-                  <span className="text-sm text-[var(--text-muted)]">
-                    {selectedIds.size} selected
-                  </span>
-                )}
-              </div>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={handleSelectAll}
+                className="text-sm text-[var(--text-muted)] hover:text-[var(--text-main)] transition"
+              >
+                {selectedIds.size === filteredProducts.length && filteredProducts.length > 0
+                  ? 'Deselect All'
+                  : 'Select All'}
+              </button>
               {selectedIds.size > 0 && (
-                <button
-                  onClick={handleDeleteAllClick}
-                  className="px-4 py-2 text-sm font-semibold rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-400 hover:text-red-300 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-red-500/50 focus:ring-offset-2 focus:ring-offset-[#0B0F28] flex items-center gap-2"
-                >
-                  <Trash2 size={16} />
-                  Delete All
-                </button>
+                <span className="text-sm text-[var(--text-muted)]">
+                  {selectedIds.size} selected
+                </span>
               )}
             </div>
+            {selectedIds.size > 0 && (
+              <button
+                onClick={handleDeleteAllClick}
+                className="px-4 py-2 text-sm font-semibold rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-400 hover:text-red-300 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-red-500/50 focus:ring-offset-2 focus:ring-offset-[#0B0F28] flex items-center gap-2"
+              >
+                <Trash2 size={16} />
+                Delete All
+              </button>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="flex-1 min-h-0 overflow-y-auto p-0">
           <div className="w-full max-w-full overflow-x-auto scrollbar-thin scrollbar-thumb-[#1E223D] scrollbar-track-transparent">
@@ -700,13 +709,7 @@ export const ProductsPage: React.FC = () => {
                       {product.stock}
                     </td>
                     <td className="px-6 py-4 align-middle">
-                      <span className={`px-2 py-1 rounded text-xs font-medium whitespace-nowrap ${
-                        product.status === 'active' 
-                          ? 'bg-green-500/20 text-green-400' 
-                          : 'bg-red-500/20 text-red-400'
-                      }`}>
-                        {product.status}
-                      </span>
+                      <ProductStatusBadge status={product.status} />
                     </td>
                     <td className="px-6 py-4 align-middle">
                       <div className="relative action-dropdown-container">
@@ -716,9 +719,9 @@ export const ProductsPage: React.FC = () => {
                           className="!px-3 !py-1.5 !text-xs"
                         >
                           <span>Action</span>
-                          <ChevronDown 
-                            size={14} 
-                            className={`ml-1.5 transition-transform duration-200 ${openActionDropdown === product.id ? 'rotate-180' : ''}`}
+                          <ChevronDown
+                            size={14}
+                            className={`ml - 1.5 transition - transform duration - 200 ${openActionDropdown === product.id ? 'rotate-180' : ''} `}
                           />
                         </Button>
                       </div>
@@ -742,14 +745,14 @@ export const ProductsPage: React.FC = () => {
       {openActionDropdown && typeof document !== 'undefined' && (() => {
         const product = filteredProducts.find(p => p.id === openActionDropdown);
         if (!product) return null;
-        
+
         const dropdownContent = (
           <div
             data-dropdown-menu
             className="fixed z-[9999] w-48 bg-[#1E223D] border border-white/20 rounded-lg shadow-xl overflow-hidden backdrop-blur-md"
-            style={{ 
-              top: `${dropdownPosition.y}px`, 
-              left: `${dropdownPosition.x}px`,
+            style={{
+              top: `${dropdownPosition.y} px`,
+              left: `${dropdownPosition.x} px`,
               // Add animation based on placement
               transformOrigin: dropdownPosition.placement === 'top' ? 'bottom center' : 'top center',
             }}
@@ -770,7 +773,7 @@ export const ProductsPage: React.FC = () => {
             </button>
           </div>
         );
-        
+
         // Render dropdown via Portal to document.body to escape parent containers
         return createPortal(dropdownContent, document.body);
       })()}
@@ -788,17 +791,17 @@ export const ProductsPage: React.FC = () => {
 
       {/* Edit Modal - Keep inline for edit mode to preserve existing edit functionality */}
       {isModalOpen && isEditMode && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 transition-opacity duration-200"
           onClick={handleOverlayClick}
           role="dialog"
           aria-modal="true"
           aria-labelledby="product-modal-title"
         >
-          <div 
+          <div
             className="bg-gradient-to-br from-[#12163A] to-[#181C3B] rounded-lg border border-[#1E223D] max-w-[550px] w-full shadow-2xl transition-all duration-200 ease-out"
             onClick={(e) => e.stopPropagation()}
-            style={{ 
+            style={{
               maxHeight: '90vh',
               animation: 'modalEnter 0.2s ease-out',
             }}
@@ -808,8 +811,8 @@ export const ProductsPage: React.FC = () => {
               <h3 id="product-modal-title" className="text-xl font-semibold text-[#E5E7EB]">
                 Edit Product
               </h3>
-              <button 
-                onClick={closeModal} 
+              <button
+                onClick={closeModal}
                 className="text-[#E5E7EB]/70 hover:text-[#E5E7EB] transition-colors p-1 rounded hover:bg-white/10"
                 aria-label="Close modal"
               >
@@ -818,9 +821,9 @@ export const ProductsPage: React.FC = () => {
             </div>
 
             {/* Content - Scrollable */}
-            <div 
+            <div
               className="overflow-y-auto"
-              style={{ 
+              style={{
                 maxHeight: 'calc(90vh - 80px)',
                 paddingRight: '6px'
               }}
@@ -863,25 +866,25 @@ export const ProductsPage: React.FC = () => {
                         </optgroup>
                       ))}
                       {/* Show current category if it's not in the standard list (for backward compatibility when editing) */}
-                      {isEditMode && selectedProduct && 
-                       !getAllCategorySlugs().includes(selectedProduct.category.toLowerCase()) && (
-                        <optgroup label="Current Category">
-                          <option value={selectedProduct.category.toLowerCase()}>
-                            {getCategoryDisplayName(selectedProduct.category)} (Current)
-                          </option>
-                        </optgroup>
-                      )}
+                      {isEditMode && selectedProduct &&
+                        !getAllCategorySlugs().includes(selectedProduct.category.toLowerCase()) && (
+                          <optgroup label="Current Category">
+                            <option value={selectedProduct.category.toLowerCase()}>
+                              {getCategoryDisplayName(selectedProduct.category)} (Current)
+                            </option>
+                          </optgroup>
+                        )}
                     </select>
                     <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
                     </svg>
                   </div>
-                  {isEditMode && selectedProduct && 
-                   !getAllCategorySlugs().includes(selectedProduct.category.toLowerCase()) && (
-                    <p className="mt-1 text-xs text-yellow-400">
-                      This product uses a legacy category. Consider updating to a standardized category.
-                    </p>
-                  )}
+                  {isEditMode && selectedProduct &&
+                    !getAllCategorySlugs().includes(selectedProduct.category.toLowerCase()) && (
+                      <p className="mt-1 text-xs text-yellow-400">
+                        This product uses a legacy category. Consider updating to a standardized category.
+                      </p>
+                    )}
                 </div>
                 <Input
                   label="Price (VND)"
@@ -933,7 +936,7 @@ export const ProductsPage: React.FC = () => {
       {/* Confirm Delete Modal */}
       <ConfirmModal
         isOpen={confirmModal.isOpen}
-        message={`Are you sure you want to delete "${confirmModal.productName}"? This action cannot be undone.`}
+        message={`Are you sure you want to delete "${confirmModal.productName}" ? This action cannot be undone.`}
         confirmText="Delete Product"
         cancelText="Cancel"
         variant="danger"
@@ -946,7 +949,7 @@ export const ProductsPage: React.FC = () => {
       <ConfirmModal
         isOpen={deleteAllModal.isOpen}
         message={`Are you sure you want to delete ${deleteAllModal.selectedCount} selected product${deleteAllModal.selectedCount > 1 ? 's' : ''}? This action cannot be undone.`}
-        confirmText={`Delete ${deleteAllModal.selectedCount} Product${deleteAllModal.selectedCount > 1 ? 's' : ''}`}
+        confirmText={`Delete ${deleteAllModal.selectedCount} Product${deleteAllModal.selectedCount > 1 ? 's' : ''} `}
         cancelText="Cancel"
         variant="danger"
         onConfirm={handleDeleteAllConfirm}

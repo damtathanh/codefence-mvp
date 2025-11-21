@@ -526,7 +526,7 @@ export const DashboardLayout: React.FC = () => {
   const expanded = (isDesktop && isHovered) || sidebarOpen;
 
   return (
-    <div className="flex h-screen bg-[var(--bg-page)] overflow-hidden">
+    <div className="flex min-h-screen bg-[var(--bg-page)]">
       {/* Mobile Overlay */}
       {sidebarOpen && (
         <div
@@ -768,11 +768,12 @@ export const DashboardLayout: React.FC = () => {
         </header>
 
         {/* Page Content */}
+        {/* Page Content */}
         <main
           ref={mainContentRef}
-          className="flex-1 min-h-0 bg-[var(--bg-page)] overflow-hidden"
+          className="flex-1 bg-[var(--bg-page)]"
         >
-          <div className="w-full h-full flex flex-col bg-[var(--bg-page)] px-6 pt-4 pb-6">
+          <div className="w-full flex flex-col bg-[var(--bg-page)] px-6 pt-4 pb-6">
             <Outlet context={outletContext} />
           </div>
         </main>
@@ -857,16 +858,16 @@ export const DashboardLayout: React.FC = () => {
                       key={notification.id}
                       onClick={() => markAsRead(notification.id)}
                       className={`p-5 rounded-lg border transition-all cursor-pointer ${!notification.read
-                          ? 'bg-[#8B5CF6]/10 border-[#8B5CF6]/30 hover:bg-[#8B5CF6]/15'
-                          : 'bg-[var(--bg-card-soft)] border-[var(--border-subtle)] hover:bg-[var(--bg-card-soft)]'
+                        ? 'bg-[#8B5CF6]/10 border-[#8B5CF6]/30 hover:bg-[#8B5CF6]/15'
+                        : 'bg-[var(--bg-card-soft)] border-[var(--border-subtle)] hover:bg-[var(--bg-card-soft)]'
                         }`}
                     >
                       <div className="flex gap-4">
                         <div className="flex-shrink-0 mt-1">
                           <div className={`p-2 rounded-lg ${notification.type === 'success' ? 'bg-green-500/20' :
-                              notification.type === 'info' ? 'bg-blue-500/20' :
-                                notification.type === 'warning' ? 'bg-yellow-500/20' :
-                                  'bg-purple-500/20'
+                            notification.type === 'info' ? 'bg-blue-500/20' :
+                              notification.type === 'warning' ? 'bg-yellow-500/20' :
+                                'bg-purple-500/20'
                             }`}>
                             {getNotificationIcon(notification.type)}
                           </div>
@@ -890,9 +891,9 @@ export const DashboardLayout: React.FC = () => {
                           </p>
                           <div className="mt-3 flex items-center gap-2">
                             <span className={`text-xs px-2 py-1 rounded-full ${notification.type === 'success' ? 'bg-green-500/20 text-green-300' :
-                                notification.type === 'info' ? 'bg-blue-500/20 text-blue-300' :
-                                  notification.type === 'warning' ? 'bg-yellow-500/20 text-yellow-300' :
-                                    'bg-purple-500/20 text-purple-300'
+                              notification.type === 'info' ? 'bg-blue-500/20 text-blue-300' :
+                                notification.type === 'warning' ? 'bg-yellow-500/20 text-yellow-300' :
+                                  'bg-purple-500/20 text-purple-300'
                               }`}>
                               {notification.type.charAt(0).toUpperCase() + notification.type.slice(1)}
                             </span>

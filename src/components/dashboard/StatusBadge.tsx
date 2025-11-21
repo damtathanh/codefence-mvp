@@ -1,8 +1,20 @@
 import React from "react";
 import { getStatusBadge } from "../../utils/statusStyles";
 
+// Mapping of full status labels to short labels
+const shortLabelMap: Record<string, string> = {
+  "Customer Cancelled": "Cancelled",
+  "Pending Review": "Pending",
+  "Order Paid": "Paid",
+  "Verification Required": "Verify",
+  "Order Confirmation Sent": "Sent",
+  "Customer Unreachable": "Missed",
+  "Order Rejected": "Rejected",
+};
+
 export const StatusBadge = ({ status }: { status: string | null | undefined }) => {
   const { className, label } = getStatusBadge(status);
+  const shortLabel = shortLabelMap[label] || label;
 
   return (
     <span
@@ -12,10 +24,11 @@ export const StatusBadge = ({ status }: { status: string | null | undefined }) =
         "px-3 py-1",
         "text-xs font-medium",
         "whitespace-nowrap",
+        "truncate max-w-[90px] text-center",
         className,
       ].join(" ")}
     >
-      {label}
+      {shortLabel}
     </span>
   );
 };

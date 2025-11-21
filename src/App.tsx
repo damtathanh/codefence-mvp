@@ -1,13 +1,13 @@
 import React from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, ProtectedRoute, Login, Register, ForgotPassword, ResetPassword, VerifyEmail, AuthCallback, useAuth } from "./features/auth";
-import { 
-  ScrollToTop, 
-  Header, 
-  Footer, 
-  ScrollToSectionHandler, 
+import {
+  ScrollToTop,
+  Header,
+  Footer,
+  ScrollToSectionHandler,
   AutoLogoutWrapper,
-  DashboardLayout 
+  DashboardLayout
 } from "./components";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { convertHashToQueryRedirect } from "./utils/hashToQueryRedirect";

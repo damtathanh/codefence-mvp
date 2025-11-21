@@ -3,7 +3,7 @@ import type { Order } from "../../types/supabase";
 import { updateOrder } from "../orders/services/ordersService";
 import { insertOrderEvent } from "../orders/services/orderEventsService";
 import { ORDER_STATUS } from "../../constants/orderStatus";
-import { ensurePendingInvoiceForOrder, markInvoicePaidForOrder } from "../invoices/invoiceService";
+import { ensurePendingInvoiceForOrder, markInvoicePaidForOrder } from "../invoices/services/invoiceService";
 import { supabase } from "../../lib/supabaseClient";
 
 type ZaloEventType =
@@ -141,12 +141,12 @@ export async function simulateCustomerPaid(order: Order) {
 
   try {
     await markInvoicePaidForOrder(updatedOrder);
-    
+
     // 4) Generate and upload PDF if in browser environment
     if (typeof window !== 'undefined' && order.user_id) {
-      const { getInvoiceByOrderId } = await import('../invoices/invoiceService');
-      const { ensureInvoicePdfStored } = await import('../invoices/invoiceStorage');
-      
+      const { getInvoiceByOrderId } = await import('../invoices/services/invoiceService');
+      const { ensureInvoicePdfStored } = await import('../invoices/services/invoiceStorage');
+
       const invoice = await getInvoiceByOrderId(order.id, order.user_id);
       if (invoice) {
         try {

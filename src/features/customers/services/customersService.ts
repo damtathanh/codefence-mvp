@@ -1,6 +1,7 @@
 import { supabase } from "../../../lib/supabaseClient";
 import type { Order } from "../../../types/supabase";
 import { ORDER_STATUS } from "../../../constants/orderStatus";
+import type { RiskLevel } from "../../../utils/riskEngine";
 
 
 export interface CustomerStats {
@@ -11,7 +12,15 @@ export interface CustomerStats {
   failedCount: number;
   baseRiskScore: number | null;
   customerRiskScore: number | null;
+  customerRiskLevel: RiskLevel;
   lastOrderAt: string | null;
+}
+
+function mapScoreToLevel(score: number | null): RiskLevel {
+  if (score === null) return "none";
+  if (score <= 30) return "low";
+  if (score <= 70) return "medium";
+  return "high";
 }
 
 
@@ -47,6 +56,8 @@ export async function fetchCustomerStatsForUser(userId: string) {
         "status",
         "risk_score",
         "created_at",
+        "amount",
+        "payment_method"
       ].join(",")
     )
     .eq("user_id", userId)
@@ -59,19 +70,24 @@ export async function fetchCustomerStatsForUser(userId: string) {
   // 2. Fetch blacklist for this user
   const { data: blacklistData, error: blacklistError } = await supabase
     .from("customer_blacklist")
-    .select("phone")
+    .select("phone, created_at")
     .eq("user_id", userId);
 
   if (blacklistError) {
-    // If blacklist fetch fails, we can either fail or proceed without blacklist.
-    // Proceeding seems safer to show at least some data, but let's log it.
     console.error("Error fetching blacklist in customer stats:", blacklistError);
   }
 
-  const blacklistedPhones = new Set<string>();
+  // Map phone -> earliest blacklist created_at
+  const blacklistMap = new Map<string, string>(); // phone -> created_at
   if (blacklistData) {
     blacklistData.forEach((b) => {
-      if (b.phone) blacklistedPhones.add(b.phone.trim());
+      if (b.phone) {
+        const phone = b.phone.trim();
+        const existing = blacklistMap.get(phone);
+        if (!existing || b.created_at < existing) {
+          blacklistMap.set(phone, b.created_at);
+        }
+      }
     });
   }
 
@@ -93,11 +109,12 @@ export async function fetchCustomerStatsForUser(userId: string) {
     const totalOrders = orders.length;
     let successCount = 0;
     let failedCount = 0;
-    const riskScores: number[] = [];
+    const codRiskScores: number[] = [];
 
     let lastOrderAt: string | null = null;
     let lastName: string | null = null;
 
+    // First pass: basic stats and collect COD scores
     for (const order of orders) {
       const status = order.status;
       const createdAt = order.created_at ?? null;
@@ -108,8 +125,10 @@ export async function fetchCustomerStatsForUser(userId: string) {
         failedCount += 1;
       }
 
-      if (order.risk_score !== null && order.risk_score !== undefined) {
-        riskScores.push(order.risk_score);
+      // Only consider COD orders for base risk score calculation
+      const isCOD = !order.payment_method || order.payment_method.toUpperCase() === "COD";
+      if (isCOD && order.risk_score !== null && order.risk_score !== undefined) {
+        codRiskScores.push(order.risk_score);
       }
 
       if (!lastOrderAt || (createdAt && createdAt > lastOrderAt)) {
@@ -118,32 +137,58 @@ export async function fetchCustomerStatsForUser(userId: string) {
       }
     }
 
-    // Calculate base average risk
-    let baseAvg: number;
-    if (riskScores.length > 0) {
-      const sum = riskScores.reduce((acc, val) => acc + val, 0);
-      baseAvg = sum / riskScores.length;
+    // 1. Calculate Base Risk Score
+    let baseRiskScore: number;
+    if (codRiskScores.length > 0) {
+      const sum = codRiskScores.reduce((acc, val) => acc + val, 0);
+      baseRiskScore = sum / codRiskScores.length;
     } else {
-      // If no risk scores, default to 0 so we have a number
-      baseAvg = 0;
+      baseRiskScore = 50; // Default if no COD risk scores
     }
 
-    // Apply blacklist bonus
-    const isBlacklisted = blacklistedPhones.has(phone);
-    let finalScore = baseAvg;
+    // 2. Calculate Customer Risk Score (Learning Logic)
+    // Sort orders chronologically (oldest first)
+    const sortedOrders = [...orders].sort((a, b) => {
+      const tA = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const tB = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return tA - tB;
+    });
 
-    if (isBlacklisted) {
-      finalScore += 50;
+    let currentScore = baseRiskScore;
+    const blacklistCreatedAt = blacklistMap.get(phone);
+
+    for (const order of sortedOrders) {
+      const status = order.status;
+      const amount = order.amount || 0;
+      const createdAt = order.created_at || "";
+
+      let delta = 0;
+
+      if (SUCCESS_STATUSES.has(status)) {
+        delta = -5;
+        if (amount >= 1_000_000) {
+          delta = -10;
+        }
+      } else if (CUSTOMER_FAIL_STATUSES.has(status)) {
+        delta = 20;
+      }
+
+      // Check blacklist multiplier
+      // "If, at the time this order was created, the (user_id, phone) already exists in customer_blacklist"
+      // AND status is NOT REJECTED (shop ignored blacklist)
+      if (blacklistCreatedAt && createdAt > blacklistCreatedAt && status !== ORDER_STATUS.ORDER_REJECTED) {
+        // Double the effect
+        delta *= 2;
+      }
+
+      currentScore += delta;
     }
 
-    // Clamp to 0-100
-    finalScore = Math.max(0, Math.min(100, finalScore));
+    // Clamp final score
+    const customerRiskScore = Math.max(0, Math.min(100, currentScore));
 
-    // If there were absolutely no risk scores and not blacklisted,
-    // baseAvg is 0, finalScore is 0.
-    // If we want to distinguish "no data" from "0 risk", we could use null,
-    // but the requirement says "Prefer 0 so we always have a number".
-    // However, if riskScores is empty AND not blacklisted, maybe 0 is fine.
+    // Map to level
+    const customerRiskLevel = mapScoreToLevel(customerRiskScore);
 
     customers.push({
       phone,
@@ -151,8 +196,9 @@ export async function fetchCustomerStatsForUser(userId: string) {
       totalOrders,
       successCount,
       failedCount,
-      baseRiskScore: riskScores.length > 0 ? baseAvg : null, // Keep base as null if no data for reference
-      customerRiskScore: finalScore,
+      baseRiskScore: codRiskScores.length > 0 ? baseRiskScore : null,
+      customerRiskScore,
+      customerRiskLevel,
       lastOrderAt,
     });
   });
@@ -202,4 +248,39 @@ export async function removeFromBlacklist(userId: string, phone: string) {
     .delete()
     .eq("user_id", userId)
     .eq("phone", phone);
+}
+
+export async function fetchCustomerOrdersForUser(userId: string, phone: string) {
+  const trimmed = phone.trim();
+  if (!trimmed) {
+    return { data: [] as Order[], error: null };
+  }
+
+  const { data, error } = await supabase
+    .from("orders")
+    .select(
+      [
+        "order_id",
+        "customer_name",
+        "phone",
+        "status",
+        "risk_score",
+        "created_at",
+        "amount",
+        "payment_method",
+        "address",
+        "address_detail",
+        "ward",
+        "district",
+        "province",
+      ].join(",")
+    )
+    .eq("user_id", userId)
+    .eq("phone", trimmed)
+    .order("created_at", { ascending: false });
+
+  return {
+    data: (data || []) as unknown as Order[],
+    error,
+  };
 }

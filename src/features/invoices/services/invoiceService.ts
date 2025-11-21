@@ -1,7 +1,7 @@
 // src/features/invoices/invoiceService.ts
-import { supabase } from "../../lib/supabaseClient";
+import { supabase } from "../../../lib/supabaseClient";
 import { INVOICE_STATUS, type InvoiceStatus } from "./invoiceTypes";
-import type { Order, Invoice } from "../../types/supabase";
+import type { Order, Invoice } from "../../../types/supabase";
 
 // helper to get today's date as YYYY-MM-DD for the `date` column
 function getTodayDateString() {

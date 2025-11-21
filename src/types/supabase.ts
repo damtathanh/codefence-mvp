@@ -21,6 +21,10 @@ export interface Order {
   customer_name: string;
   phone: string;
   address: string | null;
+  address_detail?: string | null;
+  ward?: string | null;
+  district?: string | null;
+  province?: string | null;
   product_id: string | null; // UUID reference to products table
   product?: string; // Legacy field (for backward compatibility during migration)
   amount: number;
@@ -43,6 +47,8 @@ export interface Order {
   qr_sent_at?: string | null;
   qr_expired_at?: string | null;
   paid_at?: string | null;
+  shipped_at?: string | null;
+  completed_at?: string | null;
   cancel_reason?: string | null;
 }
 

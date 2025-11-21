@@ -20,6 +20,10 @@ export interface InsertOrderPayload {
   risk_level: string | null;
   payment_method: string;
   paid_at: string | null;
+  address_detail?: string | null;
+  ward?: string | null;
+  district?: string | null;
+  province?: string | null;
 }
 
 export interface UpdateOrderPayload {
@@ -38,6 +42,11 @@ export interface UpdateOrderPayload {
   completed_at?: string | null;
   verification_reason?: string | null;
   reject_reason?: string | null;
+  address?: string | null;
+  address_detail?: string | null;
+  ward?: string | null;
+  district?: string | null;
+  province?: string | null;
 }
 
 /**

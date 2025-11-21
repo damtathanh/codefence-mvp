@@ -21,8 +21,8 @@
   --text-main: #E5E7EB;
   --text-muted: #9CA3AF;
 
-  --border-subtle: rgba(30,64,175,0.45);
-  --border-strong: rgba(148,163,184,0.9);
+  --border-subtle: rgba(30, 64, 175, 0.45);
+  --border-strong: rgba(148, 163, 184, 0.9);
 }
 
 /* ===============================
@@ -35,21 +35,20 @@
     min-height: 100%;
     overflow-x: hidden;
     -webkit-overflow-scrolling: touch;
-  
+
     /* 🌈 Balanced gradient to prevent black-out look */
-    background-color: #0B0F28; /* slightly lighter base tone */
-    background-image: linear-gradient(
-      to bottom right,
-      #0B0F28 0%,
-      #232a6b 20%,
-      #3184b1 70%,
-      #4B3087 100%
-    );
+    background-color: #0B0F28;
+    /* slightly lighter base tone */
+    background-image: linear-gradient(to bottom right,
+        #0B0F28 0%,
+        #232a6b 20%,
+        #3184b1 70%,
+        #4B3087 100%);
     background-attachment: fixed;
     background-repeat: no-repeat;
     background-size: cover;
     background-position: center center;
-  }  
+  }
 
   body {
     margin: 0;
@@ -119,10 +118,10 @@
     color: transparent;
     filter: brightness(1.25) contrast(1.15);
     text-shadow: none;
-  }  
+  }
 
   .gradient-logo {
-    background: linear-gradient(90deg,#3B82F6 0%,#8B5CF6 55%,#06B6D4 100%);
+    background: linear-gradient(90deg, #3B82F6 0%, #8B5CF6 55%, #06B6D4 100%);
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -135,7 +134,8 @@
 /* ===============================
    ⚙️ INPUT & FORM STYLE
 =================================*/
-input, textarea {
+input,
+textarea {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 0.5rem;
@@ -162,6 +162,7 @@ input[type="number"]::-webkit-outer-spin-button {
 /* For Firefox */
 input[type="number"] {
   -moz-appearance: textfield;
+  appearance: textfield;
 }
 
 /* ===============================
@@ -176,7 +177,8 @@ select {
 
 /* Ensure select arrows are hidden in all browsers */
 select::-ms-expand {
-  display: none; /* IE and Edge */
+  display: none;
+  /* IE and Edge */
 }
 
 /* ===============================
@@ -187,6 +189,7 @@ select::-ms-expand {
     opacity: 0;
     transform: scale(0.95) translateY(-10px);
   }
+
   to {
     opacity: 1;
     transform: scale(1) translateY(0);
@@ -197,16 +200,18 @@ select::-ms-expand {
   0% {
     background-position: 0% 50%;
   }
+
   50% {
     background-position: 100% 50%;
   }
+
   100% {
     background-position: 0% 50%;
   }
 }
 
 .button-gradient {
-  background: linear-gradient(90deg, #3B82F6 0%, #8B5CF6 50%,#06B6D4 100%);
+  background: linear-gradient(90deg, #3B82F6 0%, #8B5CF6 50%, #06B6D4 100%);
   background-size: 200% 200%;
   color: white;
   font-weight: 600;
@@ -295,4 +300,51 @@ select::-ms-expand {
 .scrollbar-thin {
   scrollbar-width: thin;
   scrollbar-color: #8B5CF6 rgba(255, 255, 255, 0.05);
+}
+
+/* ===============================
+   📊 RECHARTS DARK THEME OVERRIDES
+=================================*/
+/* CodFence: Recharts dark theme overrides */
+.recharts-wrapper,
+.recharts-surface {
+  background-color: transparent !important;
+}
+
+.recharts-cartesian-grid-horizontal line,
+.recharts-cartesian-grid-vertical line {
+  stroke: rgba(148, 163, 184, 0.2);
+}
+
+.recharts-tooltip-wrapper {
+  outline: none;
+}
+
+/* Remove default grey background rect inside charts */
+.recharts-rectangle.recharts-background {
+  fill: transparent !important;
+  stroke: transparent !important;
+}
+
+/* Just in case some theme sets background on cartesian grids */
+.recharts-cartesian-grid {
+  background-color: transparent !important;
+}
+
+/* 🔧 Kill background rect inside Recharts charts */
+svg.recharts-surface>rect:first-child {
+  /* nhiều phiên bản Recharts vẽ nền bằng rect đầu tiên */
+  fill: transparent !important;
+  stroke: transparent !important;
+}
+
+/* fallback: nếu nó bọc trong 1 <g> */
+svg.recharts-surface>g>rect:first-child {
+  fill: transparent !important;
+  stroke: transparent !important;
+}
+
+/* CodFence purple cursor hover */
+.recharts-tooltip-cursor {
+  fill: rgba(139, 92, 246, 0.18) !important;
 }
