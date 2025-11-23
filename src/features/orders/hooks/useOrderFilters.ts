@@ -5,19 +5,21 @@ export const useOrderFilters = (orders: Order[]) => {
     const [searchQuery, setSearchQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState('all');
     const [riskScoreFilter, setRiskScoreFilter] = useState('all');
+    const [paymentMethodFilter, setPaymentMethodFilter] = useState('all');
 
     const filteredOrders = useMemo(() => {
         return orders.filter((order) => {
             const term = searchQuery.trim().toLowerCase();
 
             const matchesSearch =
-                term === "" ||
+                term === '' ||
                 (order.order_id?.toLowerCase().includes(term) ?? false) ||
                 order.id.toLowerCase().includes(term) ||
                 (order.customer_name?.toLowerCase().includes(term) ?? false) ||
                 (order.phone?.toLowerCase().includes(term) ?? false);
 
-            const matchesStatus = statusFilter === 'all' || order.status === statusFilter;
+            const matchesStatus =
+                statusFilter === 'all' || order.status === statusFilter;
 
             const matchesRiskScore = (() => {
                 if (riskScoreFilter === 'all') return true;
@@ -37,16 +39,35 @@ export const useOrderFilters = (orders: Order[]) => {
                 }
             })();
 
-            return matchesSearch && matchesStatus && matchesRiskScore;
+            const matchesPaymentMethod = (() => {
+                if (paymentMethodFilter === 'all') return true;
+                const method = order.payment_method || 'COD'; // null => COD
+                return method === paymentMethodFilter;
+            })();
+
+            return (
+                matchesSearch &&
+                matchesStatus &&
+                matchesRiskScore &&
+                matchesPaymentMethod
+            );
         });
-    }, [orders, searchQuery, statusFilter, riskScoreFilter]);
+    }, [orders, searchQuery, statusFilter, riskScoreFilter, paymentMethodFilter]);
 
     const availableStatusOptions = useMemo(() => {
-        const used = new Set(orders.map((o) => o.status).filter(Boolean));
-        // We need to import ORDER_STATUS. Since we can't easily import it here without adding imports, 
-        // I will assume the caller might pass it or I will just return the used statuses.
-        // Actually, let's just return the used statuses and let the component map them or filter ORDER_STATUS.
-        // But the original code filtered ORDER_STATUS values.
+        const used = new Set<string>();
+        for (const o of orders) {
+            if (o.status) used.add(o.status);
+        }
+        return used;
+    }, [orders]);
+
+    const availablePaymentMethods = useMemo(() => {
+        const used = new Set<string>();
+        for (const o of orders) {
+            const method = o.payment_method || 'COD';
+            used.add(method);
+        }
         return used;
     }, [orders]);
 
@@ -57,7 +78,10 @@ export const useOrderFilters = (orders: Order[]) => {
         setStatusFilter,
         riskScoreFilter,
         setRiskScoreFilter,
+        paymentMethodFilter,
+        setPaymentMethodFilter,
         filteredOrders,
         availableStatusOptions,
+        availablePaymentMethods,
     };
 };

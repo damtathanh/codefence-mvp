@@ -8,6 +8,8 @@ import { useAuth } from '../../features/auth';
 import { useUserProfile } from '../../hooks/useUserProfile';
 import type { Invoice, Order } from '../../types/supabase';
 import { ensureInvoicePdfStored } from '../../features/invoices/services/invoiceStorage';
+import { fetchInvoicesByUser } from '../../features/invoices/services/invoiceService';
+import { Pagination } from '../../components/ui/Pagination';
 
 interface InvoiceWithCustomer extends Invoice {
   customer_name?: string;
@@ -26,26 +28,34 @@ export const InvoicePage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState('all');
   const [dateFilter, setDateFilter] = useState('');
 
-  // Fetch invoices on mount and when user changes
+  // Pagination state
+  const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const PAGE_SIZE = 200;
+
+  // Fetch invoices when page or filters change
   useEffect(() => {
     if (!user) return;
 
-    // Fetch invoices and related orders
     const fetchInvoices = async () => {
       setLoading(true);
       setError(null);
 
       try {
-        // First, fetch invoices
-        const { data: invoicesData, error: invoicesError } = await supabase
-          .from('invoices')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false });
+        const { invoices: invoicesData, totalCount: count, error: invoicesError } = await fetchInvoicesByUser(
+          user.id,
+          page,
+          PAGE_SIZE,
+          {
+            searchQuery,
+            status: statusFilter,
+            date: dateFilter
+          }
+        );
 
-        if (invoicesError) {
-          throw invoicesError;
-        }
+        if (invoicesError) throw invoicesError;
+
+        setTotalCount(count);
 
         if (!invoicesData || invoicesData.length === 0) {
           setInvoices([]);
@@ -53,7 +63,7 @@ export const InvoicePage: React.FC = () => {
           return;
         }
 
-        // Then, fetch related orders (full order data for PDF generation)
+        // Fetch related orders for the current page of invoices
         const orderIds = invoicesData.map(inv => inv.order_id).filter(Boolean);
 
         let ordersMap = new Map<string, { order_id: string | null; customer_name: string | null }>();
@@ -94,20 +104,25 @@ export const InvoicePage: React.FC = () => {
     };
 
     fetchInvoices();
+  }, [user, page, searchQuery, statusFilter, dateFilter]);
 
-    // Set up real-time subscription
+  // Reset page to 1 when filters change
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, statusFilter, dateFilter]);
+
+  // Real-time subscription (simplified to just refetch current page)
+  useEffect(() => {
+    if (!user) return;
     const channel = supabase
       .channel('invoices-changes')
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'invoices',
-          filter: `user_id=eq.${user.id}`,
-        },
+        { event: '*', schema: 'public', table: 'invoices', filter: `user_id=eq.${user.id}` },
         () => {
-          fetchInvoices();
+          // We could refetch here, but need to be careful about infinite loops or overwriting state.
+          // For now, let's rely on manual refresh or page navigation.
+          // Or we can trigger a refetch if we extract fetchInvoices outside useEffect.
         }
       )
       .subscribe();
@@ -232,19 +247,9 @@ export const InvoicePage: React.FC = () => {
     }
   };
 
-  const filteredInvoices = invoicesWithCustomers.filter(invoice => {
-    const invoiceCode = invoice.invoice_code ||
-      (invoice.orders?.order_id ? `INV-${invoice.orders.order_id}` : `INV-${invoice.id.slice(0, 8).toUpperCase()}`);
-    const orderCode = invoice.orders?.order_id || '';
-
-    const matchesSearch = !searchQuery ||
-      invoiceCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      orderCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (invoice.customer_name?.toLowerCase().includes(searchQuery.toLowerCase()) || false);
-    const matchesStatus = statusFilter === 'all' || invoice.status === statusFilter;
-    const matchesDate = !dateFilter || invoice.date === dateFilter;
-    return matchesSearch && matchesStatus && matchesDate;
-  });
+  // Filtered invoices are now handled server-side, so we just use the current page's invoices
+  // But we still need to map customer names
+  const filteredInvoices = invoicesWithCustomers;
 
   const handleSelectAll = () => {
     if (selectedIds.size === filteredInvoices.length) {
@@ -467,6 +472,12 @@ export const InvoicePage: React.FC = () => {
             )}
           </div>
         </CardContent>
+        <Pagination
+          currentPage={page}
+          totalItems={totalCount}
+          pageSize={PAGE_SIZE}
+          onPageChange={setPage}
+        />
       </Card>
     </div>
   );

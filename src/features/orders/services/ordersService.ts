@@ -1,5 +1,6 @@
 import { supabase } from "../../../lib/supabaseClient";
 import type { Order } from "../../../types/supabase";
+import { chunkArray } from "../../../utils/chunk";
 
 export interface FetchOrdersOptions {
   limit?: number;
@@ -52,13 +53,23 @@ export interface UpdateOrderPayload {
 /**
  * Fetch orders by user with product join
  */
+export interface OrderFilters {
+  searchQuery?: string;
+  status?: string;
+  riskScore?: string;
+  paymentMethod?: string;
+}
+
 export async function fetchOrdersByUser(
   userId: string,
-  options?: FetchOrdersOptions
+  page: number,
+  pageSize: number,
+  filters?: OrderFilters
 ) {
-  const { limit = 200, offset = 0 } = options ?? {};
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
 
-  return supabase
+  let query = supabase
     .from("orders")
     .select(`
       *,
@@ -67,10 +78,56 @@ export async function fetchOrdersByUser(
         name,
         category
       )
-    `)
-    .eq("user_id", userId)
+    `, { count: 'exact' })
+    .eq("user_id", userId);
+
+  // Apply filters
+  if (filters) {
+    if (filters.searchQuery) {
+      const term = filters.searchQuery.trim();
+      if (term) {
+        query = query.or(`order_id.ilike.%${term}%,customer_name.ilike.%${term}%,phone.ilike.%${term}%,id.ilike.%${term}%`);
+      }
+    }
+
+    if (filters.status && filters.status !== 'all') {
+      query = query.eq('status', filters.status);
+    }
+
+    if (filters.paymentMethod && filters.paymentMethod !== 'all') {
+      if (filters.paymentMethod === 'COD') {
+        // COD is typically null or 'COD'
+        query = query.or('payment_method.eq.COD,payment_method.is.null');
+      } else {
+        query = query.eq('payment_method', filters.paymentMethod);
+      }
+    }
+
+    if (filters.riskScore && filters.riskScore !== 'all') {
+      switch (filters.riskScore) {
+        case 'low':
+          query = query.lte('risk_score', 30);
+          break;
+        case 'medium':
+          query = query.gt('risk_score', 30).lte('risk_score', 70);
+          break;
+        case 'high':
+          query = query.gt('risk_score', 70);
+          break;
+      }
+    }
+  }
+
+  const { data, error, count } = await query
     .order("created_at", { ascending: false })
-    .range(offset, offset + limit - 1);
+    .range(from, to);
+
+  return {
+    orders: data ?? [],
+    totalCount: count ?? 0,
+    pageSize,
+    error
+  };
 }
 
 /**
@@ -136,17 +193,51 @@ export async function fetchPastOrdersByPhones(
     return { data: [], error: null };
   }
 
-  return supabase
-    .from("orders")
-    .select("phone, status")
-    .eq("user_id", userId)
-    .in("phone", phones);
+  const phoneChunks = chunkArray(phones);
+  let allData: { phone: string; status: string }[] = [];
+
+  for (const chunk of phoneChunks) {
+    const { data, error } = await supabase
+      .from("orders")
+      .select("phone, status")
+      .eq("user_id", userId)
+      .in("phone", chunk);
+
+    if (error) {
+      return { data: null, error };
+    }
+
+    if (data) {
+      // Supabase returns data as any[] or typed if generic provided. 
+      // We can cast or just spread.
+      allData = [...allData, ...data as { phone: string; status: string }[]];
+    }
+  }
+
+  return { data: allData, error: null };
 }
 
 /**
  * Delete orders by IDs and user_id
  */
 export async function deleteOrders(userId: string, orderIds: string[]) {
+  if (!orderIds.length) return;
+
+  // Ideal long-term solution: Enforce ON DELETE CASCADE foreign key between orders(id) and invoices(order_id) in the database.
+  // For now, we enforce cascade delete in the service layer.
+
+  // 1) Delete related invoices
+  const { error: invoiceError } = await supabase
+    .from('invoices')
+    .delete()
+    .in('order_id', orderIds);
+
+  if (invoiceError) {
+    console.error('Failed to delete related invoices', invoiceError);
+    throw invoiceError;
+  }
+
+  // 2) Delete orders
   return supabase
     .from("orders")
     .delete()

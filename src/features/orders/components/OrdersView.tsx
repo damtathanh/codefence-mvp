@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useOrdersData } from '../hooks/useOrdersData';
 import { useOrderActions } from '../hooks/useOrderActions';
 import { useOrderFilters } from '../hooks/useOrderFilters';
@@ -28,7 +28,7 @@ import type { Order, OrderEvent } from '../../../types/supabase';
 export const OrdersView: React.FC = () => {
     const { user } = useAuth();
     const { showSuccess, showError, showInfo } = useToast();
-    const { orders, products, loading, error, refreshOrders, updateOrderLocal } = useOrdersData();
+    const { orders, products, loading, error, refreshOrders, updateOrderLocal, totalCount, page, pageSize } = useOrdersData();
     const {
         searchQuery,
         setSearchQuery,
@@ -36,8 +36,11 @@ export const OrdersView: React.FC = () => {
         setStatusFilter,
         riskScoreFilter,
         setRiskScoreFilter,
+        paymentMethodFilter,
+        setPaymentMethodFilter,
         filteredOrders,
         availableStatusOptions,
+        availablePaymentMethods,
     } = useOrderFilters(orders);
     const {
         selectedIds,
@@ -45,6 +48,36 @@ export const OrdersView: React.FC = () => {
         handleToggleSelect,
         clearSelection,
     } = useOrderSelection(filteredOrders);
+
+    // Pagination state is now managed by useOrdersData
+    // const PAGE_SIZE = 200;
+    // const [currentPage, setCurrentPage] = useState(1);
+
+    const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+
+    // Server-side pagination: 'filteredOrders' is already the current page data
+    // (filtered by server, then passed through useOrderFilters which is redundant but safe)
+    const paginatedOrders = filteredOrders;
+
+    // Reset to page 1 when filters change
+    // Fetch orders when filters change (reset to page 1)
+    useEffect(() => {
+        refreshOrders(1, {
+            searchQuery,
+            status: statusFilter,
+            riskScore: riskScoreFilter,
+            paymentMethod: paymentMethodFilter
+        });
+    }, [searchQuery, statusFilter, riskScoreFilter, paymentMethodFilter, refreshOrders]);
+
+    const handlePageChange = (newPage: number) => {
+        refreshOrders(newPage, {
+            searchQuery,
+            status: statusFilter,
+            riskScore: riskScoreFilter,
+            paymentMethod: paymentMethodFilter
+        });
+    };
     const {
         handleApprove,
         handleConfirmReject,
@@ -158,9 +191,9 @@ export const OrdersView: React.FC = () => {
         }
     };
 
-    // ========== NEW FLOW: Refresh Helper ==========
+    // ========= Refresh Helper =========
     const refreshAfterAction = async (orderId: string) => {
-        await refreshOrders();  // reload list
+        await refreshOrders();
         const { data } = await fetchOrderEvents(orderId);
         if (data) {
             setOrderEvents(data);
@@ -169,26 +202,26 @@ export const OrdersView: React.FC = () => {
         setIsSidePanelOpen(false);
     };
 
-    // ========== NEW FLOW: COD Approve with One-Time Guard ==========
+    // ========= COD Approve with One-Time Guard =========
     const handleApproveOrder = async (order: Order) => {
         if (!user) return;
 
         const rawMethod = order.payment_method || 'COD';
         const method = rawMethod.toUpperCase();
 
-        // Guard: Only COD orders
         if (method !== 'COD') {
             showInfo('Non-COD orders are already paid. No approval needed.');
             return;
         }
 
-        // Guard: Check if already processed
-        if (order.status !== ORDER_STATUS.PENDING_REVIEW) {
+        const canApproveFromStatus =
+            order.status === ORDER_STATUS.PENDING_REVIEW ||
+            order.status === ORDER_STATUS.VERIFICATION_REQUIRED;
+        if (!canApproveFromStatus) {
             showInfo('This order has already been processed.');
             return;
         }
 
-        // Guard: Check order events for duplicate
         const hasBeenProcessed = orderEvents.some(
             (e) => e.event_type === 'ORDER_APPROVED' || e.event_type === 'ORDER_REJECTED'
         );
@@ -198,7 +231,6 @@ export const OrdersView: React.FC = () => {
         }
 
         try {
-            // Update status to ORDER_CONFIRMATION_SENT
             const success = await updateOrderLocal(order.id, {
                 status: ORDER_STATUS.ORDER_CONFIRMATION_SENT,
             } as Partial<Order>);
@@ -208,10 +240,8 @@ export const OrdersView: React.FC = () => {
                 return;
             }
 
-            // Call Zalo gateway to send confirmation
             await zaloGateway.sendConfirmation(order);
 
-            // Log events
             await insertOrderEvent({
                 order_id: order.id,
                 event_type: 'ORDER_APPROVED',
@@ -231,17 +261,19 @@ export const OrdersView: React.FC = () => {
         }
     };
 
-    // ========== NEW FLOW: COD Reject with One-Time Guard ==========
+    // ========= COD Reject with One-Time Guard =========
     const handleRejectOrder = (order: Order) => {
         if (!user) return;
 
-        // Guard: Check if already processed
-        if (order.status !== ORDER_STATUS.PENDING_REVIEW) {
+        const canRejectFromStatus =
+            order.status === ORDER_STATUS.PENDING_REVIEW ||
+            order.status === ORDER_STATUS.VERIFICATION_REQUIRED;
+
+        if (!canRejectFromStatus) {
             showInfo('This order has already been processed.');
             return;
         }
 
-        // Guard: Check order events for duplicate
         const hasBeenProcessed = orderEvents.some(
             (e) => e.event_type === 'ORDER_APPROVED' || e.event_type === 'ORDER_REJECTED'
         );
@@ -250,29 +282,27 @@ export const OrdersView: React.FC = () => {
             return;
         }
 
-        // Open reject modal
         setRejectTargetOrder(order);
         setRejectMode('ORDER_REJECTED');
         setRejectReason('');
         setIsRejectModalOpen(true);
     };
 
-    // ========== NEW FLOW: Simulate Confirmed with Modal ==========
+    // ========= Simulate Confirmed =========
     const handleSimulateConfirmedClick = async (order: Order) => {
         if (!user) return;
         try {
             await simulateCustomerConfirmed(order);
 
-            // Log event
             await insertOrderEvent({
                 order_id: order.id,
                 event_type: 'CUSTOMER_CONFIRMED',
                 payload_json: { source: 'mock_zalo' },
             });
 
-            // Store order and show modal
             setPendingConfirmOrder(order);
             setIsConfirmationModalOpen(true);
+            setIsSidePanelOpen(false);
         } catch (error) {
             showError('Failed to simulate confirmation');
             console.error('Error simulating confirmed:', error);
@@ -287,7 +317,7 @@ export const OrdersView: React.FC = () => {
         }
     };
 
-    // ========== NEW FLOW: Simulate Cancelled with Reason Modal ==========
+    // ========= Simulate Cancelled =========
     const handleSimulateCancelledClick = (order: Order) => {
         if (!user) return;
         setPendingConfirmOrder(order);
@@ -300,7 +330,6 @@ export const OrdersView: React.FC = () => {
         try {
             await simulateCustomerCancelled(pendingConfirmOrder, reason);
 
-            // Log event
             await insertOrderEvent({
                 order_id: pendingConfirmOrder.id,
                 event_type: 'CUSTOMER_CANCELLED',
@@ -322,13 +351,12 @@ export const OrdersView: React.FC = () => {
         setPendingConfirmOrder(null);
     };
 
-    // ========== NEW FLOW: Simulate Paid ==========
+    // ========= Simulate Paid =========
     const handleSimulatePaidClick = async (order: Order) => {
         if (!user) return;
         try {
             await simulateCustomerPaid(order);
 
-            // Log event
             await insertOrderEvent({
                 order_id: order.id,
                 event_type: 'CUSTOMER_PAID',
@@ -343,7 +371,7 @@ export const OrdersView: React.FC = () => {
         }
     };
 
-    // ========== NEW FLOW: Mark as Delivered ==========
+    // ========= Mark as Delivered =========
     const handleMarkDelivered = async (order: Order) => {
         if (!user) return;
 
@@ -357,7 +385,6 @@ export const OrdersView: React.FC = () => {
                 return;
             }
 
-            // Log event
             await insertOrderEvent({
                 order_id: order.id,
                 event_type: 'ORDER_MARKED_DELIVERING',
@@ -372,7 +399,7 @@ export const OrdersView: React.FC = () => {
         }
     };
 
-    // ========== NEW FLOW: Mark as Completed ==========
+    // ========= Mark as Completed =========
     const handleMarkCompletedClick = async (order: Order) => {
         if (!user) return;
 
@@ -386,7 +413,6 @@ export const OrdersView: React.FC = () => {
                 return;
             }
 
-            // Log event
             await insertOrderEvent({
                 order_id: order.id,
                 event_type: 'ORDER_COMPLETED',
@@ -422,7 +448,7 @@ export const OrdersView: React.FC = () => {
                 await loadOrderEvents(rejectTargetOrder.id);
             }
         } catch (error) {
-            // Error handled in hook
+            // handled in hook
         } finally {
             setRejectLoading(false);
         }
@@ -447,7 +473,7 @@ export const OrdersView: React.FC = () => {
             setDeleteAllModal({ isOpen: false, selectedCount: 0 });
             clearSelection();
         } catch (error) {
-            // Error handled in hook
+            // handled in hook
         } finally {
             setDeleteAllLoading(false);
         }
@@ -468,7 +494,10 @@ export const OrdersView: React.FC = () => {
                 setStatusFilter={setStatusFilter}
                 riskScoreFilter={riskScoreFilter}
                 setRiskScoreFilter={setRiskScoreFilter}
+                paymentMethodFilter={paymentMethodFilter}
+                setPaymentMethodFilter={setPaymentMethodFilter}
                 availableStatusOptions={availableStatusOptions}
+                availablePaymentMethods={availablePaymentMethods}
                 onAddOrder={() => {
                     setEditingOrder(null);
                     setIsAddOrderModalOpen(true);
@@ -476,16 +505,25 @@ export const OrdersView: React.FC = () => {
             />
 
             <OrderTable
-                orders={filteredOrders}
+                orders={paginatedOrders}
+                filteredOrders={filteredOrders} // This is now just the current page, but OrderTable might use it for length checks. 
+                // Actually OrderTable uses filteredOrders.length for "Showing X of Y". 
+                // We need to fix OrderTable to use totalCount for Y.
+                // But for now, let's pass what we have and we'll fix OrderTable next.
+                totalCount={totalCount}
+                currentPage={page}
+                pageSize={pageSize}
+                totalPages={totalPages}
                 selectedIds={selectedIds}
                 onSelectAll={handleSelectAll}
                 onToggleSelect={handleToggleSelect}
+                onPageChange={handlePageChange}
                 onRowClick={handleRowClick}
                 products={products}
                 onProductCorrection={handleProductCorrection}
                 onApprove={(orderId) => {
                     const order = orders.find((o) => o.id === orderId);
-                    if (order) handleApprove(order);
+                    if (order) handleApproveOrder(order);
                 }}
                 onReject={(orderId) => {
                     const order = orders.find((o) => o.id === orderId);
@@ -495,7 +533,7 @@ export const OrdersView: React.FC = () => {
                     setEditingOrder(order);
                     setIsAddOrderModalOpen(true);
                 }}
-                onDelete={(orderIds) => handleDeleteAllClick()}
+                onDelete={() => handleDeleteAllClick()}
                 loading={loading}
             />
 

@@ -5,10 +5,19 @@ export const useOrderSelection = (filteredOrders: Order[]) => {
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
     const handleSelectAll = useCallback(() => {
-        if (selectedIds.size === filteredOrders.length && filteredOrders.length > 0) {
-            setSelectedIds(new Set());
+        const pageIds = filteredOrders.map((order) => order.id);
+        const allSelectedOnPage = pageIds.every((id) => selectedIds.has(id));
+
+        if (allSelectedOnPage) {
+            // unselect all on current page
+            const next = new Set(selectedIds);
+            pageIds.forEach((id) => next.delete(id));
+            setSelectedIds(next);
         } else {
-            setSelectedIds(new Set(filteredOrders.map((o) => o.id)));
+            // select all on current page
+            const next = new Set(selectedIds);
+            pageIds.forEach((id) => next.add(id));
+            setSelectedIds(next);
         }
     }, [selectedIds, filteredOrders]);
 

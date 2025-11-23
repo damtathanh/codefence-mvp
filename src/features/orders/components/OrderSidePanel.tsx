@@ -110,17 +110,18 @@ export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
                                         {/* COD Flow */}
                                         {(order.payment_method === 'COD' || !order.payment_method) && (
                                             <>
-                                                {/* Pending Review: Approve/Reject */}
-                                                {order.status === ORDER_STATUS.PENDING_REVIEW && (
-                                                    <>
-                                                        <Button size="sm" variant="secondary" onClick={() => onReject(order)}>
-                                                            Reject
-                                                        </Button>
-                                                        <Button size="sm" onClick={() => onApprove(order)}>
-                                                            Approve
-                                                        </Button>
-                                                    </>
-                                                )}
+                                                {/* Pending Review / Verification Required: Approve/Reject */}
+                                                {(order.status === ORDER_STATUS.PENDING_REVIEW ||
+                                                    order.status === ORDER_STATUS.VERIFICATION_REQUIRED) && (
+                                                        <>
+                                                            <Button size="sm" variant="secondary" onClick={() => onReject(order)}>
+                                                                Reject
+                                                            </Button>
+                                                            <Button size="sm" onClick={() => onApprove(order)}>
+                                                                Approve
+                                                            </Button>
+                                                        </>
+                                                    )}
 
                                                 {/* Order Confirmation Sent: Simulate Confirmed/Cancelled */}
                                                 {order.status === ORDER_STATUS.ORDER_CONFIRMATION_SENT && (

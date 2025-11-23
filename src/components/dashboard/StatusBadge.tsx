@@ -3,10 +3,11 @@ import { getStatusBadge } from "../../utils/statusStyles";
 
 // Mapping of full status labels to short labels
 const shortLabelMap: Record<string, string> = {
+  "Customer Confirmed": "Confirmed",
   "Customer Cancelled": "Cancelled",
   "Pending Review": "Pending",
   "Order Paid": "Paid",
-  "Verification Required": "Verify",
+  "Verification Required": "Checking",
   "Order Confirmation Sent": "Sent",
   "Customer Unreachable": "Missed",
   "Order Rejected": "Rejected",

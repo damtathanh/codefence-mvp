@@ -16,6 +16,12 @@ const HEADER_MAPPINGS: Record<string, { en: string; vi: string }> = {
   ward: { en: "ward", vi: "phường" },
   district: { en: "district", vi: "quận" },
   province: { en: "province", vi: "tỉnh" },
+  gender: { en: "gender", vi: "giới tính" },
+  birth_year: { en: "birthday", vi: "năm sinh" },
+  discount_amount: { en: "discount", vi: "giảm giá" },
+  shipping_fee: { en: "shipping fee", vi: "phí giao hàng" },
+  channel: { en: "channel", vi: "kênh bán hàng" },
+  source: { en: "source", vi: "nguồn" },
 };
 
 // Required columns (address is optional)
@@ -34,6 +40,12 @@ const DISPLAY_NAMES: Record<string, { en: string; vi: string }> = {
   ward: { en: "Ward", vi: "Phường" },
   district: { en: "District", vi: "Quận" },
   province: { en: "Province", vi: "Tỉnh" },
+  gender: { en: "Gender", vi: "Giới tính" },
+  birth_year: { en: "Birthday", vi: "Năm sinh" },
+  discount_amount: { en: "Discount", vi: "Giảm giá" },
+  shipping_fee: { en: "Shipping Fee", vi: "Phí giao hàng" },
+  channel: { en: "Channel", vi: "Kênh bán hàng" },
+  source: { en: "Source", vi: "Nguồn" },
 };
 
 export function normalize(str: string) {

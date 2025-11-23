@@ -13,7 +13,6 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { convertHashToQueryRedirect } from "./utils/hashToQueryRedirect";
 import { useRole } from "./hooks";
 import { Home } from "./pages/Home";
-import { Analytics } from "./pages/Analytics";
 import { NotFound } from "./pages/NotFound";
 import { DashboardPage } from "./pages/dashboard/DashboardPage";
 import { AnalyticsPage } from "./pages/dashboard/AnalyticsPage";
@@ -41,7 +40,6 @@ const PublicLayout = () => {
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/verify-email" element={<VerifyEmail />} />
-          <Route path="/analytics" element={<Analytics />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>

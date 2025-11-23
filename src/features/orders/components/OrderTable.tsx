@@ -10,10 +10,16 @@ import type { SimpleProduct } from '../../products/services/productsService';
 
 
 interface OrderTableProps {
-    orders: Order[];
+    orders: Order[]; // paginated orders for current page
+    filteredOrders: Order[]; // all filtered orders for pagination info
+    totalCount: number; // Real total count from server
+    currentPage: number;
+    pageSize: number;
+    totalPages: number;
     selectedIds: Set<string>;
     onSelectAll: () => void;
     onToggleSelect: (id: string) => void;
+    onPageChange: (page: number) => void;
     onRowClick: (order: Order) => void;
     products: SimpleProduct[];
     onProductCorrection: (order: Order, productId: string, productName: string) => void;
@@ -26,9 +32,15 @@ interface OrderTableProps {
 
 export const OrderTable: React.FC<OrderTableProps> = ({
     orders,
+    filteredOrders,
+    totalCount,
+    currentPage,
+    pageSize,
+    totalPages,
     selectedIds,
     onSelectAll,
     onToggleSelect,
+    onPageChange,
     onRowClick,
     products,
     onProductCorrection,
@@ -138,24 +150,27 @@ export const OrderTable: React.FC<OrderTableProps> = ({
                     <div className="w-full overflow-x-auto">
                         <table className="w-full border-separate border-spacing-0" style={{ tableLayout: 'fixed', minWidth: '100%' }}>
                             <colgroup>
-                                <col style={{ width: '30px' }} /> {/* Checkbox */}
-                                <col style={{ width: '100px' }} /> {/* Order ID */}
-                                <col style={{ width: '120px' }} /> {/* Customer */}
-                                <col style={{ width: '135px' }} /> {/* Phone */}
-                                <col style={{ width: '150px' }} /> {/* Address - can wrap */}
-                                <col style={{ width: '150px' }} /> {/* Product - can wrap */}
-                                <col style={{ width: '120px' }} /> {/* Amount */}
-                                <col style={{ width: '120px' }} /> {/* Payment Method */}
-                                <col style={{ width: '70px' }} /> {/* Risk Score */}
-                                <col style={{ width: '110px' }} /> {/* Status */}
-                                <col style={{ width: '130px' }} /> {/* Actions */}
+                                <col style={{ width: '30px' }} />
+                                <col style={{ width: '100px' }} />
+                                <col style={{ width: '120px' }} />
+                                <col style={{ width: '135px' }} />
+                                <col style={{ width: '150px' }} />
+                                <col style={{ width: '150px' }} />
+                                <col style={{ width: '120px' }} />
+                                <col style={{ width: '120px' }} />
+                                <col style={{ width: '70px' }} />
+                                <col style={{ width: '110px' }} />
+                                <col style={{ width: '130px' }} />
                             </colgroup>
                             <thead>
                                 <tr className="border-b border-[#1E223D]">
                                     <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">
                                         <input
                                             type="checkbox"
-                                            checked={selectedIds.size === orders.length && orders.length > 0}
+                                            checked={
+                                                orders.length > 0 &&
+                                                orders.every((order) => selectedIds.has(order.id))
+                                            }
                                             onChange={onSelectAll}
                                             disabled={loading}
                                             className="w-4 h-4 rounded border-white/20 bg-white/5 text-[#8B5CF6] focus:ring-[#8B5CF6] focus:ring-offset-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
@@ -346,6 +361,53 @@ export const OrderTable: React.FC<OrderTableProps> = ({
                                 ))}
                             </tbody>
                         </table>
+                    </div>
+
+                    {/* Pagination Controls */}
+                    <div className="mt-4 flex items-center justify-between text-xs text-white/60 px-4 pb-4">
+                        <div>
+                            Showing{" "}
+                            {totalCount === 0
+                                ? 0
+                                : (currentPage - 1) * pageSize + 1}{" "}
+                            –{" "}
+                            {Math.min(currentPage * pageSize, totalCount)}{" "}
+                            of {totalCount} orders
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                            <button
+                                className="px-2 py-1 rounded-lg border border-white/10 disabled:opacity-40 hover:bg-white/5 transition-colors"
+                                disabled={currentPage === 1}
+                                onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+                            >
+                                Prev
+                            </button>
+
+                            {Array.from({ length: totalPages }, (_, i) => i + 1)
+                                .slice(
+                                    Math.max(0, currentPage - 3),
+                                    Math.min(totalPages, currentPage + 2)
+                                )
+                                .map((page) => (
+                                    <button
+                                        key={page}
+                                        className={`px-2 py-1 rounded-lg border border-white/10 hover:bg-white/5 transition-colors ${page === currentPage ? "bg-[#4C1D95] border-[#7C3AED] text-white" : ""
+                                            }`}
+                                        onClick={() => onPageChange(page)}
+                                    >
+                                        {page}
+                                    </button>
+                                ))}
+
+                            <button
+                                className="px-2 py-1 rounded-lg border border-white/10 disabled:opacity-40 hover:bg-white/5 transition-colors"
+                                disabled={currentPage === totalPages}
+                                onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+                            >
+                                Next
+                            </button>
+                        </div>
                     </div>
                 </CardContent>
             </Card>

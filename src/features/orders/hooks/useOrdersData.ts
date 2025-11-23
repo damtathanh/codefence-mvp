@@ -1,18 +1,22 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../../lib/supabaseClient';
 import { useAuth } from '../../auth';
-import { fetchOrdersByUser, updateOrder as updateOrderService, UpdateOrderPayload } from '../services/ordersService';
+import { fetchOrdersByUser, updateOrder as updateOrderService, UpdateOrderPayload, OrderFilters } from '../services/ordersService';
 import { fetchActiveProducts, SimpleProduct } from '../../products/services/productsService';
 import type { Order } from '../../../types/supabase';
 
 export const useOrdersData = () => {
     const { user } = useAuth();
     const [orders, setOrders] = useState<Order[]>([]);
+    const [totalCount, setTotalCount] = useState(0);
+    const [page, setPage] = useState(1);
+    const PAGE_SIZE = 200;
+
     const [products, setProducts] = useState<SimpleProduct[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    const fetchOrders = useCallback(async () => {
+    const fetchOrders = useCallback(async (currentPage: number = 1, filters?: OrderFilters) => {
         if (!user) {
             setOrders([]);
             setLoading(false);
@@ -23,12 +27,20 @@ export const useOrdersData = () => {
             setLoading(true);
             setError(null);
 
-            const { data: ordersData, error: ordersError } = await fetchOrdersByUser(user.id);
+            const { orders: ordersData, totalCount: count, error: ordersError } = await fetchOrdersByUser(
+                user.id,
+                currentPage,
+                PAGE_SIZE,
+                filters
+            );
+
             if (ordersError) throw ordersError;
 
             const productsData = await fetchActiveProducts(user.id);
 
             setOrders(ordersData || []);
+            setTotalCount(count);
+            setPage(currentPage);
             setProducts(productsData || []);
         } catch (err: any) {
             console.error('Error fetching orders:', err);
@@ -38,9 +50,10 @@ export const useOrdersData = () => {
         }
     }, [user]);
 
-    useEffect(() => {
-        fetchOrders();
-    }, [fetchOrders]);
+    // Removed auto-fetch useEffect to allow View to control fetching with filters
+    // useEffect(() => {
+    //     fetchOrders();
+    // }, [fetchOrders]);
 
     // Realtime subscription
     useEffect(() => {
@@ -57,7 +70,14 @@ export const useOrdersData = () => {
                     switch (payload.eventType) {
                         case 'INSERT':
                         case 'DELETE':
-                            fetchOrders();
+                        case 'INSERT':
+                        case 'DELETE':
+                            // For now, we don't auto-refetch on realtime events to avoid resetting pagination/filters unexpectedly
+                            // or we could refetch current page:
+                            // fetchOrders(page); 
+                            // But we don't have access to current filters here easily without state.
+                            // Let's leave it manual or rely on parent re-render.
+                            break;
                             break;
                         case 'UPDATE':
                             if (!newRow) return;
@@ -105,5 +125,9 @@ export const useOrdersData = () => {
         refreshOrders: fetchOrders,
         updateOrderLocal,
         setOrders, // Exposed for optimistic updates if needed
+        totalCount,
+        page,
+        pageSize: PAGE_SIZE,
+        setPage,
     };
 };

@@ -408,10 +408,25 @@ export const ProductsPage: React.FC = () => {
     setDeleteAllModal({ isOpen: false, selectedCount: 0 });
   };
 
-  // Get unique categories for filter dropdown (include both standardized and existing categories for backward compatibility)
-  const existingCategories = Array.from(new Set(products.map(p => p.category))).filter(
-    cat => cat && !getAllCategorySlugs().includes(cat.toLowerCase())
-  );
+  // Unique categories from current products (for filter dropdown)
+  // We only show categories that actually exist in the user's data.
+  const categoryOptions = Array.from(
+    new Set(
+      products
+        .map((p) => p.category?.trim())
+        .filter((cat): cat is string => !!cat)
+    )
+  )
+    .map((category) => ({
+      value: category,
+      label: getCategoryDisplayName(category),
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label, "vi"));
+
+  // Unique statuses from current products (for filter dropdown)
+  const statusOptions = Array.from(
+    new Set(products.map((p) => p.status))
+  ).filter((status): status is Product["status"] => !!status);
 
   const filteredProducts = products.filter((product) => {
     const term = searchQuery.trim().toLowerCase();
@@ -583,24 +598,11 @@ export const ProductsPage: React.FC = () => {
                 className="w-full h-10 pr-10 px-3 py-2 bg-white/10 backdrop-blur-md border border-white/20 rounded-lg text-[#E5E7EB] text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
               >
                 <option value="all">All Categories</option>
-                {PRODUCT_CATEGORIES.map(group => (
-                  <optgroup key={group.groupName} label={group.groupName}>
-                    {group.categories.map(category => (
-                      <option key={category.slug} value={category.slug}>
-                        {category.displayName}
-                      </option>
-                    ))}
-                  </optgroup>
+                {categoryOptions.map((category) => (
+                  <option key={category.value} value={category.value}>
+                    {category.label}
+                  </option>
                 ))}
-                {existingCategories.length > 0 && (
-                  <optgroup label="Other Categories">
-                    {existingCategories.map(category => (
-                      <option key={category} value={category}>
-                        {getCategoryDisplayName(category)}
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
               </select>
               <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
@@ -613,8 +615,11 @@ export const ProductsPage: React.FC = () => {
                 className="w-full h-10 pr-10 px-3 py-2 bg-white/10 backdrop-blur-md border border-white/20 rounded-lg text-[#E5E7EB] text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
               >
                 <option value="all">All Status</option>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
+                {statusOptions.map((status) => (
+                  <option key={status} value={status}>
+                    {status === "active" ? "Active" : "Inactive"}
+                  </option>
+                ))}
               </select>
               <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
@@ -749,28 +754,29 @@ export const ProductsPage: React.FC = () => {
         const dropdownContent = (
           <div
             data-dropdown-menu
-            className="fixed z-[9999] w-48 bg-[#1E223D] border border-white/20 rounded-lg shadow-xl overflow-hidden backdrop-blur-md"
+            className="fixed z-[9999] w-48 bg-[#1E223D] border border-white/20 rounded-lg shadow-xl overflow-hidden backdrop-blur-md animate-in fade-in zoom-in-95 duration-100"
             style={{
-              top: `${dropdownPosition.y} px`,
-              left: `${dropdownPosition.x} px`,
-              // Add animation based on placement
+              top: dropdownPosition.y,
+              left: dropdownPosition.x,
               transformOrigin: dropdownPosition.placement === 'top' ? 'bottom center' : 'top center',
             }}
           >
-            <button
-              onClick={() => handleEditFromDropdown(product)}
-              className="w-full px-4 py-3 text-left text-sm text-[#E5E7EB] hover:bg-blue-500/20 hover:text-blue-400 transition-colors flex items-center gap-2"
-            >
-              <Edit size={16} className="text-blue-400 flex-shrink-0" />
-              <span>Edit</span>
-            </button>
-            <button
-              onClick={() => handleDeleteFromDropdown(product)}
-              className="w-full px-4 py-3 text-left text-sm text-[#E5E7EB] hover:bg-red-500/20 hover:text-red-400 transition-colors flex items-center gap-2 border-t border-white/10"
-            >
-              <Trash2 size={16} className="text-red-400 flex-shrink-0" />
-              <span>Delete</span>
-            </button>
+            <div className="p-1">
+              <button
+                onClick={() => handleEditFromDropdown(product)}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[#E5E7EB] hover:bg-white/5 rounded-lg transition-colors text-left"
+              >
+                <Edit size={16} className="text-blue-400 flex-shrink-0" />
+                <span>Edit Product</span>
+              </button>
+              <button
+                onClick={() => handleDeleteFromDropdown(product)}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[#FCA5A5] hover:bg-white/5 rounded-lg transition-colors text-left"
+              >
+                <Trash2 size={16} className="text-red-400 flex-shrink-0" />
+                <span>Delete Product</span>
+              </button>
+            </div>
           </div>
         );
 

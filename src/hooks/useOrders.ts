@@ -25,6 +25,12 @@ export interface OrderInput {
     ward?: string | null;
     district?: string | null;
     province?: string | null;
+    gender?: 'male' | 'female' | null;
+    birth_year?: number | null;
+    discount_amount?: number | null;
+    shipping_fee?: number | null;
+    channel?: string | null;
+    source?: string | null;
 }
 
 export interface ParsedOrderRow {
@@ -39,12 +45,27 @@ export interface ParsedOrderRow {
     ward?: string;
     district?: string;
     province?: string;
+    gender?: string; // raw input: "Nam", "Nữ", "male", "female"
+    birth_year?: number;
+    discount_amount?: number;
+    shipping_fee?: number;
+    channel?: string;
+    source?: string;
 }
 
 export interface InvalidOrderRow {
     order: ParsedOrderRow;   // the invalid row
     rowIndex: number;        // row number in the uploaded file
     reason: string;          // why this row is invalid
+}
+
+// Helper function to normalize gender from various input formats
+function normalizeGender(value?: string): 'male' | 'female' | null {
+    if (!value) return null;
+    const v = value.toLowerCase().trim();
+    if (["nam", "male", "m"].includes(v)) return "male";
+    if (["nữ", "nu", "female", "f"].includes(v)) return "female";
+    return null;
 }
 
 export function useOrders() {
@@ -175,7 +196,13 @@ export function useOrders() {
                     address_detail: row.address_detail ? row.address_detail.toString() : null,
                     ward: row.ward ? row.ward.toString() : null,
                     district: row.district ? row.district.toString() : null,
-                    province: row.province ? row.province.toString() : null
+                    province: row.province ? row.province.toString() : null,
+                    gender: normalizeGender(row.gender?.toString()),
+                    birth_year: row.birth_year ? Number(row.birth_year) : null,
+                    discount_amount: row.discount_amount ? Number(row.discount_amount) : null,
+                    shipping_fee: row.shipping_fee ? Number(row.shipping_fee) : null,
+                    channel: row.channel ? row.channel.toString() : null,
+                    source: row.source ? row.source.toString() : null
                 });
             }
         });
@@ -220,17 +247,33 @@ export function useOrders() {
                 finalAddress = order.address_detail;
             }
 
-            const riskOutput = evaluateRisk({
-                paymentMethod: order.payment_method,
-                amountVnd: order.amount,
-                phone: order.phone,
-                address: finalAddress,
-                pastOrders: pastOrders,
-                productName: order.product
-            });
-
+            // Detect payment method: COD vs non-COD (bank transfer, QR, etc.)
             const isNonCOD = order.payment_method && order.payment_method.toUpperCase() !== 'COD';
 
+            // Risk evaluation logic:
+            // - Non-COD orders: Skip risk evaluation (trusted payment already received)
+            //   → risk_score = null, risk_level = 'none'
+            // - COD orders: Evaluate risk for fraud detection
+            //   → risk_score = numeric, risk_level = 'Low'/'Medium'/'High'
+            let riskScore: number | null = null;
+            let riskLevel: string = 'none';
+
+            if (!isNonCOD) {
+                const riskOutput = evaluateRisk({
+                    paymentMethod: order.payment_method,
+                    amountVnd: order.amount,
+                    phone: order.phone,
+                    address: finalAddress,
+                    pastOrders: pastOrders,
+                    productName: order.product
+                });
+                riskScore = riskOutput.score;
+                riskLevel = riskOutput.level;
+            }
+
+            // Build order payload for Supabase insert:
+            // - Non-COD: status = 'Order Paid', paid_at = now, no risk evaluation
+            // - COD: status = 'Pending Review', paid_at = null, risk evaluated
             return {
                 user_id: user.id,
                 order_id: order.order_id,
@@ -240,33 +283,43 @@ export function useOrders() {
                 product_id: order.product_id,
                 product: order.product || '',
                 amount: order.amount,
-                status: isNonCOD ? 'Order Paid' : 'Pending Review', // Default status
-                risk_score: riskOutput.score,
-                risk_level: riskOutput.level,
+                status: isNonCOD ? 'Order Paid' : 'Pending Review',
+                risk_score: riskScore,
+                risk_level: riskLevel,
                 payment_method: order.payment_method || 'COD',
                 paid_at: isNonCOD ? new Date().toISOString() : null,
                 address_detail: order.address_detail,
                 ward: order.ward,
                 district: order.district,
-                province: order.province
+                province: order.province,
+                gender: order.gender,
+                birth_year: order.birth_year,
+                discount_amount: order.discount_amount ?? 0,
+                shipping_fee: order.shipping_fee ?? 0,
+                channel: order.channel ?? null,
+                source: order.source ?? null
             };
         });
 
-        // 3. Insert
+        // 3. Insert orders into Supabase
         const { data: insertedOrders, error } = await insertOrdersService(payloads);
 
         if (error) {
             return { success: 0, failed: orders.length, errors: [error.message] };
         }
 
-        // 4. Create invoices for non-COD orders
+        // 4. Create invoices for non-COD orders (auto-paid on import)
+        // COD orders: NO invoice created here - only when order becomes paid via UI actions
+        // Non-COD orders: Invoice created immediately with status 'Paid'
         if (insertedOrders && insertedOrders.length > 0) {
-            // We can run this in background or await it. 
-            // Awaiting ensures data consistency before returning.
+            // Await to ensure data consistency before returning
             await Promise.all(
                 insertedOrders.map(async (order) => {
                     const pm = order.payment_method?.toUpperCase() || 'COD';
                     if (pm !== 'COD') {
+                        // markInvoicePaidForOrder is idempotent:
+                        // - Updates existing invoice to 'Paid' if found
+                        // - Creates new 'Paid' invoice if not found
                         await markInvoicePaidForOrder(order);
                     }
                 })

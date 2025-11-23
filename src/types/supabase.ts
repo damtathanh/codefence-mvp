@@ -19,6 +19,8 @@ export interface Order {
   user_id: string;
   order_id: string;
   customer_name: string;
+  gender?: 'male' | 'female' | null;
+  birth_year?: number | null;
   phone: string;
   address: string | null;
   address_detail?: string | null;
@@ -28,6 +30,10 @@ export interface Order {
   product_id: string | null; // UUID reference to products table
   product?: string; // Legacy field (for backward compatibility during migration)
   amount: number;
+  discount_amount?: number | null;
+  shipping_fee?: number | null;
+  channel?: string | null;
+  source?: string | null;
   status: OrderStatus;
   risk_score: number | null; // Numeric value or null (displayed as 'N/A' in UI when null)
   risk_level: string | null; // 'Low' | 'Medium' | 'High'

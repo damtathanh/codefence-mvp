@@ -28,6 +28,11 @@ export interface DashboardStats {
     riskLow: number;
     riskMedium: number;
     riskHigh: number;
+
+    // 🔽 3 field mới để dùng cho subtitle
+    codCancelled: number;
+    codConfirmed: number;
+    customerResponses: number;
 }
 
 export interface OrdersDashboardPoint {
@@ -79,7 +84,7 @@ export function useDashboardStats(
             setLoading(true);
             setError(null);
             try {
-                const { from, to } = getRange(dateRange, customFrom, customTo);
+                const { from, to } = resolveDashboardDateRange(dateRange, customFrom, customTo);
 
                 const { data, error } = await supabase
                     .from("orders")
@@ -144,11 +149,16 @@ export function useDashboardStats(
     };
 }
 
-function getRange(
+export interface ResolvedDateRange {
+    from: Date;
+    to: Date;
+}
+
+export function resolveDashboardDateRange(
     range: DashboardDateRange,
     customFrom?: string,
     customTo?: string
-): { from: Date; to: Date } {
+): ResolvedDateRange {
     const now = new Date();
     const end = new Date(now);
     const start = new Date(now);
@@ -272,8 +282,17 @@ function computeStats(orders: Order[]): DashboardStats {
     const codCancelled = orders.filter(
         (o) => isCOD(o) && cancelledStatuses.has(o.status)
     ).length;
+
+    const codConfirmed = orders.filter(
+        (o) => isCOD(o) && verifiedPositiveStatuses.has(o.status)
+    ).length;
+
+    const customerResponses = codCancelled + codConfirmed;
+
     const cancelRate =
-        codOrders > 0 ? Math.round((codCancelled / codOrders) * 1000) / 10 : 0;
+        customerResponses > 0
+            ? Math.round((codCancelled / customerResponses) * 1000) / 10
+            : 0;
 
     // Risk counters
     let riskLow = 0;
@@ -302,6 +321,9 @@ function computeStats(orders: Order[]): DashboardStats {
         riskLow,
         riskMedium,
         riskHigh,
+        codCancelled,
+        codConfirmed,
+        customerResponses,
     };
 }
 
