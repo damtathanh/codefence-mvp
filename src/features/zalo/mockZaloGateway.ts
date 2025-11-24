@@ -129,8 +129,8 @@ export async function simulateCustomerPaid(order: Order) {
     throw error;
   }
 
-  // 2) Log event
-  await logOrderEvent(order.id, 'CUSTOMER_PAID', { source: 'mock' });
+  // 2) Log event - REMOVED: Centralized in markInvoicePaidForOrder
+  // await logOrderEvent(order.id, 'CUSTOMER_PAID', { source: 'mock' });
 
   // 3) Cập nhật Invoice tương ứng
   const updatedOrder: Order = {

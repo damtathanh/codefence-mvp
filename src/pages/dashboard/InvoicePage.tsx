@@ -10,6 +10,7 @@ import type { Invoice, Order } from '../../types/supabase';
 import { ensureInvoicePdfStored } from '../../features/invoices/services/invoiceStorage';
 import { fetchInvoicesByUser } from '../../features/invoices/services/invoiceService';
 import { Pagination } from '../../components/ui/Pagination';
+import { downloadFileDirectly } from '../../features/invoices/utils/invoiceDownload';
 
 interface InvoiceWithCustomer extends Invoice {
   customer_name?: string;
@@ -27,6 +28,12 @@ export const InvoicePage: React.FC = () => {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [statusFilter, setStatusFilter] = useState('all');
   const [dateFilter, setDateFilter] = useState('');
+
+  const clearAllFilters = () => {
+    setSearchQuery('');
+    setStatusFilter('all');
+    setDateFilter('');
+  };
 
   // Pagination state
   const [page, setPage] = useState(1);
@@ -66,19 +73,19 @@ export const InvoicePage: React.FC = () => {
         // Fetch related orders for the current page of invoices
         const orderIds = invoicesData.map(inv => inv.order_id).filter(Boolean);
 
-        let ordersMap = new Map<string, { order_id: string | null; customer_name: string | null }>();
+        let ordersMapLocal = new Map<string, { order_id: string | null; customer_name: string | null }>();
         let fullOrdersMap = new Map<string, Order>();
 
         if (orderIds.length > 0) {
           const { data: ordersData, error: ordersError } = await supabase
             .from('orders')
-            .select('id, order_id, customer_name, phone, address, product, amount')
+            .select('id, order_id, customer_name, phone, address, product, amount, discount_amount, shipping_fee')
             .eq('user_id', user.id)
             .in('id', orderIds);
 
           if (!ordersError && ordersData) {
             ordersData.forEach(order => {
-              ordersMap.set(order.id, {
+              ordersMapLocal.set(order.id, {
                 order_id: order.order_id || null,
                 customer_name: order.customer_name || null,
               });
@@ -90,7 +97,7 @@ export const InvoicePage: React.FC = () => {
         // Merge invoices with order data
         const invoicesWithOrders = invoicesData.map(invoice => ({
           ...invoice,
-          orders: ordersMap.get(invoice.order_id) || null,
+          orders: ordersMapLocal.get(invoice.order_id) || null,
         }));
 
         setInvoices(invoicesWithOrders as Invoice[]);
@@ -120,9 +127,7 @@ export const InvoicePage: React.FC = () => {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'invoices', filter: `user_id=eq.${user.id}` },
         () => {
-          // We could refetch here, but need to be careful about infinite loops or overwriting state.
-          // For now, let's rely on manual refresh or page navigation.
-          // Or we can trigger a refetch if we extract fetchInvoices outside useEffect.
+          // For now, we rely on manual refresh or navigation.
         }
       )
       .subscribe();
@@ -146,6 +151,50 @@ export const InvoicePage: React.FC = () => {
     return invoice.status === 'Paid' || invoice.status === 'Refunded';
   };
 
+  const formatVnd = (n: any) => {
+    const num = Number(n || 0);
+    return num.toLocaleString('vi-VN');
+  };
+
+  const getInvoiceDisplayAmount = (inv: Invoice & { orders?: any }) => {
+    const order = ordersMap.get(inv.order_id);
+
+    if (order) {
+      const subtotal =
+        (order as any).subtotal ??
+        order.amount ??
+        0;
+
+      const discount =
+        order.discount_amount ??
+        (inv as any).discount_amount ??
+        0;
+
+      const shipping =
+        order.shipping_fee ??
+        (inv as any).shipping_fee ??
+        0;
+
+      return subtotal + shipping - discount;
+    }
+
+    // Fallback: use invoice fields only
+    const subtotal =
+      (inv as any).subtotal ??
+      inv.amount ??
+      0;
+
+    const discount =
+      (inv as any).discount_amount ??
+      0;
+
+    const shipping =
+      (inv as any).shipping_fee ??
+      0;
+
+    return subtotal + shipping - discount;
+  };
+
   const handleDownload = async (invoice: InvoiceWithCustomer) => {
     if (!canDownloadInvoice(invoice)) {
       alert('Only Paid or Refunded invoices can be downloaded.');
@@ -153,16 +202,16 @@ export const InvoicePage: React.FC = () => {
     }
 
     try {
-      // If pdf_url exists, open it directly
-      if (invoice.pdf_url) {
-        window.open(invoice.pdf_url, '_blank');
-        return;
-      }
+      // Fetch fresh order data from Supabase for accurate invoice generation
+      const { data: freshOrder, error: orderError } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('id', invoice.order_id)
+        .eq('user_id', user?.id)
+        .single();
 
-      // If pdf_url is missing, generate and upload it
-      const order = ordersMap.get(invoice.order_id);
-      if (!order) {
-        console.error('Order not found for invoice', invoice.id);
+      if (orderError || !freshOrder) {
+        console.error('Failed to fetch fresh order data for invoice', invoice.id, orderError);
         alert('Order not found for this invoice.');
         return;
       }
@@ -201,7 +250,19 @@ export const InvoicePage: React.FC = () => {
         }
       }
 
-      const pdfUrl = await ensureInvoicePdfStored(invoice, order, sellerProfile);
+      // 🚨 Quan trọng: bỏ cache pdf_url cũ, ép generate lại
+      const invoiceWithoutCache: Invoice = {
+        ...(invoice as Invoice),
+        pdf_url: null,
+      };
+
+      // Always use ensureInvoicePdfStored - it handles caching and invalidation
+      const pdfUrl = await ensureInvoicePdfStored(
+        invoiceWithoutCache,
+        freshOrder as Order,
+        sellerProfile
+      );
+
       if (pdfUrl) {
         window.open(pdfUrl, '_blank');
       } else {
@@ -223,9 +284,82 @@ export const InvoicePage: React.FC = () => {
       return;
     }
 
+    // Prepare seller profile once
+    let sellerProfile = {
+      company_name: profile?.company_name || undefined,
+      email: profile?.email || undefined,
+      phone: profile?.phone || undefined,
+      website: undefined,
+      address: undefined,
+    };
+
+    // If profile not loaded yet, fetch it directly (same logic as handleDownload)
+    if (!profile && user) {
+      try {
+        const { data: authData } = await supabase.auth.getUser();
+        const userId = authData?.user?.id;
+
+        if (userId) {
+          const { data: profileData } = await supabase
+            .from("users_profile")
+            .select("company_name, email, phone, website, address")
+            .eq("id", userId)
+            .maybeSingle();
+
+          if (profileData) {
+            sellerProfile = {
+              company_name: profileData.company_name || undefined,
+              email: profileData.email || undefined,
+              phone: profileData.phone || undefined,
+              website: (profileData as any).website || undefined,
+              address: (profileData as any).address || undefined,
+            };
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching profile for bulk download:', err);
+      }
+    }
+
     // Download each invoice PDF sequentially
     for (const inv of selectedDownloadable) {
-      await handleDownload(inv);
+      try {
+        // Fetch fresh order data from Supabase for accurate invoice generation
+        const { data: freshOrder, error: orderError } = await supabase
+          .from('orders')
+          .select('*')
+          .eq('id', inv.order_id)
+          .eq('user_id', user?.id)
+          .single();
+
+        if (orderError || !freshOrder) {
+          console.warn(`Failed to fetch fresh order data for invoice ${inv.id}`, orderError);
+          continue;
+        }
+
+        // 🚨 Bỏ cache pdf_url cũ cho từng invoice
+        const invoiceWithoutCache: Invoice = {
+          ...(inv as Invoice),
+          pdf_url: null,
+        };
+
+        // Ensure PDF exists and get URL
+        const pdfUrl = await ensureInvoicePdfStored(
+          invoiceWithoutCache,
+          freshOrder as Order,
+          sellerProfile
+        );
+
+        if (pdfUrl) {
+          const filename = `invoice-${inv.invoice_code || inv.id}.pdf`;
+          await downloadFileDirectly(pdfUrl, filename);
+        } else {
+          console.error(`Failed to generate PDF for invoice ${inv.id}`);
+        }
+      } catch (err) {
+        console.error(`Failed to download invoice ${inv.id}`, err);
+      }
+
       // Small delay between downloads to avoid browser blocking
       await new Promise(resolve => setTimeout(resolve, 300));
     }
@@ -299,14 +433,21 @@ export const InvoicePage: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col h-full min-h-0 gap-6">
+    <div className="flex flex-col h-full min-h-0 p-6">
       {/* Filters */}
-      <Card className="flex-shrink-0">
+      <Card className="shrink-0">
         <CardHeader className="!pt-3 !pb-2 !px-4">
           <CardTitle className="flex items-center gap-2 text-base">
             <Filter size={18} />
             Filters
           </CardTitle>
+          <button
+            type="button"
+            onClick={clearAllFilters}
+            className="text-xs sm:text-sm text-white/60 hover:text-white underline-offset-2 hover:underline"
+          >
+            Clear filters
+          </button>
         </CardHeader>
         <CardContent className="!pt-0 !px-4 !pb-3">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -342,7 +483,7 @@ export const InvoicePage: React.FC = () => {
         </CardContent>
       </Card>
 
-      <Card className="flex-1 flex flex-col min-h-0">
+      <Card className="flex-1 flex flex-col min-h-0 mt-6">
         <CardHeader className="!pt-4 !pb-1 !px-6 flex-shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
@@ -433,7 +574,7 @@ export const InvoicePage: React.FC = () => {
                         </span>
                       </td>
                       <td className="px-6 py-4 text-sm text-[#E5E7EB] whitespace-nowrap align-middle">
-                        {invoice.amount.toLocaleString('vi-VN')}
+                        {formatVnd(getInvoiceDisplayAmount(invoice))}
                       </td>
                       <td className="px-6 py-4 text-sm text-[#E5E7EB] whitespace-nowrap align-middle">
                         {invoice.date}
@@ -482,4 +623,3 @@ export const InvoicePage: React.FC = () => {
     </div>
   );
 };
-

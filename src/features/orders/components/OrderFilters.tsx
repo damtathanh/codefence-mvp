@@ -19,9 +19,10 @@ interface OrderFiltersProps {
     setRiskScoreFilter: (risk: string) => void;
     paymentMethodFilter: string;
     setPaymentMethodFilter: (method: string) => void;
-    availableStatusOptions: Set<string>;
-    availablePaymentMethods: Set<string>;
+    statusOptions: string[];
+    paymentOptions: string[];
     onAddOrder: () => void;
+    onClearFilters?: () => void;
 }
 
 export const OrderFilters: React.FC<OrderFiltersProps> = ({
@@ -33,31 +34,35 @@ export const OrderFilters: React.FC<OrderFiltersProps> = ({
     setRiskScoreFilter,
     paymentMethodFilter,
     setPaymentMethodFilter,
-    availableStatusOptions,
-    availablePaymentMethods,
+    statusOptions,
+    paymentOptions,
     onAddOrder,
+    onClearFilters,
 }) => {
-    const statusOptions = Object.values(ORDER_STATUS).filter((status) =>
-        availableStatusOptions.has(status)
-    );
-
-    const paymentOptions = Array.from(availablePaymentMethods);
-
     return (
         <Card className="flex-shrink-0">
-            <CardHeader className="!pt-3 !pb-2 !px-4 flex flex-row items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-xl bg-white/5 flex items-center justify-center">
-                        <Filter className="w-4 h-4 text-[#9CA3AF]" />
-                    </div>
-                    <CardTitle className="text-base font-semibold text-white">
+            <CardHeader className="!pt-3 !pb-2 !px-4">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                        <Filter size={18} />
                         Filters
                     </CardTitle>
+                    <div className="flex items-center gap-2">
+                        {onClearFilters && (
+                            <button
+                                type="button"
+                                onClick={onClearFilters}
+                                className="text-xs sm:text-sm text-white/60 hover:text-white underline-offset-2 hover:underline"
+                            >
+                                Clear filters
+                            </button>
+                        )}
+                        <PrimaryActionButton onClick={onAddOrder}>
+                            <Plus className="w-4 h-4 mr-2" />
+                            Add Order
+                        </PrimaryActionButton>
+                    </div>
                 </div>
-                <PrimaryActionButton onClick={onAddOrder}>
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add Order
-                </PrimaryActionButton>
             </CardHeader>
 
             <CardContent className="!pt-0 !px-4 !pb-3">

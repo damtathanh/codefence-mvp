@@ -1,5 +1,5 @@
-// src/features/invoices/invoicePdf.ts
-import type { Invoice, Order, UserProfile } from "../../../types/supabase";
+// src/features/invoices/services/invoicePdf.ts
+import type { Invoice, Order } from "../../../types/supabase";
 import { PDFDocument, rgb } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 
@@ -156,7 +156,7 @@ export async function generateInvoicePdf(
     color: primaryNavy,
   });
 
-  // Chỉ email / sđt / địa chỉ như m yêu cầu
+  // Chỉ email / sđt / địa chỉ
   if (companyEmail) {
     drawText(`Email: ${companyEmail}`, { size: 11 });
   }
@@ -206,38 +206,36 @@ export async function generateInvoicePdf(
 
   drawText(`Sản phẩm: ${order.product ?? ""}`);
 
-  // Subtotal (giá trị đơn hàng)
   const subtotal =
-    invoice.subtotal ??
     order.subtotal ??
-    invoice.amount ??
     order.amount ??
+    invoice.subtotal ??
+    invoice.amount ??
     0;
 
   drawText(`Giá trị đơn hàng: ${formatVnd(subtotal)} VND`);
 
-  // Discount (if any)
   const discount =
-    invoice.discount_amount ?? order.discount_amount ?? 0;
+    order.discount_amount ??
+    invoice.discount_amount ??
+    0;
 
-  if (Number(discount) > 0) {
-    drawText(`Chiết khấu: -${formatVnd(discount)} VND`);
+  if (discount > 0) {
+    drawText(`Giảm giá: -${formatVnd(discount)} VND`);
   }
 
-  // Shipping (if any)
   const shipping =
-    invoice.shipping_fee ?? order.shipping_fee ?? 0;
+    order.shipping_fee ??
+    invoice.shipping_fee ??
+    0;
 
-  if (Number(shipping) > 0) {
-    drawText(`Phí vận chuyển: ${formatVnd(shipping)} VND`);
-  }
+  drawText(`Phí vận chuyển: ${formatVnd(shipping)} VND`);
 
-  // --------- 8. TỔNG THANH TOÁN – block riêng, đẩy xuống dưới ----------
-  // Không dùng y hiện tại, đặt vị trí cố định tách hẳn khỏi chi tiết đơn hàng
+  // --------- 8. TỔNG THANH TOÁN – block riêng ----------
   const totalBoxWidth = 300;
   const totalBoxHeight = 80;
   const totalBoxX = width - margin - totalBoxWidth;
-  const totalBoxY = 180; // cách footer ~110pt, tách rõ với phần trên
+  const totalBoxY = 180; // cách footer ~110pt
 
   page.drawRectangle({
     x: totalBoxX,
@@ -258,7 +256,9 @@ export async function generateInvoicePdf(
   });
 
   const totalAmount =
-    invoice.amount != null ? invoice.amount : subtotal - discount + shipping;
+    (order.amount ?? invoice.amount ?? 0) +
+    (order.shipping_fee ?? invoice.shipping_fee ?? 0) -
+    (order.discount_amount ?? invoice.discount_amount ?? 0);
 
   page.drawText(`${formatVnd(totalAmount)} VND`, {
     x: totalBoxX + 18,
@@ -268,7 +268,7 @@ export async function generateInvoicePdf(
     color: primaryNavy,
   });
 
-  // --------- 9. FOOTER (thank you from shop) ----------
+  // --------- 9. FOOTER ----------
   page.drawLine({
     start: { x: margin, y: 70 },
     end: { x: width - margin, y: 70 },
@@ -303,7 +303,7 @@ export async function generateInvoicePdf(
     });
   }
 
-  // --------- 10. Export PDF (no TS error) ----------
+  // --------- 10. Export PDF ----------
   const pdfBytes = await pdfDoc.save();
   const safeBytes = Uint8Array.from(pdfBytes);
 

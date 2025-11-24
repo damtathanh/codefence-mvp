@@ -55,8 +55,8 @@ export async function fetchOverviewAnalytics(
         .from("orders")
         .select("*")
         .eq("user_id", userId)
-        .gte("created_at", resolved.from.toISOString())
-        .lte("created_at", resolved.to.toISOString());
+        .gte("order_date", resolved.from.toISOString())
+        .lte("order_date", resolved.to.toISOString());
 
     const { data, error } = await query;
 
@@ -99,7 +99,7 @@ export async function fetchOverviewAnalytics(
     // Trend
     const trendMap = new Map<string, OverviewTrendPoint>();
     orders.forEach(o => {
-        const date = o.created_at ? o.created_at.slice(0, 10) : "Unknown";
+        const date = o.order_date ? o.order_date.slice(0, 10) : (o.created_at ? o.created_at.slice(0, 10) : "Unknown");
         if (!trendMap.has(date)) {
             trendMap.set(date, { date, totalOrders: 0, codOrders: 0, boomOrders: 0 });
         }

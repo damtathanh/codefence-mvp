@@ -3,7 +3,7 @@ import { StatCard } from '../../../components/analytics/StatCard';
 import { ChartCard } from '../../../components/analytics/ChartCard';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { DollarSign, TrendingUp, Users, Wallet } from 'lucide-react';
-import type { DashboardDateRange } from '../../dashboard/useDashboardStats';
+import { useDashboardStats, type DashboardDateRange } from '../../dashboard/useDashboardStats';
 
 interface FinancialTabProps {
     dateRange: DashboardDateRange;
@@ -12,7 +12,8 @@ interface FinancialTabProps {
 }
 
 export const FinancialTab: React.FC<FinancialTabProps> = ({ dateRange, customFrom, customTo }) => {
-    // TODO: Fetch real data based on dateRange
+    const { loading, error, stats, revenueChart } = useDashboardStats(dateRange, customFrom, customTo);
+
     const formatCurrency = (value: number) => {
         return new Intl.NumberFormat('vi-VN', {
             style: 'currency',
@@ -21,8 +22,21 @@ export const FinancialTab: React.FC<FinancialTabProps> = ({ dateRange, customFro
         }).format(value);
     };
 
-    // TODO: Replace with real Supabase data
-    const chartData: any[] = [];
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center h-64">
+                <p className="text-white/60">Loading analytics...</p>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="flex items-center justify-center h-64">
+                <p className="text-red-400">Error loading analytics: {error}</p>
+            </div>
+        );
+    }
 
     return (
         <div className="space-y-4">
@@ -30,37 +44,41 @@ export const FinancialTab: React.FC<FinancialTabProps> = ({ dateRange, customFro
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard
                     title="Total Revenue"
-                    value={formatCurrency(0)}
-                    subtitle="–"
+                    value={formatCurrency(stats.totalRevenue)}
+                    subtitle="Gross revenue from paid orders"
                     icon={<DollarSign className="w-5 h-5 text-green-400" />}
+                    valueColor="#4ade80"
                 />
                 <StatCard
-                    title="Profit"
-                    value={formatCurrency(0)}
-                    subtitle="–"
+                    title="Converted Revenue"
+                    value={formatCurrency(stats.convertedRevenue)}
+                    subtitle="Revenue from COD orders"
                     icon={<TrendingUp className="w-5 h-5 text-emerald-400" />}
+                    valueColor="#34d399"
                 />
                 <StatCard
-                    title="Average CAC"
-                    value={formatCurrency(0)}
-                    subtitle="–"
+                    title="Average Order Value"
+                    value={formatCurrency(stats.avgOrderValue)}
+                    subtitle="Per paid order"
                     icon={<Users className="w-5 h-5 text-blue-400" />}
+                    valueColor="#60a5fa"
                 />
                 <StatCard
-                    title="Average CLV"
-                    value={formatCurrency(0)}
-                    subtitle="–"
+                    title="Pending Revenue"
+                    value="–"
+                    subtitle="Orders pending verification"
                     icon={<Wallet className="w-5 h-5 text-[#8B5CF6]" />}
+                    valueColor="#8B5CF6"
                 />
             </div>
 
             {/* Row 2: Charts */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <ChartCard title="Sales Growth" subtitle="Monthly revenue trend">
+                <ChartCard title="Sales Growth" subtitle="Daily revenue trend">
                     <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={chartData}>
+                        <LineChart data={revenueChart}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
-                            <XAxis dataKey="period" stroke="#E5E7EB" tick={{ fill: '#E5E7EB', fontSize: 12 }} />
+                            <XAxis dataKey="date" stroke="#E5E7EB" tick={{ fill: '#E5E7EB', fontSize: 12 }} />
                             <YAxis
                                 stroke="#E5E7EB"
                                 tick={{ fill: '#E5E7EB', fontSize: 12 }}
@@ -75,16 +93,16 @@ export const FinancialTab: React.FC<FinancialTabProps> = ({ dateRange, customFro
                                 }}
                                 formatter={(value: number) => formatCurrency(value)}
                             />
-                            <Line type="monotone" dataKey="revenue" stroke="#10B981" strokeWidth={2} dot={{ fill: '#10B981', r: 4 }} name="Revenue" />
+                            <Line type="monotone" dataKey="totalRevenue" stroke="#10B981" strokeWidth={2} dot={{ fill: '#10B981', r: 4 }} name="Revenue" />
                         </LineChart>
                     </ResponsiveContainer>
                 </ChartCard>
 
-                <ChartCard title="Profit vs Revenue" subtitle="Monthly profitability">
+                <ChartCard title="Revenue Breakdown" subtitle="Total vs Converted">
                     <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={chartData}>
+                        <BarChart data={revenueChart}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
-                            <XAxis dataKey="period" stroke="#E5E7EB" tick={{ fill: '#E5E7EB', fontSize: 12 }} />
+                            <XAxis dataKey="date" stroke="#E5E7EB" tick={{ fill: '#E5E7EB', fontSize: 12 }} />
                             <YAxis
                                 stroke="#E5E7EB"
                                 tick={{ fill: '#E5E7EB', fontSize: 12 }}
@@ -100,8 +118,8 @@ export const FinancialTab: React.FC<FinancialTabProps> = ({ dateRange, customFro
                                 formatter={(value: number) => formatCurrency(value)}
                             />
                             <Legend wrapperStyle={{ color: '#E5E7EB' }} />
-                            <Bar dataKey="revenue" fill="#8B5CF6" name="Revenue" />
-                            <Bar dataKey="profit" fill="#10B981" name="Profit" />
+                            <Bar dataKey="totalRevenue" fill="#8B5CF6" name="Total Revenue" />
+                            <Bar dataKey="convertedRevenue" fill="#10B981" name="Converted Revenue" />
                         </BarChart>
                     </ResponsiveContainer>
                 </ChartCard>

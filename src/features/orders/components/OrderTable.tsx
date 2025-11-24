@@ -220,7 +220,7 @@ export const OrderTable: React.FC<OrderTableProps> = ({
 
                                         {/* Customer */}
                                         <td className="px-6 py-4 text-sm text-[#E5E7EB]">
-                                            <div className="truncate" title={order.customer_name}>
+                                            <div className="break-words line-clamp-2" title={order.customer_name}>
                                                 {order.customer_name}
                                             </div>
                                         </td>

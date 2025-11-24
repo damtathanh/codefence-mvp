@@ -12,13 +12,13 @@ if (!supabaseUrl || !supabaseAnonKey) {
     // Check which key is missing
     if (!import.meta.env.VITE_SUPABASE_ANON_KEY && !import.meta.env.VITE_SUPABASE_KEY) {
       missing.push('VITE_SUPABASE_ANON_KEY (or VITE_SUPABASE_KEY)');
-    } 
+    }
   }
-  
+
   const errorMessage = `❌ Missing Supabase environment variables: ${missing.join(', ')}\n\nPlease check your .env file and ensure these variables are set:\n${missing.map(v => `  - ${v}`).join('\n')}\n\nThen restart your development server.`;
-  
+
   console.error(errorMessage);
-  
+
   // In development, don't throw - show error but allow app to render
   // This prevents white screen. The ErrorBoundary will catch any runtime errors.
   console.warn('⚠️ Supabase client will not work correctly without environment variables.');
@@ -27,7 +27,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 // Create Supabase client with optimal configuration
 export const supabase = createClient(
-  supabaseUrl || 'https://placeholder.supabase.co', 
+  supabaseUrl || 'https://placeholder.supabase.co',
   supabaseAnonKey || 'placeholder-key',
   {
     auth: {

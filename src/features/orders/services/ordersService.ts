@@ -32,6 +32,9 @@ export interface UpdateOrderPayload {
   risk_score?: number | null;
   risk_level?: string | null;
   product_id?: string | null;
+  amount?: number;
+  discount_amount?: number | null;
+  shipping_fee?: number | null;
   confirmation_sent_at?: string | null;
   customer_confirmed_at?: string | null;
   cancelled_at?: string | null;
@@ -86,7 +89,7 @@ export async function fetchOrdersByUser(
     if (filters.searchQuery) {
       const term = filters.searchQuery.trim();
       if (term) {
-        query = query.or(`order_id.ilike.%${term}%,customer_name.ilike.%${term}%,phone.ilike.%${term}%,id.ilike.%${term}%`);
+        query = query.or(`order_id.ilike.%${term}%,customer_name.ilike.%${term}%,phone.ilike.%${term}%`);
       }
     }
 
@@ -159,13 +162,33 @@ export async function updateOrder(
   userId: string,
   updates: UpdateOrderPayload
 ) {
-  return supabase
+  const result = await supabase
     .from("orders")
     .update(updates)
     .eq("id", orderId)
     .eq("user_id", userId)
     .select()
     .single();
+
+  if (result.error) {
+    console.error(`[updateOrder] Failed to update order ${orderId}:`, result.error);
+  }
+
+  // If update succeeded and money-related fields changed, invalidate invoice PDF cache
+  if (!result.error && result.data) {
+    const hasMoneyChanges =
+      updates.amount !== undefined ||
+      updates.discount_amount !== undefined ||
+      updates.shipping_fee !== undefined;
+
+    if (hasMoneyChanges) {
+      // Import dynamically to avoid circular dependency
+      const { invalidateInvoicePdfForOrder } = await import('../../invoices/services/invoiceService');
+      await invalidateInvoicePdfForOrder(orderId);
+    }
+  }
+
+  return result;
 }
 
 /**

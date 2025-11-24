@@ -162,8 +162,8 @@ export async function fetchCodReturnAnalytics(
         .from("orders")
         .select("*")
         .eq("user_id", userId)
-        .gte("created_at", resolved.from.toISOString())
-        .lte("created_at", resolved.to.toISOString());
+        .gte("order_date", resolved.from.toISOString())
+        .lte("order_date", resolved.to.toISOString());
 
     if (error) {
         console.error("Error fetching COD analytics:", error);
@@ -217,8 +217,8 @@ export async function fetchRiskScoreAnalytics(
         .from("orders")
         .select("*")
         .eq("user_id", userId)
-        .gte("created_at", resolved.from.toISOString())
-        .lte("created_at", resolved.to.toISOString());
+        .gte("order_date", resolved.from.toISOString())
+        .lte("order_date", resolved.to.toISOString());
     if (error) {
         console.error("Error fetching risk analytics:", error);
         return { buckets: [] };
@@ -268,8 +268,8 @@ export async function fetchVerificationFunnelAnalytics(
         .from("orders")
         .select("*")
         .eq("user_id", userId)
-        .gte("created_at", resolved.from.toISOString())
-        .lte("created_at", resolved.to.toISOString());
+        .gte("order_date", resolved.from.toISOString())
+        .lte("order_date", resolved.to.toISOString());
 
     if (error) {
         console.error("Error fetching funnel analytics:", error);
@@ -319,8 +319,8 @@ export async function fetchAddressRiskAnalytics(
         .select("address, status, created_at")
         .eq("user_id", userId)
         .not("address", "is", null)
-        .gte("created_at", resolved.from.toISOString())
-        .lte("created_at", resolved.to.toISOString());
+        .gte("order_date", resolved.from.toISOString())
+        .lte("order_date", resolved.to.toISOString());
 
     if (error) {
         console.error("Error fetching address analytics:", error);
@@ -382,8 +382,8 @@ export async function fetchCustomerAnalytics(
         .select("phone, status, created_at")
         .eq("user_id", userId)
         .not("phone", "is", null)
-        .gte("created_at", resolved.from.toISOString())
-        .lte("created_at", resolved.to.toISOString());
+        .gte("order_date", resolved.from.toISOString())
+        .lte("order_date", resolved.to.toISOString());
 
     if (error) {
         console.error("Error fetching customer analytics:", error);
@@ -453,8 +453,8 @@ export async function fetchProductChannelAnalytics(
         .from("orders")
         .select("product_id, product, status")
         .eq("user_id", userId)
-        .gte("created_at", resolved.from.toISOString())
-        .lte("created_at", resolved.to.toISOString());
+        .gte("order_date", resolved.from.toISOString())
+        .lte("order_date", resolved.to.toISOString());
 
     if (error) {
         console.error("Error fetching product analytics:", error);
@@ -509,8 +509,8 @@ export async function fetchOperationalAnalytics(
         .from("orders")
         .select("*")
         .eq("user_id", userId)
-        .gte("created_at", resolved.from.toISOString())
-        .lte("created_at", resolved.to.toISOString());
+        .gte("order_date", resolved.from.toISOString())
+        .lte("order_date", resolved.to.toISOString());
 
     if (error) {
         console.error("Error fetching operational analytics:", error);

@@ -19,6 +19,7 @@ import {
 } from "../../features/customers/services/customersService";
 import { CustomerInsightPanel } from "../../features/customers/components/CustomerInsightPanel";
 import type { Order } from "../../types/supabase";
+import { Pagination } from "../../components/ui/Pagination";
 
 const formatDate = (iso: string | null) => {
   if (!iso) return "N/A";
@@ -44,6 +45,10 @@ export const CustomersPage: React.FC = () => {
   const [customerOrders, setCustomerOrders] = useState<Order[]>([]);
   const [insightOpen, setInsightOpen] = useState(false);
   const [insightLoading, setInsightLoading] = useState(false);
+
+  // Pagination
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 200;
 
   // Load customer stats
   useEffect(() => {
@@ -110,6 +115,7 @@ export const CustomersPage: React.FC = () => {
     setCustomerOrders([]);
   };
 
+  // Search filter
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     if (!term) return stats;
@@ -119,10 +125,21 @@ export const CustomersPage: React.FC = () => {
     );
   }, [stats, search]);
 
+  // Paginated list
+  const paginated = useMemo(() => {
+    const startIndex = (page - 1) * PAGE_SIZE;
+    return filtered.slice(startIndex, startIndex + PAGE_SIZE);
+  }, [filtered, page]);
+
+  // Reset page when searching
+  useEffect(() => {
+    setPage(1);
+  }, [search]);
+
   return (
-    <div className="flex flex-col h-full min-h-0 gap-6">
+    <div className="flex flex-col h-full min-h-0 p-6">
       {/* Search */}
-      <Card className="flex-shrink-0">
+      <Card className="shrink-0">
         <CardHeader className="!pt-3 !pb-2 !px-4">
           <CardTitle className="flex items-center gap-2 text-base">
             <Search size={18} />
@@ -140,7 +157,7 @@ export const CustomersPage: React.FC = () => {
       </Card>
 
       {/* Table */}
-      <Card className="flex-1 flex flex-col min-h-0">
+      <Card className="flex-1 flex flex-col min-h-0 mt-6">
         <CardHeader className="!pt-4 !pb-1 !px-6 flex-shrink-0">
           <CardTitle>Customers</CardTitle>
         </CardHeader>
@@ -171,7 +188,7 @@ export const CustomersPage: React.FC = () => {
                 </thead>
 
                 <tbody>
-                  {filtered.map((c) => (
+                  {paginated.map((c) => (
                     <tr
                       key={c.phone}
                       className="border-b border-[#1E223D] hover:bg-white/5 transition cursor-pointer"
@@ -182,10 +199,13 @@ export const CustomersPage: React.FC = () => {
                       <td className="px-6 py-4 text-sm text-center">{c.totalOrders}</td>
                       <td className="px-6 py-4 text-sm text-emerald-400 text-center">{c.successCount}</td>
                       <td className="px-6 py-4 text-sm text-red-400 text-center">{c.failedCount}</td>
-                      <td className="px-6 py-4 text-center"><RiskBadge score={c.customerRiskScore} /></td>
-                      <td className="px-6 py-4 text-sm text-center">{formatDate(c.lastOrderAt)}</td>
+                      <td className="px-6 py-4 text-center">
+                        <RiskBadge score={c.customerRiskScore} />
+                      </td>
+                      <td className="px-6 py-4 text-sm text-center">
+                        {formatDate(c.lastOrderAt)}
+                      </td>
 
-                      {/* ⭐ Add/Remove Buttons */}
                       <td className="px-6 py-4 text-center">
                         {blacklistPhones.has(c.phone) ? (
                           <button
@@ -218,6 +238,14 @@ export const CustomersPage: React.FC = () => {
             </div>
           )}
         </CardContent>
+
+        {/* Pagination */}
+        <Pagination
+          currentPage={page}
+          totalItems={filtered.length}
+          pageSize={PAGE_SIZE}
+          onPageChange={setPage}
+        />
       </Card>
 
       {/* Customer Insight Panel */}

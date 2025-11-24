@@ -16,6 +16,8 @@ import { generateChanges } from '../../utils/generateChanges';
 import { PRODUCT_CATEGORIES, getCategoryDisplayName, getAllCategorySlugs } from '../../constants/productCategories';
 import type { Product } from '../../types/supabase';
 
+const STATIC_STATUS_OPTIONS = ['active', 'inactive'];
+
 export const ProductsPage: React.FC = () => {
   const { user } = useAuth();
   const { showSuccess, showError } = useToast();
@@ -410,23 +412,21 @@ export const ProductsPage: React.FC = () => {
 
   // Unique categories from current products (for filter dropdown)
   // We only show categories that actually exist in the user's data.
-  const categoryOptions = Array.from(
-    new Set(
-      products
-        .map((p) => p.category?.trim())
-        .filter((cat): cat is string => !!cat)
-    )
-  )
-    .map((category) => ({
-      value: category,
-      label: getCategoryDisplayName(category),
+  const categoryOptions = getAllCategorySlugs()
+    .map((slug) => ({
+      value: slug,
+      label: getCategoryDisplayName(slug),
     }))
     .sort((a, b) => a.label.localeCompare(b.label, "vi"));
 
   // Unique statuses from current products (for filter dropdown)
-  const statusOptions = Array.from(
-    new Set(products.map((p) => p.status))
-  ).filter((status): status is Product["status"] => !!status);
+  const statusOptions = STATIC_STATUS_OPTIONS;
+
+  const clearAllFilters = () => {
+    setSearchQuery('');
+    setCategoryFilter('all');
+    setStatusFilter('all');
+  };
 
   const filteredProducts = products.filter((product) => {
     const term = searchQuery.trim().toLowerCase();
@@ -571,16 +571,25 @@ export const ProductsPage: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col h-full min-h-0 gap-6">
+    <div className="flex flex-col h-full min-h-0 p-6">
       {/* Filters */}
-      <Card className="flex-shrink-0">
+      <Card className="shrink-0">
         <CardHeader className="!pt-3 !pb-2 !px-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <CardTitle className="flex items-center gap-2 text-base">
               <Filter size={18} />
               Filters
             </CardTitle>
-            <PrimaryActionButton label="Add Product" onClick={openAddModal} />
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={clearAllFilters}
+                className="text-xs sm:text-sm text-white/60 hover:text-white underline-offset-2 hover:underline"
+              >
+                Clear filters
+              </button>
+              <PrimaryActionButton label="Add Product" onClick={openAddModal} />
+            </div>
           </div>
         </CardHeader>
         <CardContent className="!pt-0 !px-4 !pb-3">
@@ -629,7 +638,7 @@ export const ProductsPage: React.FC = () => {
         </CardContent>
       </Card>
 
-      <Card className="flex-1 flex flex-col min-h-0">
+      <Card className="flex-1 flex flex-col min-h-0 mt-6">
         <CardHeader className="!pt-4 !pb-1 !px-6 flex-shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">

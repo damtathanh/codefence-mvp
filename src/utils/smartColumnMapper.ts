@@ -4,7 +4,7 @@ export function norm(h: string): string {
 }
 
 // Header labels with their internal keys and both language options
-const HEADER_MAPPINGS: Record<string, { en: string; vi: string }> = {
+const HEADER_MAPPINGS: Record<string, { en: string | string[]; vi: string | string[] }> = {
   order_id: { en: "order id", vi: "mã đơn hàng" },
   customer_name: { en: "customer name", vi: "tên khách hàng" },
   phone: { en: "phone number", vi: "số điện thoại" },
@@ -22,6 +22,10 @@ const HEADER_MAPPINGS: Record<string, { en: string; vi: string }> = {
   shipping_fee: { en: "shipping fee", vi: "phí giao hàng" },
   channel: { en: "channel", vi: "kênh bán hàng" },
   source: { en: "source", vi: "nguồn" },
+  order_date: {
+    en: ["order date", "purchase date", "date", "time", "created at"],
+    vi: ["ngày đặt hàng", "ngày mua", "ngày order", "ngày tạo", "thời gian"]
+  }
 };
 
 // Required columns (address is optional)
@@ -46,6 +50,7 @@ const DISPLAY_NAMES: Record<string, { en: string; vi: string }> = {
   shipping_fee: { en: "Shipping Fee", vi: "Phí giao hàng" },
   channel: { en: "Channel", vi: "Kênh bán hàng" },
   source: { en: "Source", vi: "Nguồn" },
+  order_date: { en: "Order Date", vi: "Ngày đặt hàng" },
 };
 
 export function normalize(str: string) {
@@ -92,12 +97,15 @@ export function validateAndMapHeaders(headers: string[]): HeaderValidationResult
 
   // For each known column, try to find a matching header
   for (const [key, labels] of Object.entries(HEADER_MAPPINGS)) {
-    const normalizedEn = normalize(labels.en);
-    const normalizedVi = normalize(labels.vi);
+    const enLabels = Array.isArray(labels.en) ? labels.en : [labels.en];
+    const viLabels = Array.isArray(labels.vi) ? labels.vi : [labels.vi];
+
+    const normalizedEn = enLabels.map(l => normalize(l));
+    const normalizedVi = viLabels.map(l => normalize(l));
 
     // Find matching header (case-insensitive, accent-insensitive)
     const matchedIndex = normalizedHeaders.findIndex(
-      h => h === normalizedEn || h === normalizedVi
+      h => normalizedEn.includes(h) || normalizedVi.includes(h)
     );
 
     if (matchedIndex !== -1) {
@@ -109,10 +117,14 @@ export function validateAndMapHeaders(headers: string[]): HeaderValidationResult
   // Collect unmatched headers for misnamed detection
   const matchedHeaderIndices = new Set<number>();
   for (const [key, labels] of Object.entries(HEADER_MAPPINGS)) {
-    const normalizedEn = normalize(labels.en);
-    const normalizedVi = normalize(labels.vi);
+    const enLabels = Array.isArray(labels.en) ? labels.en : [labels.en];
+    const viLabels = Array.isArray(labels.vi) ? labels.vi : [labels.vi];
+
+    const normalizedEn = enLabels.map(l => normalize(l));
+    const normalizedVi = viLabels.map(l => normalize(l));
+
     const matchedIndex = normalizedHeaders.findIndex(
-      h => h === normalizedEn || h === normalizedVi
+      h => normalizedEn.includes(h) || normalizedVi.includes(h)
     );
     if (matchedIndex !== -1) {
       matchedHeaderIndices.add(matchedIndex);

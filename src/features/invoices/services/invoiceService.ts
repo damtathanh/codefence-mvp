@@ -2,6 +2,7 @@
 import { supabase } from "../../../lib/supabaseClient";
 import { INVOICE_STATUS, type InvoiceStatus } from "./invoiceTypes";
 import type { Order, Invoice } from "../../../types/supabase";
+import { insertOrderEvent } from "../../orders/services/orderEventsService";
 
 // helper to get today's date as YYYY-MM-DD for the `date` column
 function getTodayDateString() {
@@ -107,6 +108,13 @@ export async function markInvoicePaidForOrder(order: Order) {
       throw updateError; // để biết là nó fail
     }
 
+    // Centralized Event Logging: Insert CUSTOMER_PAID event
+    await insertOrderEvent({
+      order_id: order.id,
+      event_type: 'CUSTOMER_PAID',
+      payload_json: { source: 'invoice_service', user_id: order.user_id },
+    });
+
     return;
   }
 
@@ -125,6 +133,13 @@ export async function markInvoicePaidForOrder(order: Order) {
     console.error("markInvoicePaidForOrder: insert error", insertError);
     throw insertError;
   }
+
+  // Centralized Event Logging: Insert CUSTOMER_PAID event
+  await insertOrderEvent({
+    order_id: order.id,
+    event_type: 'CUSTOMER_PAID',
+    payload_json: { source: 'invoice_service', user_id: order.user_id },
+  });
 }
 
 /**
@@ -248,3 +263,40 @@ export async function fetchInvoicesByUser(
     error
   };
 }
+
+/**
+ * Invalidate invoice PDF cache for an order.
+ * Clears pdf_url so the next download will regenerate the PDF with fresh data.
+ * Call this after updating order fields that affect the invoice (amount, discount, shipping).
+ */
+export async function invalidateInvoicePdfForOrder(orderId: string) {
+  if (!orderId) return;
+
+  // Find invoices for this order
+  const { data: invoices, error } = await supabase
+    .from('invoices')
+    .select('id')
+    .eq('order_id', orderId);
+
+  if (error) {
+    console.error('Failed to load invoices for order to invalidate PDF', error);
+    return;
+  }
+
+  if (!invoices || invoices.length === 0) return;
+
+  const invoiceIds = invoices.map((inv) => inv.id);
+
+  // Clear pdf_url to force regeneration on next download
+  const { error: updateError } = await supabase
+    .from('invoices')
+    .update({
+      pdf_url: null,
+    })
+    .in('id', invoiceIds);
+
+  if (updateError) {
+    console.error('Failed to invalidate invoice PDFs for order', orderId, updateError);
+  }
+}
+

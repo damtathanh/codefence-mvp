@@ -39,6 +39,7 @@ export interface Order {
   risk_level: string | null; // 'Low' | 'Medium' | 'High'
   created_at?: string;
   updated_at?: string;
+  order_date?: string | null;
   // Joined product data (when fetching with join)
   products?: {
     id: string;

@@ -1,9 +1,8 @@
 import React, { useState } from 'react';
 import { StatCard } from '../../../components/analytics/StatCard';
 import { ChartCard } from '../../../components/analytics/ChartCard';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { MapPin, Shield, DollarSign, TrendingDown, AlertTriangle } from 'lucide-react';
-import type { DashboardDateRange } from '../../dashboard/useDashboardStats';
+import { useDashboardStats, type DashboardDateRange } from '../../dashboard/useDashboardStats';
 
 interface GeoTabProps {
     dateRange: DashboardDateRange;
@@ -12,7 +11,7 @@ interface GeoTabProps {
 }
 
 export const GeoTab: React.FC<GeoTabProps> = ({ dateRange, customFrom, customTo }) => {
-    // TODO: Fetch real data based on dateRange
+    const { loading, error, geoRiskStats } = useDashboardStats(dateRange, customFrom, customTo);
     const [selectedProvince, setSelectedProvince] = useState('all');
     const [selectedDistrict, setSelectedDistrict] = useState('all');
 
@@ -24,8 +23,21 @@ export const GeoTab: React.FC<GeoTabProps> = ({ dateRange, customFrom, customTo 
         }).format(value);
     };
 
-    // TODO: Replace with real Supabase data
-    const chartData: any[] = [];
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center h-64">
+                <p className="text-white/60">Loading analytics...</p>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="flex items-center justify-center h-64">
+                <p className="text-red-400">Error loading analytics: {error}</p>
+            </div>
+        );
+    }
 
     return (
         <div className="space-y-4">
@@ -33,34 +45,41 @@ export const GeoTab: React.FC<GeoTabProps> = ({ dateRange, customFrom, customTo 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard
                     title="Highest-Risk Province"
-                    value="–"
-                    subtitle="–"
+                    value={geoRiskStats.highestRiskProvince?.province || "N/A"}
+                    subtitle={geoRiskStats.highestRiskProvince
+                        ? `Avg risk: ${geoRiskStats.highestRiskProvince.avgRiskScore?.toFixed(1)} (${geoRiskStats.highestRiskProvince.orderCount} orders)`
+                        : "No data yet"}
                     icon={<AlertTriangle className="w-5 h-5 text-red-400" />}
+                    valueColor="#f87171"
                 />
                 <StatCard
                     title="Safest Province"
-                    value="–"
-                    subtitle="–"
+                    value={geoRiskStats.safestProvince?.province || "N/A"}
+                    subtitle={geoRiskStats.safestProvince
+                        ? `Avg risk: ${geoRiskStats.safestProvince.avgRiskScore?.toFixed(1)} (${geoRiskStats.safestProvince.orderCount} orders)`
+                        : "No data yet"}
                     icon={<Shield className="w-5 h-5 text-green-400" />}
+                    valueColor="#4ade80"
                 />
                 <StatCard
                     title="Sales by Top Province"
-                    value={formatCurrency(0)}
-                    subtitle="–"
+                    value={geoRiskStats.topRevenueProvince ? formatCurrency(geoRiskStats.topRevenueProvince.totalRevenue) : "N/A"}
+                    subtitle={geoRiskStats.topRevenueProvince?.province || "No data yet"}
                     icon={<DollarSign className="w-5 h-5 text-[#8B5CF6]" />}
+                    valueColor="#8B5CF6"
                 />
                 <StatCard
                     title="Boom Rate (Top Province)"
-                    value="–"
-                    subtitle="–"
+                    value="N/A"
+                    subtitle="Coming soon"
                     icon={<TrendingDown className="w-5 h-5 text-blue-400" />}
+                    valueColor="#60a5fa"
                 />
             </div>
 
             {/* Row 2: Map & Chart */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <ChartCard title="Vietnam Risk Map" subtitle="Select province and district">
-                    {/* TODO: Implement interactive Vietnam map with react-simple-maps or similar */}
                     <div className="flex flex-col h-full">
                         <div className="flex gap-2 mb-3">
                             <select
@@ -90,38 +109,16 @@ export const GeoTab: React.FC<GeoTabProps> = ({ dateRange, customFrom, customTo 
                             <div className="text-center">
                                 <MapPin className="w-12 h-12 text-[#8B5CF6] mx-auto mb-2" />
                                 <p className="text-sm text-white/60">Vietnam Risk Map</p>
-                                <p className="text-xs text-white/40 mt-1">TODO: Implement interactive map</p>
+                                <p className="text-xs text-white/40 mt-1">Geo analytics coming soon</p>
                             </div>
                         </div>
                     </div>
                 </ChartCard>
 
                 <ChartCard title="Sales by Province" subtitle="Top 5 provinces">
-                    <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={chartData} layout="vertical">
-                            <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
-                            <XAxis
-                                type="number"
-                                stroke="#E5E7EB"
-                                tick={{ fill: '#E5E7EB', fontSize: 12 }}
-                                tickFormatter={(value) => `${(value / 1000000).toFixed(0)}M`}
-                            />
-                            <YAxis type="category" dataKey="province" stroke="#E5E7EB" tick={{ fill: '#E5E7EB', fontSize: 11 }} width={100} />
-                            <Tooltip
-                                contentStyle={{
-                                    backgroundColor: '#12163A',
-                                    border: '1px solid #1E223D',
-                                    borderRadius: '8px',
-                                    color: '#E5E7EB'
-                                }}
-                                formatter={(value: number, name) => [
-                                    name === 'revenue' ? formatCurrency(value) : value,
-                                    name === 'revenue' ? 'Revenue' : 'Orders'
-                                ]}
-                            />
-                            <Bar dataKey="revenue" fill="#8B5CF6" name="Revenue" />
-                        </BarChart>
-                    </ResponsiveContainer>
+                    <div className="flex items-center justify-center h-full min-h-[300px] text-white/40">
+                        <p>Geo analytics coming soon</p>
+                    </div>
                 </ChartCard>
             </div>
         </div>

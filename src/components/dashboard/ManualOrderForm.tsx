@@ -291,6 +291,7 @@ export const ManualOrderForm: React.FC<ManualOrderFormProps> = ({
                         status: initialStatus,
                         risk_score: isCod ? riskScore : null,
                         risk_level: isCod ? riskLevel : null,
+                        order_date: new Date().toISOString().split('T')[0],
                         // risk_version: riskVersion, // Uncomment if column exists, otherwise skip
                     })
                     .select()

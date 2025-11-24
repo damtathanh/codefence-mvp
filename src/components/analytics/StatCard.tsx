@@ -5,16 +5,20 @@ interface StatCardProps {
     value: string | number;
     subtitle?: string;
     icon?: React.ReactNode;
+    valueColor?: string;
 }
 
-export const StatCard: React.FC<StatCardProps> = ({ title, value, subtitle, icon }) => {
+export const StatCard: React.FC<StatCardProps> = ({ title, value, subtitle, icon, valueColor }) => {
     return (
         <div className="rounded-2xl bg-[#020617] border border-white/10 p-4 flex items-start justify-between">
             <div className="flex-1">
                 <h3 className="text-xs font-medium text-white/60 uppercase tracking-wide">
                     {title}
                 </h3>
-                <p className="mt-1 text-2xl font-semibold text-white">
+                <p
+                    className="mt-1 text-2xl font-semibold drop-shadow-sm"
+                    style={{ color: valueColor ?? "#FFFFFF" }}
+                >
                     {value}
                 </p>
                 {subtitle && (

@@ -10,12 +10,12 @@ interface CancellationReasonModalProps {
     order: Order;
 }
 
-const PRESET_REASONS = [
-    'Không nghe máy',
-    'Đổi ý',
-    'Sai địa chỉ',
-    'Sai thông tin sản phẩm',
-    'Khác',
+const REASON_OPTIONS = [
+    { value: 'Không nghe máy', label: 'Tôi không nghe máy' },
+    { value: 'Đổi ý', label: 'Tôi không muốn mua nữa' },
+    { value: 'Sai địa chỉ', label: 'Tôi đặt nhầm địa chỉ / thông tin nhận hàng' },
+    { value: 'Sai thông tin sản phẩm', label: 'Tôi đặt lộn sản phẩm' },
+    { value: 'Khác', label: 'Lý do khác (ghi lại đúng lời khách)' },
 ];
 
 export const CancellationReasonModal: React.FC<CancellationReasonModalProps> = ({
@@ -97,22 +97,22 @@ export const CancellationReasonModal: React.FC<CancellationReasonModalProps> = (
                         {/* Reason Selection */}
                         <div className="space-y-2">
                             <label className="block text-sm font-medium text-white/80 mb-3">
-                                Chọn lý do hủy đơn:
+                                Chọn lý do hủy đơn (theo lời khách):
                             </label>
-                            {PRESET_REASONS.map((reason) => (
+                            {REASON_OPTIONS.map((option) => (
                                 <label
-                                    key={reason}
+                                    key={option.value}
                                     className="flex items-center p-3 rounded-lg border border-white/10 hover:bg-white/5 cursor-pointer transition-colors"
                                 >
                                     <input
                                         type="radio"
                                         name="cancellation-reason"
-                                        value={reason}
-                                        checked={selectedReason === reason}
+                                        value={option.value}
+                                        checked={selectedReason === option.value}
                                         onChange={(e) => setSelectedReason(e.target.value)}
                                         className="w-4 h-4 text-purple-600 bg-slate-700 border-white/20 focus:ring-purple-500 focus:ring-2"
                                     />
-                                    <span className="ml-3 text-white/90">{reason}</span>
+                                    <span className="ml-3 text-white/90">{option.label}</span>
                                 </label>
                             ))}
                         </div>

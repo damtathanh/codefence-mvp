@@ -23,7 +23,11 @@ import {
 } from '../../zalo';
 import { insertOrderEvent } from '../services/orderEventsService';
 import { ORDER_STATUS } from '../../../constants/orderStatus';
+import { PAYMENT_METHODS } from '../../../constants/paymentMethods';
 import type { Order, OrderEvent } from '../../../types/supabase';
+import { logUserAction } from '../../../utils/logUserAction';
+
+
 
 export const OrdersView: React.FC = () => {
     const { user } = useAuth();
@@ -39,8 +43,9 @@ export const OrdersView: React.FC = () => {
         paymentMethodFilter,
         setPaymentMethodFilter,
         filteredOrders,
-        availableStatusOptions,
-        availablePaymentMethods,
+        statusOptions,
+        paymentMethodOptions,
+        clearAllFilters,
     } = useOrderFilters(orders);
     const {
         selectedIds,
@@ -222,39 +227,78 @@ export const OrdersView: React.FC = () => {
             return;
         }
 
-        const hasBeenProcessed = orderEvents.some(
-            (e) => e.event_type === 'ORDER_APPROVED' || e.event_type === 'ORDER_REJECTED'
-        );
-        if (hasBeenProcessed) {
-            showInfo('This order has already been processed.');
-            return;
-        }
-
         try {
-            const success = await updateOrderLocal(order.id, {
-                status: ORDER_STATUS.ORDER_CONFIRMATION_SENT,
-            } as Partial<Order>);
+            // Different behavior for Pending Review vs Verification Required
+            if (order.status === ORDER_STATUS.VERIFICATION_REQUIRED) {
+                // Direct transition to Customer Confirmed (no modal, no Zalo)
+                const success = await updateOrderLocal(order.id, {
+                    status: ORDER_STATUS.CUSTOMER_CONFIRMED,
+                } as Partial<Order>);
 
-            if (!success) {
-                showError('Failed to approve order');
-                return;
+                if (!success) {
+                    showError('Failed to approve order');
+                    return;
+                }
+
+                await insertOrderEvent({
+                    order_id: order.id,
+                    event_type: 'ORDER_APPROVED',
+                    payload_json: { user_id: user.id, from_verification: true },
+                });
+
+                showSuccess('Order approved → Customer Confirmed');
+
+                await logUserAction({
+                    userId: user.id,
+                    action: 'Approve Order (Verification)',
+                    status: 'success',
+                    orderId: order.order_id || order.id,
+                    details: {
+                        status_from: order.status,
+                        status_to: ORDER_STATUS.CUSTOMER_CONFIRMED,
+                    },
+                });
+            } else {
+                // Pending Review: Send confirmation via Zalo
+                const success = await updateOrderLocal(order.id, {
+                    status: ORDER_STATUS.ORDER_CONFIRMATION_SENT,
+                } as Partial<Order>);
+
+                if (!success) {
+                    showError('Failed to approve order');
+                    return;
+                }
+
+                await zaloGateway.sendConfirmation(order);
+
+                await insertOrderEvent({
+                    order_id: order.id,
+                    event_type: 'ORDER_APPROVED',
+                    payload_json: { user_id: user.id },
+                });
+                await insertOrderEvent({
+                    order_id: order.id,
+                    event_type: 'ZALO_CONFIRMATION_SENT',
+                    payload_json: { source: 'zalo_gateway' },
+                });
+
+                showSuccess('Order approved and confirmation sent');
+
+                await logUserAction({
+                    userId: user.id,
+                    action: 'Approve Order',
+                    status: 'success',
+                    orderId: order.order_id || order.id,
+                    details: {
+                        status_from: order.status,
+                        status_to: ORDER_STATUS.ORDER_CONFIRMATION_SENT,
+                    },
+                });
             }
 
-            await zaloGateway.sendConfirmation(order);
-
-            await insertOrderEvent({
-                order_id: order.id,
-                event_type: 'ORDER_APPROVED',
-                payload_json: { user_id: user.id },
-            });
-            await insertOrderEvent({
-                order_id: order.id,
-                event_type: 'ZALO_CONFIRMATION_SENT',
-                payload_json: { source: 'zalo_gateway' },
-            });
-
-            showSuccess('Order approved and confirmation sent');
-            await refreshAfterAction(order.id);
+            // Close side panel if it is open
+            setIsSidePanelOpen(false);
+            setSelectedOrder(null);
         } catch (error) {
             showError('Failed to approve order');
             console.error('Error approving order:', error);
@@ -262,7 +306,7 @@ export const OrdersView: React.FC = () => {
     };
 
     // ========= COD Reject with One-Time Guard =========
-    const handleRejectOrder = (order: Order) => {
+    const handleRejectOrder = async (order: Order) => {
         if (!user) return;
 
         const canRejectFromStatus =
@@ -274,18 +318,52 @@ export const OrdersView: React.FC = () => {
             return;
         }
 
-        const hasBeenProcessed = orderEvents.some(
-            (e) => e.event_type === 'ORDER_APPROVED' || e.event_type === 'ORDER_REJECTED'
-        );
-        if (hasBeenProcessed) {
-            showInfo('This order has already been processed.');
-            return;
-        }
+        // Different behavior for Verification Required
+        if (order.status === ORDER_STATUS.VERIFICATION_REQUIRED) {
+            // Direct transition to Order Rejected (no modal)
+            try {
+                const success = await updateOrderLocal(order.id, {
+                    status: ORDER_STATUS.ORDER_REJECTED,
+                } as Partial<Order>);
 
-        setRejectTargetOrder(order);
-        setRejectMode('ORDER_REJECTED');
-        setRejectReason('');
-        setIsRejectModalOpen(true);
+                if (!success) {
+                    showError('Failed to reject order');
+                    return;
+                }
+
+                await insertOrderEvent({
+                    order_id: order.id,
+                    event_type: 'ORDER_REJECTED',
+                    payload_json: { user_id: user.id, from_verification: true, reason: 'Rejected during verification' },
+                });
+
+                showSuccess('Order rejected');
+
+                await logUserAction({
+                    userId: user.id,
+                    action: 'Reject Order (Verification)',
+                    status: 'success',
+                    orderId: order.order_id || order.id,
+                    details: {
+                        status_from: order.status,
+                        status_to: ORDER_STATUS.ORDER_REJECTED,
+                    },
+                });
+
+                // Close side panel
+                setIsSidePanelOpen(false);
+                setSelectedOrder(null);
+            } catch (error) {
+                showError('Failed to reject order');
+                console.error('Error rejecting order:', error);
+            }
+        } else {
+            // Pending Review: Open modal for reason
+            setRejectTargetOrder(order);
+            setRejectMode('ORDER_REJECTED');
+            setRejectReason('');
+            setIsRejectModalOpen(true);
+        }
     };
 
     // ========= Simulate Confirmed =========
@@ -303,6 +381,17 @@ export const OrdersView: React.FC = () => {
             setPendingConfirmOrder(order);
             setIsConfirmationModalOpen(true);
             setIsSidePanelOpen(false);
+
+            await logUserAction({
+                userId: user.id,
+                action: 'Customer Confirmed Order',
+                status: 'success',
+                orderId: order.order_id || order.id,
+                details: {
+                    status_from: ORDER_STATUS.ORDER_CONFIRMATION_SENT,
+                    status_to: ORDER_STATUS.CUSTOMER_CONFIRMED, // Simulated transition
+                },
+            });
         } catch (error) {
             showError('Failed to simulate confirmation');
             console.error('Error simulating confirmed:', error);
@@ -340,6 +429,18 @@ export const OrdersView: React.FC = () => {
             setIsCancellationModalOpen(false);
             await refreshAfterAction(pendingConfirmOrder.id);
             setPendingConfirmOrder(null);
+
+            await logUserAction({
+                userId: user.id,
+                action: 'Customer Cancelled Order',
+                status: 'success',
+                orderId: pendingConfirmOrder.order_id || pendingConfirmOrder.id,
+                details: {
+                    status_from: pendingConfirmOrder.status,
+                    status_to: ORDER_STATUS.CUSTOMER_CANCELLED,
+                    reason,
+                },
+            });
         } catch (error) {
             showError('Failed to simulate cancellation');
             console.error('Error simulating cancelled:', error);
@@ -354,14 +455,42 @@ export const OrdersView: React.FC = () => {
     // ========= Simulate Paid =========
     const handleSimulatePaidClick = async (order: Order) => {
         if (!user) return;
+        const currentStatus = order.status;
+
         try {
+            // 1. Always mark invoice as Paid (idempotent) and log payment event
             await simulateCustomerPaid(order);
 
+            // REMOVED: insertOrderEvent is now handled inside markInvoicePaidForOrder (called by simulateCustomerPaid)
+            /*
             await insertOrderEvent({
                 order_id: order.id,
                 event_type: 'CUSTOMER_PAID',
                 payload_json: { source: 'mock_zalo' },
             });
+            */
+
+            // 2. Log the user action
+            await logUserAction({
+                userId: user.id,
+                action: 'Simulate Paid',
+                status: 'success',
+                orderId: order.order_id || order.id,
+                details: {
+                    payment_status_from: 'unpaid',
+                    payment_status_to: 'paid',
+                    status_from: currentStatus,
+                    status_to:
+                        currentStatus === ORDER_STATUS.DELIVERING || currentStatus === ORDER_STATUS.COMPLETED
+                            ? currentStatus
+                            : ORDER_STATUS.ORDER_PAID,
+                },
+            });
+
+            // 3. Restore status if simulateCustomerPaid changed it but we want to keep it as Delivering/Completed
+            if (currentStatus === ORDER_STATUS.DELIVERING || currentStatus === ORDER_STATUS.COMPLETED) {
+                await updateOrderLocal(order.id, { status: currentStatus });
+            }
 
             showSuccess('Customer paid via mock Zalo OA');
             await refreshAfterAction(order.id);
@@ -393,6 +522,17 @@ export const OrdersView: React.FC = () => {
 
             showSuccess('Order marked as delivering');
             await refreshAfterAction(order.id);
+
+            await logUserAction({
+                userId: user.id,
+                action: 'Mark Order as Delivered',
+                status: 'success',
+                orderId: order.order_id || order.id,
+                details: {
+                    status_from: order.status,
+                    status_to: ORDER_STATUS.DELIVERING,
+                },
+            });
         } catch (error) {
             showError('Failed to mark as delivered');
             console.error('Error marking delivered:', error);
@@ -421,9 +561,64 @@ export const OrdersView: React.FC = () => {
 
             showSuccess('Order marked as completed');
             await refreshAfterAction(order.id);
+
+            await logUserAction({
+                userId: user.id,
+                action: 'Mark Order as Completed',
+                status: 'success',
+                orderId: order.order_id || order.id,
+                details: {
+                    status_from: order.status,
+                    status_to: ORDER_STATUS.COMPLETED,
+                },
+            });
         } catch (error) {
             showError('Failed to mark as completed');
             console.error('Error marking completed:', error);
+        }
+    };
+
+    // ========= Mark as Missed (Verification Required → Customer Unreachable) =========
+    const handleMarkMissed = async (order: Order) => {
+        if (!user) return;
+
+        if (order.status !== ORDER_STATUS.VERIFICATION_REQUIRED) {
+            showInfo('Only Verification Required orders can be marked as missed');
+            return;
+        }
+
+        try {
+            const success = await updateOrderLocal(order.id, {
+                status: ORDER_STATUS.CUSTOMER_UNREACHABLE,
+            } as Partial<Order>);
+
+            if (!success) {
+                showError('Failed to mark as missed');
+                return;
+            }
+
+            await insertOrderEvent({
+                order_id: order.id,
+                event_type: 'CUSTOMER_UNREACHABLE',
+                payload_json: { user_id: user.id, reason: 'Customer did not respond to verification' },
+            });
+
+            showSuccess('Order marked as Customer Unreachable');
+            await refreshAfterAction(order.id);
+
+            await logUserAction({
+                userId: user.id,
+                action: 'Mark Order as Missed',
+                status: 'success',
+                orderId: order.order_id || order.id,
+                details: {
+                    status_from: order.status,
+                    status_to: ORDER_STATUS.CUSTOMER_UNREACHABLE,
+                },
+            });
+        } catch (error) {
+            showError('Failed to mark as missed');
+            console.error('Error marking missed:', error);
         }
     };
 
@@ -444,9 +639,10 @@ export const OrdersView: React.FC = () => {
         try {
             await handleConfirmReject(rejectTargetOrder, rejectReason, rejectMode);
             setIsRejectModalOpen(false);
-            if (selectedOrder && selectedOrder.id === rejectTargetOrder.id) {
-                await loadOrderEvents(rejectTargetOrder.id);
-            }
+
+            // Close side panel
+            setIsSidePanelOpen(false);
+            setSelectedOrder(null);
         } catch (error) {
             // handled in hook
         } finally {
@@ -480,7 +676,7 @@ export const OrdersView: React.FC = () => {
     };
 
     return (
-        <div className="flex flex-col h-full min-h-0 gap-6">
+        <div className="flex flex-col h-full min-h-0 p-6">
             {error && (
                 <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4 text-red-400">
                     {error}
@@ -496,46 +692,46 @@ export const OrdersView: React.FC = () => {
                 setRiskScoreFilter={setRiskScoreFilter}
                 paymentMethodFilter={paymentMethodFilter}
                 setPaymentMethodFilter={setPaymentMethodFilter}
-                availableStatusOptions={availableStatusOptions}
-                availablePaymentMethods={availablePaymentMethods}
+                statusOptions={statusOptions}
+                paymentOptions={paymentMethodOptions}
+                onClearFilters={clearAllFilters}
                 onAddOrder={() => {
                     setEditingOrder(null);
                     setIsAddOrderModalOpen(true);
                 }}
             />
 
-            <OrderTable
-                orders={paginatedOrders}
-                filteredOrders={filteredOrders} // This is now just the current page, but OrderTable might use it for length checks. 
-                // Actually OrderTable uses filteredOrders.length for "Showing X of Y". 
-                // We need to fix OrderTable to use totalCount for Y.
-                // But for now, let's pass what we have and we'll fix OrderTable next.
-                totalCount={totalCount}
-                currentPage={page}
-                pageSize={pageSize}
-                totalPages={totalPages}
-                selectedIds={selectedIds}
-                onSelectAll={handleSelectAll}
-                onToggleSelect={handleToggleSelect}
-                onPageChange={handlePageChange}
-                onRowClick={handleRowClick}
-                products={products}
-                onProductCorrection={handleProductCorrection}
-                onApprove={(orderId) => {
-                    const order = orders.find((o) => o.id === orderId);
-                    if (order) handleApproveOrder(order);
-                }}
-                onReject={(orderId) => {
-                    const order = orders.find((o) => o.id === orderId);
-                    if (order) openRejectModal(order);
-                }}
-                onEdit={(order) => {
-                    setEditingOrder(order);
-                    setIsAddOrderModalOpen(true);
-                }}
-                onDelete={() => handleDeleteAllClick()}
-                loading={loading}
-            />
+            <div className="flex-1 min-h-0 mt-6">
+                <OrderTable
+                    orders={paginatedOrders}
+                    filteredOrders={filteredOrders}
+                    totalCount={totalCount}
+                    currentPage={page}
+                    pageSize={pageSize}
+                    totalPages={totalPages}
+                    selectedIds={selectedIds}
+                    onSelectAll={handleSelectAll}
+                    onToggleSelect={handleToggleSelect}
+                    onPageChange={handlePageChange}
+                    onRowClick={handleRowClick}
+                    products={products}
+                    onProductCorrection={handleProductCorrection}
+                    onApprove={(orderId) => {
+                        const order = orders.find((o) => o.id === orderId);
+                        if (order) handleApproveOrder(order);
+                    }}
+                    onReject={(orderId) => {
+                        const order = orders.find((o) => o.id === orderId);
+                        if (order) openRejectModal(order);
+                    }}
+                    onEdit={(order) => {
+                        setEditingOrder(order);
+                        setIsAddOrderModalOpen(true);
+                    }}
+                    onDelete={() => handleDeleteAllClick()}
+                    loading={loading}
+                />
+            </div>
 
             <OrderSidePanel
                 isOpen={isSidePanelOpen}
@@ -551,6 +747,7 @@ export const OrdersView: React.FC = () => {
                 onReject={handleRejectOrder}
                 onMarkDelivered={handleMarkDelivered}
                 onMarkCompleted={handleMarkCompletedClick}
+                onMarkMissed={handleMarkMissed}
                 onSimulateConfirmed={handleSimulateConfirmedClick}
                 onSimulateCancelled={handleSimulateCancelledClick}
                 onSimulatePaid={handleSimulatePaidClick}

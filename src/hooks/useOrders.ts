@@ -31,6 +31,7 @@ export interface OrderInput {
     shipping_fee?: number | null;
     channel?: string | null;
     source?: string | null;
+    order_date?: string | null;
 }
 
 export interface ParsedOrderRow {
@@ -51,6 +52,7 @@ export interface ParsedOrderRow {
     shipping_fee?: number;
     channel?: string;
     source?: string;
+    order_date?: any;
 }
 
 export interface InvalidOrderRow {
@@ -65,6 +67,54 @@ function normalizeGender(value?: string): 'male' | 'female' | null {
     const v = value.toLowerCase().trim();
     if (["nam", "male", "m"].includes(v)) return "male";
     if (["nữ", "nu", "female", "f"].includes(v)) return "female";
+    return null;
+}
+
+function parseOrderDate(input: any): string | null {
+    if (!input) return null;
+
+    // Excel serial number (integer or float)
+    if (typeof input === "number") {
+        const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+        const result = new Date(excelEpoch.getTime() + input * 86400000);
+        return result.toISOString().split("T")[0];
+    }
+
+    if (typeof input === "string") {
+        const raw = input.trim();
+
+        // already ISO yyyy-mm-dd or yyyy-mm-ddThh:mm:ss
+        if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
+            return raw.split("T")[0];
+        }
+
+        // dd/mm/yyyy or d/m/yyyy
+        if (/^\d{1,2}\/\d{1,2}\/\d{4}/.test(raw)) {
+            const parts = raw.split(" ")[0].split("/"); // Handle "dd/mm/yyyy hh:mm:ss"
+            const d = parts[0];
+            const m = parts[1];
+            const y = parts[2];
+            const date = new Date(Number(y), Number(m) - 1, Number(d));
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        // dd-mm-yyyy or d-m-yyyy
+        if (/^\d{1,2}-\d{1,2}-\d{4}/.test(raw)) {
+            const parts = raw.split(" ")[0].split("-");
+            const d = parts[0];
+            const m = parts[1];
+            const y = parts[2];
+            const date = new Date(Number(y), Number(m) - 1, Number(d));
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+    }
+
     return null;
 }
 
@@ -177,6 +227,12 @@ export function useOrders() {
                 }
             }
 
+            // Parse order_date từ file Excel (nếu có)
+            const parsedOrderDate = parseOrderDate(row.order_date);
+            if (row.order_date && !parsedOrderDate) {
+                warnings.push(`Dòng ${rowNum}: Không đọc được Order Date, sẽ để trống order_date`);
+            }
+
             if (errors.length > 0) {
                 invalidOrders.push({
                     rowIndex: rowNum,
@@ -202,7 +258,9 @@ export function useOrders() {
                     discount_amount: row.discount_amount ? Number(row.discount_amount) : null,
                     shipping_fee: row.shipping_fee ? Number(row.shipping_fee) : null,
                     channel: row.channel ? row.channel.toString() : null,
-                    source: row.source ? row.source.toString() : null
+                    source: row.source ? row.source.toString() : null,
+                    // ❌ Không fallback về ngày hôm nay nữa
+                    order_date: parsedOrderDate
                 });
             }
         });
@@ -251,10 +309,6 @@ export function useOrders() {
             const isNonCOD = order.payment_method && order.payment_method.toUpperCase() !== 'COD';
 
             // Risk evaluation logic:
-            // - Non-COD orders: Skip risk evaluation (trusted payment already received)
-            //   → risk_score = null, risk_level = 'none'
-            // - COD orders: Evaluate risk for fraud detection
-            //   → risk_score = numeric, risk_level = 'Low'/'Medium'/'High'
             let riskScore: number | null = null;
             let riskLevel: string = 'none';
 
@@ -271,9 +325,7 @@ export function useOrders() {
                 riskLevel = riskOutput.level;
             }
 
-            // Build order payload for Supabase insert:
-            // - Non-COD: status = 'Order Paid', paid_at = now, no risk evaluation
-            // - COD: status = 'Pending Review', paid_at = null, risk evaluated
+            // Build order payload for Supabase insert
             return {
                 user_id: user.id,
                 order_id: order.order_id,
@@ -297,7 +349,8 @@ export function useOrders() {
                 discount_amount: order.discount_amount ?? 0,
                 shipping_fee: order.shipping_fee ?? 0,
                 channel: order.channel ?? null,
-                source: order.source ?? null
+                source: order.source ?? null,
+                order_date: order.order_date
             };
         });
 
@@ -309,21 +362,33 @@ export function useOrders() {
         }
 
         // 4. Create invoices for non-COD orders (auto-paid on import)
-        // COD orders: NO invoice created here - only when order becomes paid via UI actions
-        // Non-COD orders: Invoice created immediately with status 'Paid'
         if (insertedOrders && insertedOrders.length > 0) {
-            // Await to ensure data consistency before returning
-            await Promise.all(
-                insertedOrders.map(async (order) => {
-                    const pm = order.payment_method?.toUpperCase() || 'COD';
-                    if (pm !== 'COD') {
-                        // markInvoicePaidForOrder is idempotent:
-                        // - Updates existing invoice to 'Paid' if found
-                        // - Creates new 'Paid' invoice if not found
-                        await markInvoicePaidForOrder(order);
-                    }
-                })
-            );
+            const nonCodOrders = insertedOrders.filter((order) => {
+                const pm = (order.payment_method || '').toUpperCase();
+                return pm !== '' && pm !== 'COD';
+            });
+
+            if (nonCodOrders.length > 0) {
+                const BATCH_SIZE = 50;
+
+                for (let i = 0; i < nonCodOrders.length; i += BATCH_SIZE) {
+                    const batch = nonCodOrders.slice(i, i + BATCH_SIZE);
+
+                    await Promise.all(
+                        batch.map(async (order) => {
+                            try {
+                                await markInvoicePaidForOrder(order);
+                            } catch (error) {
+                                console.error(
+                                    "markInvoicePaidForOrder failed for order",
+                                    (order as any).id || (order as any).order_id,
+                                    error
+                                );
+                            }
+                        })
+                    );
+                }
+            }
         }
 
         return { success: orders.length, failed: 0, errors: [] };

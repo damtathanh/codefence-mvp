@@ -1,9 +1,8 @@
 import React from 'react';
 import { StatCard } from '../../../components/analytics/StatCard';
 import { ChartCard } from '../../../components/analytics/ChartCard';
-import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { UserPlus, Users, Repeat, TrendingUp } from 'lucide-react';
-import type { DashboardDateRange } from '../../dashboard/useDashboardStats';
+import { useDashboardStats, type DashboardDateRange } from '../../dashboard/useDashboardStats';
 
 interface CustomersTabProps {
     dateRange: DashboardDateRange;
@@ -12,17 +11,23 @@ interface CustomersTabProps {
 }
 
 export const CustomersTab: React.FC<CustomersTabProps> = ({ dateRange, customFrom, customTo }) => {
-    // TODO: Fetch real data based on dateRange
-    const formatCurrency = (value: number) => {
-        return new Intl.NumberFormat('vi-VN', {
-            style: 'currency',
-            currency: 'VND',
-            maximumFractionDigits: 0,
-        }).format(value);
-    };
+    const { loading, error, customerStats } = useDashboardStats(dateRange, customFrom, customTo);
 
-    // TODO: Replace with real Supabase data
-    const chartData: any[] = [];
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center h-64">
+                <p className="text-white/60">Loading analytics...</p>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="flex items-center justify-center h-64">
+                <p className="text-red-400">Error loading analytics: {error}</p>
+            </div>
+        );
+    }
 
     return (
         <div className="space-y-4">
@@ -30,89 +35,46 @@ export const CustomersTab: React.FC<CustomersTabProps> = ({ dateRange, customFro
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard
                     title="New Customers"
-                    value={0}
-                    subtitle="–"
+                    value={customerStats.newCustomers}
+                    subtitle="First order in this period"
                     icon={<UserPlus className="w-5 h-5 text-green-400" />}
+                    valueColor="#4ade80"
                 />
                 <StatCard
                     title="Returning Customers"
-                    value={0}
-                    subtitle="–"
+                    value={customerStats.returningCustomers}
+                    subtitle="Had orders before this period"
                     icon={<Users className="w-5 h-5 text-blue-400" />}
+                    valueColor="#60a5fa"
                 />
                 <StatCard
                     title="Repeat Purchase Rate"
-                    value="–"
-                    subtitle="–"
+                    value={`${customerStats.repeatPurchaseRate}%`}
+                    subtitle="Returning / Total customers"
                     icon={<Repeat className="w-5 h-5 text-[#8B5CF6]" />}
+                    valueColor="#8B5CF6"
                 />
                 <StatCard
                     title="Average CLV"
-                    value={formatCurrency(0)}
-                    subtitle="–"
+                    value="N/A"
+                    subtitle="Coming soon"
                     icon={<TrendingUp className="w-5 h-5 text-emerald-400" />}
+                    valueColor="#34d399"
                 />
             </div>
 
             {/* Row 2: Charts */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <ChartCard title="Top Customers by Revenue" subtitle="Top 5 customers">
-                    <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={chartData} layout="vertical">
-                            <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
-                            <XAxis
-                                type="number"
-                                stroke="#E5E7EB"
-                                tick={{ fill: '#E5E7EB', fontSize: 12 }}
-                                tickFormatter={(value) => `${(value / 1000000).toFixed(1)}M`}
-                            />
-                            <YAxis type="category" dataKey="name" stroke="#E5E7EB" tick={{ fill: '#E5E7EB', fontSize: 11 }} width={100} />
-                            <Tooltip
-                                contentStyle={{
-                                    backgroundColor: '#12163A',
-                                    border: '1px solid #1E223D',
-                                    borderRadius: '8px',
-                                    color: '#E5E7EB'
-                                }}
-                                formatter={(value: number) => formatCurrency(value)}
-                            />
-                            <Bar dataKey="revenue" fill="#8B5CF6" name="Revenue" />
-                        </BarChart>
-                    </ResponsiveContainer>
+                    <div className="flex items-center justify-center h-full min-h-[300px] text-white/40">
+                        <p>Customer analytics coming soon</p>
+                    </div>
                 </ChartCard>
 
                 <ChartCard title="Customer Demographics" subtitle="Gender distribution">
-                    <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                            <Pie
-                                data={chartData}
-                                cx="50%"
-                                cy="50%"
-                                labelLine={false}
-                                label={(entry: any) => {
-                                    // Display gender labels as "Male" or "Female"
-                                    const label = entry.gender === "male" ? "Male" : entry.gender === "female" ? "Female" : entry.name;
-                                    return `${label}: ${((entry.value / 383) * 100).toFixed(1)}%`;
-                                }}
-                                outerRadius={80}
-                                fill="#8884d8"
-                                dataKey="value"
-                            >
-                                {chartData.map((entry, index) => (
-                                    <Cell key={`cell-${index}`} fill={entry.color} />
-                                ))}
-                            </Pie>
-                            <Tooltip
-                                contentStyle={{
-                                    backgroundColor: '#12163A',
-                                    border: '1px solid #1E223D',
-                                    borderRadius: '8px',
-                                    color: '#E5E7EB'
-                                }}
-                            />
-                            <Legend wrapperStyle={{ color: '#E5E7EB' }} />
-                        </PieChart>
-                    </ResponsiveContainer>
+                    <div className="flex items-center justify-center h-full min-h-[300px] text-white/40">
+                        <p>Demographics coming soon</p>
+                    </div>
                 </ChartCard>
             </div>
         </div>

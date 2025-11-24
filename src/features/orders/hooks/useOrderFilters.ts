@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import type { Order } from '../../../types/supabase';
 
 export const useOrderFilters = (orders: Order[]) => {
@@ -54,22 +54,39 @@ export const useOrderFilters = (orders: Order[]) => {
         });
     }, [orders, searchQuery, statusFilter, riskScoreFilter, paymentMethodFilter]);
 
-    const availableStatusOptions = useMemo(() => {
-        const used = new Set<string>();
-        for (const o of orders) {
-            if (o.status) used.add(o.status);
-        }
-        return used;
+    const [statusOptions, setStatusOptions] = useState<string[]>([]);
+    const [paymentMethodOptions, setPaymentMethodOptions] = useState<string[]>([]);
+
+    // Grow union of statuses
+    useEffect(() => {
+        setStatusOptions((prev) => {
+            const set = new Set(prev);
+            for (const o of orders) {
+                if (o.status) set.add(o.status);
+            }
+            return Array.from(set);
+        });
     }, [orders]);
 
-    const availablePaymentMethods = useMemo(() => {
-        const used = new Set<string>();
-        for (const o of orders) {
-            const method = o.payment_method || 'COD';
-            used.add(method);
-        }
-        return used;
+    // Grow union of payment methods
+    useEffect(() => {
+        setPaymentMethodOptions((prev) => {
+            const set = new Set(prev);
+            for (const o of orders) {
+                if (o.payment_method) {
+                    set.add(o.payment_method.toUpperCase());
+                }
+            }
+            return Array.from(set);
+        });
     }, [orders]);
+
+    const clearAllFilters = () => {
+        setSearchQuery('');
+        setStatusFilter('all');
+        setRiskScoreFilter('all');
+        setPaymentMethodFilter('all');
+    };
 
     return {
         searchQuery,
@@ -81,7 +98,8 @@ export const useOrderFilters = (orders: Order[]) => {
         paymentMethodFilter,
         setPaymentMethodFilter,
         filteredOrders,
-        availableStatusOptions,
-        availablePaymentMethods,
+        statusOptions,
+        paymentMethodOptions,
+        clearAllFilters,
     };
 };

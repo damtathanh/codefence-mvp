@@ -27,10 +27,12 @@ interface OrderSidePanelProps {
     onReject: (order: Order) => void;
     onMarkDelivered: (order: Order) => void;
     onMarkCompleted: (order: Order) => void;
+    onMarkMissed?: (order: Order) => void;
     onSimulateConfirmed?: (order: Order) => void;
     onSimulateCancelled?: (order: Order) => void;
     onSimulatePaid?: (order: Order) => void;
 }
+
 
 export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
     isOpen,
@@ -46,6 +48,7 @@ export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
     onReject,
     onMarkDelivered,
     onMarkCompleted,
+    onMarkMissed,
     onSimulateConfirmed,
     onSimulateCancelled,
     onSimulatePaid,
@@ -103,76 +106,124 @@ export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
                             <StatusBadge status={order.status} />
                             <div className="flex gap-2 flex-wrap">
                                 {/* Terminal states - no actions */}
+                                {/* Terminal states - no actions */}
                                 {(order.status === ORDER_STATUS.COMPLETED ||
                                     order.status === ORDER_STATUS.ORDER_REJECTED ||
                                     order.status === ORDER_STATUS.CUSTOMER_CANCELLED) ? null : (
                                     <>
-                                        {/* COD Flow */}
-                                        {(order.payment_method === 'COD' || !order.payment_method) && (
-                                            <>
-                                                {/* Pending Review / Verification Required: Approve/Reject */}
-                                                {(order.status === ORDER_STATUS.PENDING_REVIEW ||
-                                                    order.status === ORDER_STATUS.VERIFICATION_REQUIRED) && (
-                                                        <>
-                                                            <Button size="sm" variant="secondary" onClick={() => onReject(order)}>
-                                                                Reject
-                                                            </Button>
-                                                            <Button size="sm" onClick={() => onApprove(order)}>
-                                                                Approve
-                                                            </Button>
-                                                        </>
-                                                    )}
+                                        {(() => {
+                                            const rawMethod = order.payment_method || 'COD';
+                                            const isCod = rawMethod.toUpperCase() === 'COD';
 
-                                                {/* Order Confirmation Sent: Simulate Confirmed/Cancelled */}
-                                                {order.status === ORDER_STATUS.ORDER_CONFIRMATION_SENT && (
+                                            // Check if customer has paid (via invoice or events)
+                                            // Note: We don't have invoice status passed directly here, but we can infer from order events or status
+                                            // Ideally we should pass invoice status, but for now let's rely on order events or if status is ORDER_PAID
+                                            const hasCustomerPaid =
+                                                order.status === ORDER_STATUS.ORDER_PAID ||
+                                                orderEvents.some(e => e.event_type === 'CUSTOMER_PAID' || e.event_type === 'PAYMENT_CONFIRMED');
+
+                                            // COD Flow Logic
+                                            if (isCod) {
+                                                return (
                                                     <>
-                                                        {onSimulateConfirmed && (
-                                                            <Button size="sm" variant="secondary" onClick={() => onSimulateConfirmed(order)}>
-                                                                Simulate Confirmed
+                                                        {/* Pending Review: Modal-based Approve/Reject */}
+                                                        {order.status === ORDER_STATUS.PENDING_REVIEW && (
+                                                            <>
+                                                                <Button size="sm" variant="secondary" onClick={() => onReject(order)}>
+                                                                    Reject
+                                                                </Button>
+                                                                <Button size="sm" onClick={() => onApprove(order)}>
+                                                                    Approve
+                                                                </Button>
+                                                            </>
+                                                        )}
+
+                                                        {/* Verification Required: Direct actions */}
+                                                        {order.status === ORDER_STATUS.VERIFICATION_REQUIRED && (
+                                                            <>
+                                                                <Button size="sm" variant="secondary" onClick={() => onReject(order)}>
+                                                                    Reject
+                                                                </Button>
+                                                                {onMarkMissed && (
+                                                                    <Button
+                                                                        size="sm"
+                                                                        variant="secondary"
+                                                                        onClick={() => onMarkMissed(order)}
+                                                                        className="bg-yellow-600/20 hover:bg-yellow-600/30 border-yellow-600/40 text-yellow-300"
+                                                                    >
+                                                                        Mark as Missed
+                                                                    </Button>
+                                                                )}
+                                                                <Button size="sm" onClick={() => onApprove(order)}>
+                                                                    Approve
+                                                                </Button>
+                                                            </>
+                                                        )}
+
+                                                        {/* Simulate Confirmed/Cancelled */}
+                                                        {order.status === ORDER_STATUS.ORDER_CONFIRMATION_SENT && (
+                                                            <>
+                                                                {onSimulateConfirmed && (
+                                                                    <Button size="sm" variant="secondary" onClick={() => onSimulateConfirmed(order)}>
+                                                                        Simulate Confirmed
+                                                                    </Button>
+                                                                )}
+                                                                {onSimulateCancelled && (
+                                                                    <Button size="sm" variant="secondary" onClick={() => onSimulateCancelled(order)}>
+                                                                        Simulate Cancelled
+                                                                    </Button>
+                                                                )}
+                                                            </>
+                                                        )}
+
+                                                        {/* Mark as Delivered: Available if Confirmed OR Paid */}
+                                                        {/* COD orders can be delivered even if paid, or if just confirmed */}
+                                                        {(order.status === ORDER_STATUS.CUSTOMER_CONFIRMED ||
+                                                            order.status === ORDER_STATUS.ORDER_PAID) && (
+                                                                <Button size="sm" onClick={() => onMarkDelivered(order)}>
+                                                                    Mark as Delivered
+                                                                </Button>
+                                                            )}
+
+                                                        {/* Mark as Completed: Available if Delivering */}
+                                                        {order.status === ORDER_STATUS.DELIVERING && (
+                                                            <Button size="sm" onClick={() => onMarkCompleted(order)}>
+                                                                Mark as Completed
                                                             </Button>
                                                         )}
-                                                        {onSimulateCancelled && (
-                                                            <Button size="sm" variant="secondary" onClick={() => onSimulateCancelled(order)}>
-                                                                Simulate Cancelled
-                                                            </Button>
-                                                        )}
+
+                                                        {/* Simulate Paid: Available if NOT paid yet AND (Confirmed OR Delivering) */}
+                                                        {onSimulatePaid && !hasCustomerPaid && (
+                                                            (order.status === ORDER_STATUS.CUSTOMER_CONFIRMED ||
+                                                                order.status === ORDER_STATUS.DELIVERING)
+                                                        ) && (
+                                                                <Button size="sm" variant="secondary" onClick={() => onSimulatePaid(order)}>
+                                                                    Simulate Paid
+                                                                </Button>
+                                                            )}
                                                     </>
-                                                )}
+                                                );
+                                            }
 
-                                                {/* Customer Confirmed: Mark Delivered / Simulate Paid */}
-                                                {order.status === ORDER_STATUS.CUSTOMER_CONFIRMED && (
-                                                    <>
+                                            // Non-COD Flow (Banking/Transfer)
+                                            return (
+                                                <>
+                                                    {/* Order Paid: Mark as Delivered */}
+                                                    {order.status === ORDER_STATUS.ORDER_PAID && (
                                                         <Button size="sm" onClick={() => onMarkDelivered(order)}>
                                                             Mark as Delivered
                                                         </Button>
-                                                        {onSimulatePaid && (
-                                                            <Button size="sm" variant="secondary" onClick={() => onSimulatePaid(order)}>
-                                                                Simulate Paid
-                                                            </Button>
-                                                        )}
-                                                    </>
-                                                )}
-                                            </>
-                                        )}
+                                                    )}
 
-                                        {/* Non-COD Flow */}
-                                        {order.payment_method && order.payment_method !== 'COD' && (
-                                            <>
-                                                {/* Order Paid: Mark as Delivered */}
-                                                {order.status === ORDER_STATUS.ORDER_PAID && (
-                                                    <Button size="sm" onClick={() => onMarkDelivered(order)}>
-                                                        Mark as Delivered
-                                                    </Button>
-                                                )}
-                                            </>
-                                        )}
-
-                                        {/* Both COD and Non-COD: Delivering → Mark Completed */}
-                                        {order.status === ORDER_STATUS.DELIVERING && (
-                                            <Button size="sm" onClick={() => onMarkCompleted(order)}>
-                                                Mark as Completed
-                                            </Button>
-                                        )}
+                                                    {/* Delivering: Mark as Completed */}
+                                                    {order.status === ORDER_STATUS.DELIVERING && (
+                                                        <Button size="sm" onClick={() => onMarkCompleted(order)}>
+                                                            Mark as Completed
+                                                        </Button>
+                                                    )}
+                                                </>
+                                            );
+                                        })()}
                                     </>
                                 )}
                             </div>

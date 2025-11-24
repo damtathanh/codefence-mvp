@@ -7,6 +7,7 @@ import { useSupabaseTable } from '../../hooks/useSupabaseTable';
 import { useAuth } from '../../features/auth';
 import { formatToGMT7 } from '../../utils/formatTimezone';
 import type { History } from '../../types/supabase';
+import { mapStatusToLifecycle } from '../../utils/orderStatusHelpers';
 
 interface HistoryWithFormatted extends History {
   date?: string;
@@ -55,9 +56,9 @@ export const HistoryPage: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-full min-h-0 gap-6">
+    <div className="flex flex-col h-full min-h-0 p-6">
       {/* Filters */}
-      <Card className="flex-shrink-0">
+      <Card className="shrink-0">
         <CardHeader className="!pt-3 !pb-2 !px-4">
           <CardTitle className="flex items-center gap-2 text-base">
             <Filter size={18} />
@@ -91,7 +92,7 @@ export const HistoryPage: React.FC = () => {
       </Card>
 
       {/* History Logs */}
-      <Card className="flex-1 flex flex-col min-h-0">
+      <Card className="flex-1 flex flex-col min-h-0 mt-6">
         <CardHeader className="!pt-4 !pb-3 !px-6 flex-shrink-0">
           <CardTitle>History Logs</CardTitle>
         </CardHeader>
@@ -135,6 +136,14 @@ export const HistoryPage: React.FC = () => {
                           <td className="px-6 py-4 text-sm text-[#E5E7EB] align-middle">
                             {log.details && Object.keys(log.details).length > 0 ? (
                               <div className="space-y-1">
+                                {/* Lifecycle Status Display */}
+                                {log.details.status_from && log.details.status_to && (
+                                  <div className="text-sm font-medium text-purple-300 mb-1">
+                                    Status: {mapStatusToLifecycle(log.details.status_from)} →{' '}
+                                    {mapStatusToLifecycle(log.details.status_to)}
+                                  </div>
+                                )}
+
                                 {Object.entries(log.details).map(([key, value]) => (
                                   <div key={key} className="text-xs">
                                     <span className="font-medium text-[#E5E7EB]/90">{key}:</span>{' '}
