@@ -8,7 +8,9 @@ import { useAuth } from '../../features/auth';
 import { useUserProfile } from '../../hooks/useUserProfile';
 import type { Invoice, Order } from '../../types/supabase';
 import { ensureInvoicePdfStored } from '../../features/invoices/services/invoiceStorage';
-import { fetchInvoicesByUser } from '../../features/invoices/services/invoiceService';
+import { fetchInvoicesByUser, markInvoiceAsPaid } from '../../features/invoices/services/invoiceService';
+import { markOrderAsPaid } from '../../features/orders/services/ordersService';
+import { logOrderPaidEvent } from '../../features/orders/services/orderEventsService';
 import { Pagination } from '../../components/ui/Pagination';
 import { downloadFileDirectly } from '../../features/invoices/utils/invoiceDownload';
 
@@ -28,6 +30,7 @@ export const InvoicePage: React.FC = () => {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [statusFilter, setStatusFilter] = useState('all');
   const [dateFilter, setDateFilter] = useState('');
+  const [isMarkingMap, setIsMarkingMap] = useState<Record<string, boolean>>({});
 
   const clearAllFilters = () => {
     setSearchQuery('');
@@ -271,6 +274,42 @@ export const InvoicePage: React.FC = () => {
     } catch (err) {
       console.error('Failed to download invoice PDF', err);
       alert('Failed to download invoice PDF. Please try again.');
+    }
+  };
+
+  const handleMarkAsPaid = async (invoice: Invoice) => {
+    if (!invoice.order_id) return;
+
+    try {
+      setIsMarkingMap((prev) => ({ ...prev, [invoice.id]: true }));
+
+      // 1) Mark invoice paid
+      const updatedInvoice = await markInvoiceAsPaid(invoice.id);
+
+      // 2) Mark related order paid
+      await markOrderAsPaid(invoice.order_id);
+
+      // 3) Log order event
+      await logOrderPaidEvent(invoice.order_id);
+
+      // 4) Optimistic UI update
+      setInvoices((prev) =>
+        prev.map((inv) =>
+          inv.id === invoice.id
+            ? { ...inv, status: 'Paid', paid_at: updatedInvoice.paid_at, date: updatedInvoice.date }
+            : inv
+        )
+      );
+
+      // Also update the filtered list if needed (it's derived from invoices state so useEffect handles it, 
+      // but invoicesWithCustomers is a separate state that needs update or it will be stale until effect runs)
+      // Actually invoicesWithCustomers is updated via useEffect [invoices], so just updating invoices is enough.
+
+    } catch (error) {
+      console.error('Failed to mark invoice as paid', error);
+      alert('Failed to mark invoice as paid. Please try again.');
+    } finally {
+      setIsMarkingMap((prev) => ({ ...prev, [invoice.id]: false }));
     }
   };
 
@@ -594,9 +633,15 @@ export const InvoicePage: React.FC = () => {
                             <span className="text-sm">Download</span>
                           </button>
                         ) : (
-                          <span className="text-xs text-white/40 italic">
-                            Available after Paid
-                          </span>
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            onClick={() => handleMarkAsPaid(invoice)}
+                            disabled={isMarkingMap[invoice.id]}
+                            className="bg-[#8B5CF6] hover:bg-[#7C3AED] text-white border-none"
+                          >
+                            {isMarkingMap[invoice.id] ? 'Updating…' : 'Mark as Paid'}
+                          </Button>
                         )}
                       </td>
                     </tr>

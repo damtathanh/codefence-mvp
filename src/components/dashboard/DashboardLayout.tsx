@@ -303,12 +303,7 @@ export const DashboardLayout: React.FC = () => {
 
   // Reset scroll position when route changes
   useEffect(() => {
-    // Reset window scroll
-    window.scrollTo(0, 0);
-    document.documentElement.scrollTop = 0;
-    document.body.scrollTop = 0;
-
-    // Reset main content scroll
+    // Only reset main content scroll (window doesn't scroll anymore)
     if (mainContentRef.current) {
       mainContentRef.current.scrollTop = 0;
     }
@@ -526,7 +521,7 @@ export const DashboardLayout: React.FC = () => {
   const expanded = (isDesktop && isHovered) || sidebarOpen;
 
   return (
-    <div className="flex min-h-screen bg-[var(--bg-page)]">
+    <div className="flex h-screen min-h-0 bg-[var(--bg-page)]">
       {/* Mobile Overlay */}
       {sidebarOpen && (
         <div
@@ -768,12 +763,11 @@ export const DashboardLayout: React.FC = () => {
         </header>
 
         {/* Page Content */}
-        {/* Page Content */}
         <main
           ref={mainContentRef}
-          className="flex-1 bg-[var(--bg-page)]"
+          className="flex-1 min-h-0 bg-[var(--bg-page)] overflow-y-auto"
         >
-          <div className="w-full flex flex-col bg-[var(--bg-page)] px-6 pt-4 pb-6">
+          <div className="w-full min-h-[calc(100vh-4rem)] flex flex-col bg-[var(--bg-page)] px-6 pt-4 pb-2 lg:pb-3">
             <Outlet context={outletContext} />
           </div>
         </main>

@@ -6,4 +6,5 @@ export const PAYMENT_METHODS = {
     MOMO: "MOMO",
     ZALO_PAY: "ZALO_PAY",
     OTHER: "OTHER",
+    CREDIT_CARDS: "CREDIT_CARDS",
 };

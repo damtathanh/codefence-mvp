@@ -7,11 +7,11 @@ import { ensurePendingInvoiceForOrder, markInvoicePaidForOrder } from "../invoic
 import { supabase } from "../../lib/supabaseClient";
 
 type ZaloEventType =
-  | 'CONFIRMATION_SENT'
-  | 'CUSTOMER_CONFIRMED'
-  | 'CUSTOMER_CANCELLED'
-  | 'CUSTOMER_PAID'
-  | 'QR_SENT';
+  | 'order_confirmation_sent'
+  | 'customer_confirmed'
+  | 'customer_cancelled'
+  | 'customer_paid'
+  | 'qr_payment_link_sent';
 
 async function logOrderEvent(orderId: string, event_type: ZaloEventType, payload: any = {}) {
   const { error } = await insertOrderEvent({
@@ -41,7 +41,7 @@ export const mockZaloGateway: ZaloGateway = {
       throw error;
     }
 
-    await logOrderEvent(order.id, 'CONFIRMATION_SENT', { source: 'mock' });
+    await logOrderEvent(order.id, 'order_confirmation_sent', { source: 'mock' });
   },
 
   async sendQrPayment(order: Order) {
@@ -49,7 +49,7 @@ export const mockZaloGateway: ZaloGateway = {
     const qrExpiredAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
     const { error } = await updateOrder(order.id, order.user_id, {
-      status: ORDER_STATUS.ORDER_CONFIRMED,
+      status: ORDER_STATUS.ORDER_APPROVED,
       customer_confirmed_at: now,
       qr_sent_at: now,
       qr_expired_at: qrExpiredAt,
@@ -60,8 +60,8 @@ export const mockZaloGateway: ZaloGateway = {
       throw error;
     }
 
-    await logOrderEvent(order.id, 'CUSTOMER_CONFIRMED', { source: 'mock' });
-    await logOrderEvent(order.id, 'QR_SENT', { source: 'mock', qr_expired_at: qrExpiredAt });
+    await logOrderEvent(order.id, 'customer_confirmed', { source: 'mock' });
+    await logOrderEvent(order.id, 'qr_payment_link_sent', { source: 'mock', qr_expired_at: qrExpiredAt });
   },
 };
 
@@ -82,8 +82,8 @@ export async function simulateCustomerConfirmed(order: Order) {
     throw error;
   }
 
-  await logOrderEvent(order.id, 'CUSTOMER_CONFIRMED', { source: 'mock' });
-  await logOrderEvent(order.id, 'QR_SENT', { source: 'mock', qr_expired_at: qrExpiredAt });
+  await logOrderEvent(order.id, 'customer_confirmed', { source: 'mock' });
+  await logOrderEvent(order.id, 'qr_payment_link_sent', { source: 'mock', qr_expired_at: qrExpiredAt });
 
   // Create Pending invoice for COD orders only
   const rawMethod = order.payment_method || 'COD';
@@ -112,7 +112,7 @@ export async function simulateCustomerCancelled(order: Order, reason: string) {
     throw error;
   }
 
-  await logOrderEvent(order.id, 'CUSTOMER_CANCELLED', { source: 'mock', reason });
+  await logOrderEvent(order.id, 'customer_cancelled', { source: 'mock', reason });
 }
 
 export async function simulateCustomerPaid(order: Order) {
@@ -130,7 +130,7 @@ export async function simulateCustomerPaid(order: Order) {
   }
 
   // 2) Log event - REMOVED: Centralized in markInvoicePaidForOrder
-  // await logOrderEvent(order.id, 'CUSTOMER_PAID', { source: 'mock' });
+  // await logOrderEvent(order.id, 'customer_paid', { source: 'mock' });
 
   // 3) Cập nhật Invoice tương ứng
   const updatedOrder: Order = {

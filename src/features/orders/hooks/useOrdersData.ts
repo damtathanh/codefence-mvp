@@ -1,22 +1,54 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../../lib/supabaseClient';
 import { useAuth } from '../../auth';
-import { fetchOrdersByUser, updateOrder as updateOrderService, UpdateOrderPayload, OrderFilters } from '../services/ordersService';
+import { fetchOrdersByUser, updateOrder as updateOrderService, UpdateOrderPayload, OrderFilters, fetchOrderFilterOptions } from '../services/ordersService';
 import { fetchActiveProducts, SimpleProduct } from '../../products/services/productsService';
 import type { Order } from '../../../types/supabase';
 
 export const useOrdersData = () => {
     const { user } = useAuth();
+
+    // Data State
     const [orders, setOrders] = useState<Order[]>([]);
     const [totalCount, setTotalCount] = useState(0);
-    const [page, setPage] = useState(1);
-    const PAGE_SIZE = 200;
-
     const [products, setProducts] = useState<SimpleProduct[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    const fetchOrders = useCallback(async (currentPage: number = 1, filters?: OrderFilters) => {
+    // Filter & Pagination State
+    const [page, setPage] = useState(1);
+    const PAGE_SIZE = 50;
+
+    const [searchQuery, setSearchQuery] = useState('');
+    const [statusFilter, setStatusFilter] = useState('all');
+    const [riskScoreFilter, setRiskScoreFilter] = useState('all');
+    const [paymentMethodFilter, setPaymentMethodFilter] = useState('all');
+
+    // Filter Options
+    const [statusOptions, setStatusOptions] = useState<string[]>([]);
+    const [paymentMethodOptions, setPaymentMethodOptions] = useState<string[]>([]);
+
+    // 1. Fetch Filter Options
+    const fetchFilterOptions = useCallback(async () => {
+        if (!user) {
+            setStatusOptions([]);
+            setPaymentMethodOptions([]);
+            return;
+        }
+        try {
+            const { statusOptions: statuses, paymentMethodOptions: paymentMethods } = await fetchOrderFilterOptions(user.id);
+            setStatusOptions(statuses);
+            setPaymentMethodOptions(paymentMethods);
+        } catch (err) {
+            console.error('Error fetching order filter options:', err);
+        }
+    }, [user]);
+
+    // 2. Fetch Orders (Centralized)
+    const fetchOrders = useCallback(async (
+        overridePage?: number,
+        overrideFilters?: OrderFilters
+    ) => {
         if (!user) {
             setOrders([]);
             setLoading(false);
@@ -27,11 +59,19 @@ export const useOrdersData = () => {
             setLoading(true);
             setError(null);
 
+            const targetPage = overridePage ?? page;
+            const currentFilters: OrderFilters = overrideFilters ?? {
+                searchQuery,
+                status: statusFilter,
+                riskScore: riskScoreFilter,
+                paymentMethod: paymentMethodFilter
+            };
+
             const { orders: ordersData, totalCount: count, error: ordersError } = await fetchOrdersByUser(
                 user.id,
-                currentPage,
+                targetPage,
                 PAGE_SIZE,
-                filters
+                currentFilters
             );
 
             if (ordersError) throw ordersError;
@@ -40,53 +80,167 @@ export const useOrdersData = () => {
 
             setOrders(ordersData || []);
             setTotalCount(count);
-            setPage(currentPage);
             setProducts(productsData || []);
+
+            // Only update page state if we successfully fetched a different page
+            if (overridePage) setPage(overridePage);
+
         } catch (err: any) {
             console.error('Error fetching orders:', err);
             setError(err.message || 'Failed to load orders. Please try again.');
         } finally {
             setLoading(false);
         }
-    }, [user]);
+    }, [user, page, searchQuery, statusFilter, riskScoreFilter, paymentMethodFilter]);
 
-    // Removed auto-fetch useEffect to allow View to control fetching with filters
-    // useEffect(() => {
-    //     fetchOrders();
-    // }, [fetchOrders]);
+    // 3. Initial Load & Filter Changes
+    // We want to refetch when filters change, but NOT when they are just set initially if we can avoid double fetch.
+    // However, simple useEffect on filters is easiest.
+    useEffect(() => {
+        fetchOrders(1); // Reset to page 1 on filter change
+    }, [searchQuery, statusFilter, riskScoreFilter, paymentMethodFilter]);
+    // Note: We intentionally exclude 'fetchOrders' from dependency to avoid loop, 
+    // and we exclude 'page' because page changes are handled by setPage -> fetchOrders call in UI or separate effect? 
+    // Actually, let's handle page changes separately or expose a handlePageChange.
+
+    // Let's handle Page changes:
+    useEffect(() => {
+        // When page changes, we fetch that page (keeping current filters)
+        // But wait, the above effect resets to page 1 on filter change.
+        // We need to distinguish between filter change and page change.
+        // For now, let's just expose a manual refresh and rely on the above effect for filters.
+        // For pagination, the UI calls setPage, which should trigger fetch?
+        // Or better: make fetchOrders the ONLY way to update data.
+    }, []);
+
+    // Helper: Apply Local Patch (Optimistic)
+    const applyLocalOrderPatch = useCallback((orderId: string, patch: Partial<Order>) => {
+        setOrders(prevOrders => {
+            const orderIndex = prevOrders.findIndex(o => o.id === orderId);
+            if (orderIndex === -1) return prevOrders;
+
+            const originalOrder = prevOrders[orderIndex];
+            const updatedOrder = { ...originalOrder, ...patch };
+
+            // Check if updated order still matches current filters
+            let matches = true;
+
+            // 1. Status Filter
+            if (statusFilter !== 'all' && updatedOrder.status !== statusFilter) {
+                matches = false;
+            }
+
+            // 2. Payment Method Filter
+            if (paymentMethodFilter !== 'all') {
+                const method = (updatedOrder.payment_method || 'COD').trim();
+                if (paymentMethodFilter === 'COD') {
+                    if (method !== 'COD' && method !== '') matches = false;
+                } else {
+                    if (method !== paymentMethodFilter) matches = false;
+                }
+            }
+
+            // 3. Risk Score Filter
+            if (riskScoreFilter !== 'all') {
+                const score = updatedOrder.risk_score || 0;
+                if (riskScoreFilter === 'low' && score > 30) matches = false;
+                if (riskScoreFilter === 'medium' && (score <= 30 || score > 70)) matches = false;
+                if (riskScoreFilter === 'high' && score <= 70) matches = false;
+            }
+
+            // 4. Search Query (Client-side check for immediate feedback)
+            if (searchQuery) {
+                const term = searchQuery.toLowerCase();
+                const searchString = `
+                    ${updatedOrder.order_id || ''} 
+                    ${updatedOrder.customer_name || ''} 
+                    ${updatedOrder.phone || ''}
+                `.toLowerCase();
+                if (!searchString.includes(term)) matches = false;
+            }
+
+            if (!matches) {
+                // Remove order if it no longer matches filters
+                // We also decrement totalCount to keep pagination consistent-ish
+                setTotalCount(prev => Math.max(0, prev - 1));
+                return prevOrders.filter(o => o.id !== orderId);
+            }
+
+            // Update in place
+            const newOrders = [...prevOrders];
+            newOrders[orderIndex] = updatedOrder;
+            return newOrders;
+        });
+    }, [statusFilter, paymentMethodFilter, riskScoreFilter, searchQuery]);
+
+    // 4. Update Order (Optimistic)
+    const updateOrderLocal = async (orderId: string, updates: UpdateOrderPayload) => {
+        if (!user) return false;
+
+        // 1. Snapshot previous state for rollback
+        const previousOrders = [...orders];
+        const previousTotal = totalCount;
+
+        // 2. Optimistic Update
+        // We need to convert UpdateOrderPayload (service) to Partial<Order> (local)
+        // Some fields might need mapping if names differ, but they mostly match.
+        applyLocalOrderPatch(orderId, updates as any);
+
+        try {
+            // 3. API Call
+            const { data, error } = await updateOrderService(orderId, user.id, updates);
+            if (error) throw error;
+
+            // 4. Apply server response (e.g. updated_at, or calculated fields)
+            if (data) {
+                applyLocalOrderPatch(orderId, data);
+
+                // Sync status options if new status appeared
+                const nextStatus = data.status;
+                if (nextStatus) {
+                    setStatusOptions(prev =>
+                        prev.includes(nextStatus) ? prev : [...prev, nextStatus].sort()
+                    );
+                }
+            }
+            return true;
+        } catch (err) {
+            console.error('Error updating order:', err);
+            // 5. Rollback on error
+            setOrders(previousOrders);
+            setTotalCount(previousTotal);
+            throw err;
+        }
+    };
 
     // Realtime subscription
     useEffect(() => {
         if (!user) return;
-
         const channel = supabase
             .channel('orders_changes')
             .on(
                 'postgres_changes',
                 { event: '*', schema: 'public', table: 'orders', filter: `user_id=eq.${user.id}` },
                 (payload) => {
-                    const newRow = payload.new as Order | null;
-
-                    switch (payload.eventType) {
-                        case 'INSERT':
-                        case 'DELETE':
-                        case 'INSERT':
-                        case 'DELETE':
-                            // For now, we don't auto-refetch on realtime events to avoid resetting pagination/filters unexpectedly
-                            // or we could refetch current page:
-                            // fetchOrders(page); 
-                            // But we don't have access to current filters here easily without state.
-                            // Let's leave it manual or rely on parent re-render.
-                            break;
-                            break;
-                        case 'UPDATE':
-                            if (!newRow) return;
-                            setOrders((prev) => {
-                                const exists = prev.some((o) => o.id === newRow.id);
-                                if (!exists) return prev;
-                                return prev.map((o) => (o.id === newRow.id ? { ...o, ...newRow } : o));
-                            });
-                            break;
+                    // We only handle UPDATEs to avoid list jumping on inserts/deletes
+                    // Inserts/Deletes are handled by manual refresh or page navigation
+                    if (payload.eventType === 'UPDATE') {
+                        const newRow = payload.new as Order;
+                        // Only apply if we have this order in current view
+                        // applyLocalOrderPatch(newRow.id, newRow); 
+                        // Actually, let's NOT auto-apply realtime updates for now 
+                        // as it might conflict with optimistic updates or cause unexpected jumps.
+                        // The requirement says "Do NOT refetch... Replace updated order".
+                        // Our optimistic update handles the user's own actions.
+                        // For external actions, we might want to update IF it's on screen.
+                        setOrders(prev => {
+                            const idx = prev.findIndex(o => o.id === newRow.id);
+                            if (idx === -1) return prev;
+                            // Update in place without moving
+                            const next = [...prev];
+                            next[idx] = { ...next[idx], ...newRow };
+                            return next;
+                        });
                     }
                 }
             )
@@ -95,39 +249,41 @@ export const useOrdersData = () => {
         return () => {
             supabase.removeChannel(channel);
         };
-    }, [user, fetchOrders]);
+    }, [user]);
 
-    const updateOrderLocal = async (orderId: string, updates: UpdateOrderPayload) => {
-        if (!user) return false;
-        try {
-            const { data, error } = await updateOrderService(orderId, user.id, updates);
-            if (error) throw error;
-
-            setOrders((prev) =>
-                prev.map((order) =>
-                    order.id === orderId
-                        ? { ...order, ...updates, ...(data ?? {}) }
-                        : order
-                )
-            );
-            return true;
-        } catch (err) {
-            console.error('Error updating order:', err);
-            throw err;
-        }
-    };
+    // Initial fetch
+    useEffect(() => {
+        fetchFilterOptions();
+        // fetchOrders(1); // Handled by filter effect
+    }, [fetchFilterOptions]);
 
     return {
         orders,
         products,
         loading,
         error,
-        refreshOrders: fetchOrders,
+        refreshOrders: () => fetchOrders(page), // Refresh current page
         updateOrderLocal,
-        setOrders, // Exposed for optimistic updates if needed
         totalCount,
         page,
+        setPage: (p: number) => {
+            setPage(p);
+            fetchOrders(p);
+        },
         pageSize: PAGE_SIZE,
-        setPage,
+
+        // Filters
+        searchQuery,
+        setSearchQuery,
+        statusFilter,
+        setStatusFilter,
+        riskScoreFilter,
+        setRiskScoreFilter,
+        paymentMethodFilter,
+        setPaymentMethodFilter,
+
+        // Options
+        statusOptions,
+        paymentMethodOptions,
     };
 };

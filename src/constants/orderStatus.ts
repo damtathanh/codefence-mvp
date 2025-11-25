@@ -2,7 +2,7 @@ export const ORDER_STATUS = {
   PENDING_REVIEW: "Pending Review",
   VERIFICATION_REQUIRED: "Verification Required",
   ORDER_CONFIRMATION_SENT: "Order Confirmation Sent",
-  ORDER_CONFIRMED: "Order Confirmed",
+  ORDER_APPROVED: "Order Approved",
   CUSTOMER_CONFIRMED: "Customer Confirmed",
   CUSTOMER_CANCELLED: "Customer Cancelled",
   ORDER_PAID: "Order Paid",

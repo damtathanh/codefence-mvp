@@ -40,7 +40,7 @@ export const RiskTab: React.FC<RiskTabProps> = ({ dateRange, customFrom, customT
     }
 
     return (
-        <div className="space-y-4">
+        <div className="space-y-4 min-h-0">
             {/* Row 1: KPI Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard

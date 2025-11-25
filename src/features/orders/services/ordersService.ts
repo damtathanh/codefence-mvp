@@ -268,3 +268,85 @@ export async function deleteOrders(userId: string, orderIds: string[]) {
     .in("id", orderIds);
 }
 
+
+/**
+ * Mark an order as Paid by ID.
+ * Used for manual "Mark as Paid" action from Invoices page.
+ */
+export async function markOrderAsPaid(orderId: string) {
+  // Import dynamically to avoid circular dependency if needed, but constants are safe
+  const { ORDER_STATUS } = await import("../../../constants/orderStatus");
+
+  const now = new Date().toISOString();
+
+  const { data, error } = await supabase
+    .from("orders")
+    .update({
+      status: ORDER_STATUS.ORDER_PAID,
+      paid_at: now,
+    })
+    .eq("id", orderId)
+    .select("*")
+    .single();
+
+  if (error) {
+    console.error("markOrderAsPaid: update error", error);
+    throw error;
+  }
+
+  return data;
+}
+
+export interface OrderFilterOptions {
+  statusOptions: string[];
+  paymentMethodOptions: string[];
+}
+
+/**
+ * Fetch distinct filter options (status, payment method) from all orders for a user
+ * Used to populate filter dropdowns with all available values, not just current page
+ */
+export async function fetchOrderFilterOptions(userId: string): Promise<OrderFilterOptions> {
+  // Fetch distinct status values
+  const { data: statusData, error: statusError } = await supabase
+    .from("orders")
+    .select("status")
+    .eq("user_id", userId)
+    .not("status", "is", null);
+
+  if (statusError) {
+    console.error("fetchOrderFilterOptions: status query error", statusError);
+    throw statusError;
+  }
+
+  const statusOptions = Array.from(
+    new Set(
+      (statusData || [])
+        .map((row) => row.status as string)
+        .filter(Boolean)
+    )
+  ).sort();
+
+  // Fetch distinct payment_method values
+  const { data: paymentData, error: paymentError } = await supabase
+    .from("orders")
+    .select("payment_method")
+    .eq("user_id", userId);
+
+  if (paymentError) {
+    console.error("fetchOrderFilterOptions: payment_method query error", paymentError);
+    throw paymentError;
+  }
+
+  const paymentMethodOptions = Array.from(
+    new Set(
+      (paymentData || []).map((row) => {
+        const raw = (row.payment_method as string | null) || "COD";
+        const method = raw.trim();
+        return method === "" ? "COD" : method; // null/empty => COD
+      })
+    )
+  ).sort();
+
+  return { statusOptions, paymentMethodOptions };
+}

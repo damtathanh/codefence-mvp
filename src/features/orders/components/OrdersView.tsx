@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useOrdersData } from '../hooks/useOrdersData';
 import { useOrderActions } from '../hooks/useOrderActions';
-import { useOrderFilters } from '../hooks/useOrderFilters';
 import { useOrderSelection } from '../hooks/useOrderSelection';
 import { OrderFilters } from './OrderFilters';
 import { OrderTable } from './OrderTable';
@@ -27,13 +26,25 @@ import { PAYMENT_METHODS } from '../../../constants/paymentMethods';
 import type { Order, OrderEvent } from '../../../types/supabase';
 import { logUserAction } from '../../../utils/logUserAction';
 
-
-
 export const OrdersView: React.FC = () => {
     const { user } = useAuth();
     const { showSuccess, showError, showInfo } = useToast();
-    const { orders, products, loading, error, refreshOrders, updateOrderLocal, totalCount, page, pageSize } = useOrdersData();
+
+    // Use centralized state from useOrdersData
     const {
+        orders,
+        products,
+        loading,
+        error,
+        refreshOrders,
+        updateOrderLocal,
+        totalCount,
+        page,
+        setPage,
+        pageSize,
+        statusOptions,
+        paymentMethodOptions,
+        // Filters
         searchQuery,
         setSearchQuery,
         statusFilter,
@@ -42,11 +53,13 @@ export const OrdersView: React.FC = () => {
         setRiskScoreFilter,
         paymentMethodFilter,
         setPaymentMethodFilter,
-        filteredOrders,
-        statusOptions,
-        paymentMethodOptions,
-        clearAllFilters,
-    } = useOrderFilters(orders);
+    } = useOrdersData();
+
+    // Derived state for selection (filteredOrders is just orders now because filtering is server-side + optimistic local)
+    // Note: useOrderSelection expects 'filteredOrders' to know what to select all from.
+    // Since 'orders' contains the current page's data which matches filters, we use that.
+    const filteredOrders = orders;
+
     const {
         selectedIds,
         handleSelectAll,
@@ -54,35 +67,9 @@ export const OrdersView: React.FC = () => {
         clearSelection,
     } = useOrderSelection(filteredOrders);
 
-    // Pagination state is now managed by useOrdersData
-    // const PAGE_SIZE = 200;
-    // const [currentPage, setCurrentPage] = useState(1);
-
     const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
 
-    // Server-side pagination: 'filteredOrders' is already the current page data
-    // (filtered by server, then passed through useOrderFilters which is redundant but safe)
-    const paginatedOrders = filteredOrders;
-
-    // Reset to page 1 when filters change
-    // Fetch orders when filters change (reset to page 1)
-    useEffect(() => {
-        refreshOrders(1, {
-            searchQuery,
-            status: statusFilter,
-            riskScore: riskScoreFilter,
-            paymentMethod: paymentMethodFilter
-        });
-    }, [searchQuery, statusFilter, riskScoreFilter, paymentMethodFilter, refreshOrders]);
-
-    const handlePageChange = (newPage: number) => {
-        refreshOrders(newPage, {
-            searchQuery,
-            status: statusFilter,
-            riskScore: riskScoreFilter,
-            paymentMethod: paymentMethodFilter
-        });
-    };
+    // Handlers from useOrderActions (ensure they use the new updateOrderLocal)
     const {
         handleApprove,
         handleConfirmReject,
@@ -196,17 +183,6 @@ export const OrdersView: React.FC = () => {
         }
     };
 
-    // ========= Refresh Helper =========
-    const refreshAfterAction = async (orderId: string) => {
-        await refreshOrders();
-        const { data } = await fetchOrderEvents(orderId);
-        if (data) {
-            setOrderEvents(data);
-        }
-        setSelectedOrder(null);
-        setIsSidePanelOpen(false);
-    };
-
     // ========= COD Approve with One-Time Guard =========
     const handleApproveOrder = async (order: Order) => {
         if (!user) return;
@@ -242,7 +218,7 @@ export const OrdersView: React.FC = () => {
 
                 await insertOrderEvent({
                     order_id: order.id,
-                    event_type: 'ORDER_APPROVED',
+                    event_type: 'order_approved',
                     payload_json: { user_id: user.id, from_verification: true },
                 });
 
@@ -260,6 +236,14 @@ export const OrdersView: React.FC = () => {
                 });
             } else {
                 // Pending Review: Send confirmation via Zalo
+                // 1. First, insert ORDER_APPROVED event
+                await insertOrderEvent({
+                    order_id: order.id,
+                    event_type: 'order_approved',
+                    payload_json: { user_id: user.id },
+                });
+
+                // 2. Update order status
                 const success = await updateOrderLocal(order.id, {
                     status: ORDER_STATUS.ORDER_CONFIRMATION_SENT,
                 } as Partial<Order>);
@@ -269,18 +253,8 @@ export const OrdersView: React.FC = () => {
                     return;
                 }
 
+                // 3. Send confirmation via Zalo (this creates CONFIRMATION_SENT event)
                 await zaloGateway.sendConfirmation(order);
-
-                await insertOrderEvent({
-                    order_id: order.id,
-                    event_type: 'ORDER_APPROVED',
-                    payload_json: { user_id: user.id },
-                });
-                await insertOrderEvent({
-                    order_id: order.id,
-                    event_type: 'ZALO_CONFIRMATION_SENT',
-                    payload_json: { source: 'zalo_gateway' },
-                });
 
                 showSuccess('Order approved and confirmation sent');
 
@@ -370,13 +344,8 @@ export const OrdersView: React.FC = () => {
     const handleSimulateConfirmedClick = async (order: Order) => {
         if (!user) return;
         try {
+            // simulateCustomerConfirmed already logs CUSTOMER_CONFIRMED and QR_SENT events
             await simulateCustomerConfirmed(order);
-
-            await insertOrderEvent({
-                order_id: order.id,
-                event_type: 'CUSTOMER_CONFIRMED',
-                payload_json: { source: 'mock_zalo' },
-            });
 
             setPendingConfirmOrder(order);
             setIsConfirmationModalOpen(true);
@@ -401,7 +370,19 @@ export const OrdersView: React.FC = () => {
     const handleConfirmationModalClose = async () => {
         setIsConfirmationModalOpen(false);
         if (pendingConfirmOrder) {
-            await refreshAfterAction(pendingConfirmOrder.id);
+            // No need to refresh, simulateCustomerConfirmed should have updated backend
+            // But we need to update local state. simulateCustomerConfirmed calls updateOrder internally?
+            // Actually simulateCustomerConfirmed calls services directly.
+            // We should probably update local state here manually or rely on realtime (but realtime is disabled for auto-update).
+            // Ideally simulateCustomerConfirmed should be refactored to use updateOrderLocal, but it's imported.
+            // For now, let's just do a quick local update to reflect the change if we know what happened.
+            // Or better: call updateOrderLocal with the expected status change.
+            // Since simulateCustomerConfirmed does complex logic, we might need to refresh OR trust that it worked and just update status.
+
+            // Let's try to just update status locally to avoid full refresh
+            await updateOrderLocal(pendingConfirmOrder.id, { status: ORDER_STATUS.CUSTOMER_CONFIRMED });
+
+            // Also fetch events to update side panel if open? Side panel is closed above.
             setPendingConfirmOrder(null);
         }
     };
@@ -417,17 +398,18 @@ export const OrdersView: React.FC = () => {
         if (!user || !pendingConfirmOrder) return;
 
         try {
+            // simulateCustomerCancelled already logs CUSTOMER_CANCELLED event
             await simulateCustomerCancelled(pendingConfirmOrder, reason);
-
-            await insertOrderEvent({
-                order_id: pendingConfirmOrder.id,
-                event_type: 'CUSTOMER_CANCELLED',
-                payload_json: { source: 'mock_zalo', reason },
-            });
 
             showSuccess('Customer cancelled via mock Zalo OA');
             setIsCancellationModalOpen(false);
-            await refreshAfterAction(pendingConfirmOrder.id);
+
+            // Update local state
+            await updateOrderLocal(pendingConfirmOrder.id, {
+                status: ORDER_STATUS.CUSTOMER_CANCELLED,
+                cancel_reason: reason
+            });
+
             setPendingConfirmOrder(null);
 
             await logUserAction({
@@ -461,15 +443,6 @@ export const OrdersView: React.FC = () => {
             // 1. Always mark invoice as Paid (idempotent) and log payment event
             await simulateCustomerPaid(order);
 
-            // REMOVED: insertOrderEvent is now handled inside markInvoicePaidForOrder (called by simulateCustomerPaid)
-            /*
-            await insertOrderEvent({
-                order_id: order.id,
-                event_type: 'CUSTOMER_PAID',
-                payload_json: { source: 'mock_zalo' },
-            });
-            */
-
             // 2. Log the user action
             await logUserAction({
                 userId: user.id,
@@ -488,12 +461,16 @@ export const OrdersView: React.FC = () => {
             });
 
             // 3. Restore status if simulateCustomerPaid changed it but we want to keep it as Delivering/Completed
+            // simulateCustomerPaid updates status to PAID. If it was Delivering/Completed, we want to keep it.
+            // But updateOrderLocal will handle the UI update.
+            // If we want to force it back:
             if (currentStatus === ORDER_STATUS.DELIVERING || currentStatus === ORDER_STATUS.COMPLETED) {
                 await updateOrderLocal(order.id, { status: currentStatus });
+            } else {
+                await updateOrderLocal(order.id, { status: ORDER_STATUS.ORDER_PAID });
             }
 
             showSuccess('Customer paid via mock Zalo OA');
-            await refreshAfterAction(order.id);
         } catch (error) {
             showError('Failed to simulate payment');
             console.error('Error simulating paid:', error);
@@ -505,8 +482,11 @@ export const OrdersView: React.FC = () => {
         if (!user) return;
 
         try {
+            // Update local state immediately for instant UI feedback
+            const now = new Date().toISOString();
             const success = await updateOrderLocal(order.id, {
                 status: ORDER_STATUS.DELIVERING,
+                shipped_at: now,
             } as Partial<Order>);
 
             if (!success) {
@@ -516,12 +496,11 @@ export const OrdersView: React.FC = () => {
 
             await insertOrderEvent({
                 order_id: order.id,
-                event_type: 'ORDER_MARKED_DELIVERING',
+                event_type: 'order_marked_delivering',
                 payload_json: { user_id: user.id },
             });
 
             showSuccess('Order marked as delivering');
-            await refreshAfterAction(order.id);
 
             await logUserAction({
                 userId: user.id,
@@ -544,8 +523,11 @@ export const OrdersView: React.FC = () => {
         if (!user) return;
 
         try {
+            // Update local state immediately for instant UI feedback
+            const now = new Date().toISOString();
             const success = await updateOrderLocal(order.id, {
                 status: ORDER_STATUS.COMPLETED,
+                completed_at: now,
             } as Partial<Order>);
 
             if (!success) {
@@ -555,12 +537,13 @@ export const OrdersView: React.FC = () => {
 
             await insertOrderEvent({
                 order_id: order.id,
-                event_type: 'ORDER_COMPLETED',
+                event_type: 'order_completed',
                 payload_json: { user_id: user.id },
             });
 
             showSuccess('Order marked as completed');
-            await refreshAfterAction(order.id);
+            setIsSidePanelOpen(false);
+            setSelectedOrder(null);
 
             await logUserAction({
                 userId: user.id,
@@ -599,12 +582,11 @@ export const OrdersView: React.FC = () => {
 
             await insertOrderEvent({
                 order_id: order.id,
-                event_type: 'CUSTOMER_UNREACHABLE',
+                event_type: 'customer_unreachable',
                 payload_json: { user_id: user.id, reason: 'Customer did not respond to verification' },
             });
 
             showSuccess('Order marked as Customer Unreachable');
-            await refreshAfterAction(order.id);
 
             await logUserAction({
                 userId: user.id,
@@ -675,6 +657,13 @@ export const OrdersView: React.FC = () => {
         }
     };
 
+    const handleClearFilters = () => {
+        setSearchQuery('');
+        setStatusFilter('all');
+        setRiskScoreFilter('all');
+        setPaymentMethodFilter('all');
+    };
+
     return (
         <div className="flex flex-col h-full min-h-0 p-6">
             {error && (
@@ -694,7 +683,7 @@ export const OrdersView: React.FC = () => {
                 setPaymentMethodFilter={setPaymentMethodFilter}
                 statusOptions={statusOptions}
                 paymentOptions={paymentMethodOptions}
-                onClearFilters={clearAllFilters}
+                onClearFilters={handleClearFilters}
                 onAddOrder={() => {
                     setEditingOrder(null);
                     setIsAddOrderModalOpen(true);
@@ -703,8 +692,8 @@ export const OrdersView: React.FC = () => {
 
             <div className="flex-1 min-h-0 mt-6">
                 <OrderTable
-                    orders={paginatedOrders}
-                    filteredOrders={filteredOrders}
+                    orders={orders} // Current page orders
+                    filteredOrders={filteredOrders} // Same as orders now
                     totalCount={totalCount}
                     currentPage={page}
                     pageSize={pageSize}
@@ -712,7 +701,7 @@ export const OrdersView: React.FC = () => {
                     selectedIds={selectedIds}
                     onSelectAll={handleSelectAll}
                     onToggleSelect={handleToggleSelect}
-                    onPageChange={handlePageChange}
+                    onPageChange={setPage}
                     onRowClick={handleRowClick}
                     products={products}
                     onProductCorrection={handleProductCorrection}

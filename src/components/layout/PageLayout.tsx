@@ -9,7 +9,7 @@ interface PageLayoutProps {
 
 export const PageLayout: React.FC<PageLayoutProps> = ({ title, subtitle, children, actions }) => {
     return (
-        <div className="space-y-6">
+        <div className="flex flex-col gap-4">
             {(title || actions) && (
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                     {title && (
@@ -21,9 +21,12 @@ export const PageLayout: React.FC<PageLayoutProps> = ({ title, subtitle, childre
                     {actions && <div className="flex items-center gap-3 ml-auto">{actions}</div>}
                 </div>
             )}
-            <div className="min-h-[calc(100vh-200px)]">
+
+            {/* Bỏ min-h-[calc(100vh-200px)] đi, cho nó co giãn theo content */}
+            <div className="flex-1">
                 {children}
             </div>
         </div>
     );
 };
+

@@ -16,7 +16,7 @@ export function mapStatusToLifecycle(status: string): LifecycleStatus {
             return 'Pending';
         case ORDER_STATUS.ORDER_CONFIRMATION_SENT:
             return 'Sent';
-        case ORDER_STATUS.ORDER_CONFIRMED:
+        case ORDER_STATUS.ORDER_APPROVED:
         case ORDER_STATUS.CUSTOMER_CONFIRMED:
             return 'Confirmed';
         case ORDER_STATUS.CUSTOMER_CANCELLED:

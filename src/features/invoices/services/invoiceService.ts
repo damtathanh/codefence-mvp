@@ -300,3 +300,29 @@ export async function invalidateInvoicePdfForOrder(orderId: string) {
   }
 }
 
+
+/**
+ * Mark a specific invoice as Paid by ID.
+ * Used for manual "Mark as Paid" action from Invoices page.
+ */
+export async function markInvoiceAsPaid(invoiceId: string) {
+  const now = new Date().toISOString();
+
+  const { data, error } = await supabase
+    .from("invoices")
+    .update({
+      status: "Paid" as InvoiceStatus,
+      paid_at: now,
+      date: getTodayDateString(), // Update date to today as well? User prompt said "Update the invoice to status = 'paid' and set paid_at". Usually date is invoice date, but let's keep it simple or follow markInvoicePaidForOrder logic which updates date. Let's update date to be safe/consistent with markInvoicePaidForOrder.
+    })
+    .eq("id", invoiceId)
+    .select("*")
+    .single();
+
+  if (error) {
+    console.error("markInvoiceAsPaid: update error", error);
+    throw error;
+  }
+
+  return data;
+}

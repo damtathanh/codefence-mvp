@@ -1,24 +1,30 @@
 import React, { useState } from 'react';
 import { PageLayout } from '../../components/layout/PageLayout';
 import { DateRangeSelector } from '../../components/dashboard/DateRangeSelector';
-import type { DashboardDateRange } from '../../features/dashboard/useDashboardStats';
 import { AnalyticsTabsHeader, type AnalyticsTabKey } from '../../features/analytics/components/AnalyticsTabsHeader';
-import { OverviewTab } from '../../features/analytics/components/OverviewTab';
+import { RevenueTab } from '../../features/analytics/components/RevenueTab';
 import { OrdersTab } from '../../features/analytics/components/OrdersTab';
 import { CodTab } from '../../features/analytics/components/CodTab';
 import { RiskTab } from '../../features/analytics/components/RiskTab';
+import { OperationsTab } from '../../features/analytics/components/OperationsTab';
 import { FunnelTab } from '../../features/analytics/components/FunnelTab';
 import { GeoTab } from '../../features/analytics/components/GeoTab';
 import { CustomersTab } from '../../features/analytics/components/CustomersTab';
 import { ProductsTab } from '../../features/analytics/components/ProductsTab';
 import { ChannelsTab } from '../../features/analytics/components/ChannelsTab';
-import { FinancialTab } from '../../features/analytics/components/FinancialTab';
+import { useAnalyticsDateRangeStore } from '../../features/analytics/store/useAnalyticsDateRangeStore';
 
 export const AnalyticsPage: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<AnalyticsTabKey>("overview");
-  const [dateRange, setDateRange] = useState<DashboardDateRange>("last_month");
-  const [customFrom, setCustomFrom] = useState<string | undefined>();
-  const [customTo, setCustomTo] = useState<string | undefined>();
+  const [activeTab, setActiveTab] = useState<AnalyticsTabKey>('revenue');
+
+  const {
+    dateRange,
+    customFrom,
+    customTo,
+    setDateRange,
+    setCustomFrom,
+    setCustomTo,
+  } = useAnalyticsDateRangeStore();
 
   return (
     <PageLayout>
@@ -48,9 +54,9 @@ export const AnalyticsPage: React.FC = () => {
       />
 
       {/* Tab content */}
-      <div className="mt-4">
-        {activeTab === "overview" && (
-          <OverviewTab dateRange={dateRange} customFrom={customFrom} customTo={customTo} />
+      <div className="mt-3 min-h-0 h-full overflow-visible">
+        {activeTab === "revenue" && (
+          <RevenueTab dateRange={dateRange} customFrom={customFrom} customTo={customTo} />
         )}
         {activeTab === "orders" && (
           <OrdersTab dateRange={dateRange} customFrom={customFrom} customTo={customTo} />
@@ -61,11 +67,8 @@ export const AnalyticsPage: React.FC = () => {
         {activeTab === "risk" && (
           <RiskTab dateRange={dateRange} customFrom={customFrom} customTo={customTo} />
         )}
-        {activeTab === "funnel" && (
-          <FunnelTab dateRange={dateRange} customFrom={customFrom} customTo={customTo} />
-        )}
-        {activeTab === "geo" && (
-          <GeoTab dateRange={dateRange} customFrom={customFrom} customTo={customTo} />
+        {activeTab === "operations" && (
+          <OperationsTab dateRange={dateRange} customFrom={customFrom} customTo={customTo} />
         )}
         {activeTab === "customers" && (
           <CustomersTab dateRange={dateRange} customFrom={customFrom} customTo={customTo} />
@@ -76,8 +79,11 @@ export const AnalyticsPage: React.FC = () => {
         {activeTab === "channels" && (
           <ChannelsTab dateRange={dateRange} customFrom={customFrom} customTo={customTo} />
         )}
-        {activeTab === "financial" && (
-          <FinancialTab dateRange={dateRange} customFrom={customFrom} customTo={customTo} />
+        {activeTab === "geo" && (
+          <GeoTab dateRange={dateRange} customFrom={customFrom} customTo={customTo} />
+        )}
+        {activeTab === "funnel" && (
+          <FunnelTab dateRange={dateRange} customFrom={customFrom} customTo={customTo} />
         )}
       </div>
     </PageLayout>

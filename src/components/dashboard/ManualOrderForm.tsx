@@ -465,7 +465,7 @@ export const ManualOrderForm: React.FC<ManualOrderFormProps> = ({
                     <option value="BANK_TRANSFER">Bank Transfer</option>
                     <option value="MOMO">Momo</option>
                     <option value="ZALO">Zalo</option>
-                    <option value="VIETQR">VietQR</option>
+                    <option value="Credit Cards">Credit Cards</option>
                 </select>
             </label>
             {!isEditMode && (

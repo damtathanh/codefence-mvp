@@ -36,3 +36,14 @@ export async function insertOrderEvents(payloads: InsertOrderEventPayload[]) {
     .insert(payloads);
 }
 
+
+/**
+ * Log order paid event (manual action from Invoices page)
+ */
+export async function logOrderPaidEvent(orderId: string) {
+  return insertOrderEvent({
+    order_id: orderId,
+    event_type: 'paid_confirmed',
+    payload_json: { source: 'manual_invoice_mark_paid' },
+  });
+}

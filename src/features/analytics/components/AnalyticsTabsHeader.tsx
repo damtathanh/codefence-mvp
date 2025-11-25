@@ -1,16 +1,16 @@
 import React from 'react';
 
 export type AnalyticsTabKey =
-    | "overview"
+    | "revenue"
     | "orders"
     | "cod"
     | "risk"
-    | "funnel"
-    | "geo"
+    | "operations"
     | "customers"
     | "products"
     | "channels"
-    | "financial";
+    | "geo"
+    | "funnel";
 
 interface AnalyticsTabsHeaderProps {
     activeTab: AnalyticsTabKey;
@@ -18,16 +18,16 @@ interface AnalyticsTabsHeaderProps {
 }
 
 const tabs: { key: AnalyticsTabKey; label: string }[] = [
-    { key: "overview", label: "Overview" },
+    { key: "revenue", label: "Revenue" },
     { key: "orders", label: "Orders" },
     { key: "cod", label: "COD & Boom" },
     { key: "risk", label: "Risk" },
-    { key: "funnel", label: "Verification" },
-    { key: "geo", label: "Geo Risk" },
     { key: "customers", label: "Customers" },
     { key: "products", label: "Products" },
     { key: "channels", label: "Channels" },
-    { key: "financial", label: "Financial" },
+    { key: "geo", label: "Geo Risk" },
+    { key: "funnel", label: "Verification" },
+    { key: "operations", label: "Operations" },
 ];
 
 export const AnalyticsTabsHeader: React.FC<AnalyticsTabsHeaderProps> = ({ activeTab, onChange }) => {
@@ -39,8 +39,8 @@ export const AnalyticsTabsHeader: React.FC<AnalyticsTabsHeaderProps> = ({ active
                         key={tab.key}
                         onClick={() => onChange(tab.key)}
                         className={`pb-4 text-sm font-medium transition-all relative whitespace-nowrap ${activeTab === tab.key
-                                ? "text-[#8B5CF6]"
-                                : "text-[#E5E7EB]/60 hover:text-white"
+                            ? "text-[#8B5CF6]"
+                            : "text-[#E5E7EB]/60 hover:text-white"
                             }`}
                     >
                         {tab.label}

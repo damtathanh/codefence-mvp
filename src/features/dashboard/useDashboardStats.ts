@@ -16,6 +16,9 @@ export interface DashboardStats {
     avgOrderValue: number;
 
     pendingVerification: number;
+    pendingRevenue: number;
+    confirmedCodRevenue: number;
+    deliveredNotPaidRevenue: number;
 
     verifiedOutcomeCount: number; // COD orders with customer outcome (confirmed OR cancelled)
     verifiedOutcomeRate: number; // percent of COD orders that have outcome
@@ -420,6 +423,54 @@ function computeStats(orders: Order[]): DashboardStats {
             ? Math.round((convertedOrders / codOrders) * 1000) / 10
             : 0;
 
+    // Pending Revenue = COD đã confirmed / delivering nhưng chưa paid
+    const pendingRevenueOrders = orders.filter(
+        (o) =>
+            isCOD(o) &&
+            (
+                o.status === ORDER_STATUS.ORDER_APPROVED ||
+                o.status === ORDER_STATUS.CUSTOMER_CONFIRMED ||
+                o.status === ORDER_STATUS.DELIVERING
+            ) &&
+            !paidStatuses.has(o.status)
+    );
+
+    const pendingRevenue = pendingRevenueOrders.reduce(
+        (sum, o) => sum + (o.amount ?? 0),
+        0
+    );
+
+    // Total confirmed COD revenue
+    const confirmedCodOrders = orders.filter(
+        (o) =>
+            isCOD(o) &&
+            (
+                o.status === ORDER_STATUS.ORDER_APPROVED ||
+                o.status === ORDER_STATUS.CUSTOMER_CONFIRMED ||
+                o.status === ORDER_STATUS.DELIVERING ||
+                o.status === ORDER_STATUS.COMPLETED ||
+                o.status === ORDER_STATUS.ORDER_PAID
+            )
+    );
+
+    const confirmedCodRevenue = confirmedCodOrders.reduce(
+        (sum, o) => sum + (o.amount ?? 0),
+        0
+    );
+
+    // Delivered but NOT paid yet
+    const deliveredNotPaidOrders = orders.filter(
+        (o) =>
+            isCOD(o) &&
+            o.status === ORDER_STATUS.DELIVERING &&
+            !paidStatuses.has(o.status)
+    );
+
+    const deliveredNotPaidRevenue = deliveredNotPaidOrders.reduce(
+        (sum, o) => sum + (o.amount ?? 0),
+        0
+    );
+
     // Cancelled COD (for cancel rate)
     const codCancelled = orders.filter(
         (o) => isCOD(o) && cancelledStatuses.has(o.status)
@@ -466,6 +517,9 @@ function computeStats(orders: Order[]): DashboardStats {
         codCancelled,
         codConfirmed,
         customerResponses,
+        pendingRevenue,
+        confirmedCodRevenue,
+        deliveredNotPaidRevenue,
     };
 }
 

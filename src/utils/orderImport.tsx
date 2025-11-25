@@ -142,46 +142,31 @@ export async function insertOrdersWithLogging(
     logUserAction: (params: {
         userId: string;
         action: string;
-        status: 'success' | 'failed';
+        status: "success" | "failed";
         orderId?: string;
-    }) => Promise<void>,
+    }) => Promise<void>
 ): Promise<{
     success: number;
     failed: number;
     errors: string[];
 }> {
-    // Use insertOrders from useOrders hook (handles payment_method, status, risk_score, paid_at)
+    // Gọi hàm insertOrders thực tế
     const result = await insertOrders(orders);
 
-    if (result.success > 0) {
-        // Log user action for each successfully created order
-        // We iterate over the input orders. Note that if some failed, we might log success for them if we don't know which ones failed.
-        // However, the original code iterated over 'validOrders' (which is the input here) and logged success for all of them if result.success > 0.
-        // Wait, the original code:
-        // if (result.success > 0) {
-        //   for (const orderData of validOrders) { ... log success ... }
-        // }
-        // This implies it logs success for ALL orders even if some failed?
-        // Let's check the original code again.
-        // "if (result.success > 0) { ... for (const orderData of validOrders) { ... log ... } }"
-        // Yes, it seems to log for all of them. This might be a slight bug in the original code if partial success happens,
-        // but the requirement is to KEEP EXISTING BEHAVIOUR.
-        // Actually, insertOrders usually returns success count.
-        // If I look at useOrders.ts (not visible here but inferred), insertOrders probably tries to insert all.
-        // If partial failure is possible, the original code logs success for ALL of them if at least one succeeded.
-        // I will strictly follow the original code's logic.
+    // Nếu có userId thì log 1 event tổng cho cả lần import
+    if (userId) {
+        const status: "success" | "failed" =
+            result.failed === 0 && result.success > 0 ? "success" : "failed";
 
-        for (const orderData of orders) {
-            if (userId) {
-                await logUserAction({
-                    userId: userId,
-                    action: 'Create Order',
-                    status: 'success',
-                    orderId: orderData.order_id ?? "",
-                });
-            }
-        }
+        await logUserAction({
+            userId,
+            action: "Bulk Create Orders",
+            status,
+            // Nếu sau này m muốn gửi thêm details thì sửa signature logUserAction
+            // và nhét result vào details
+        });
     }
 
     return result;
 }
+
