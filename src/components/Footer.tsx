@@ -11,7 +11,7 @@ export const Footer: React.FC = () => {
       <div className="relative z-10 max-w-7xl mx-auto px-6 py-16 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-12">
         {/* Brand */}
         <div className="sm:col-span-2 md:col-span-2">
-        <h2 className="gradient-logo text-3xl font-bold mb-3">CodFence</h2>
+          <h2 className="gradient-logo text-3xl font-bold mb-3">CodFence</h2>
           <p className="text-sm text-gray-400 max-w-sm leading-relaxed mb-4">
             Smart COD risk protection platform powered by AI. Protect your
             business from fraudulent orders and maximize delivery success rates.
@@ -20,7 +20,7 @@ export const Footer: React.FC = () => {
           <div className="flex space-x-4">
             {/* Facebook */}
             <a
-              href="https://facebook.com"
+              href="https://www.facebook.com/codfence"
               target="_blank"
               rel="noopener noreferrer"
               className="p-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 hover:border-[#8B5CF6] transition group"
@@ -97,7 +97,7 @@ export const Footer: React.FC = () => {
               <MapPin className="w-5 h-5 text-[#8B5CF6] mt-0.5 flex-shrink-0" />
               <div className="text-sm leading-relaxed">
                 <div className="whitespace-nowrap">Floor 81, Landmark 81 Tower</div>
-                <div className="whitespace-nowrap">Nui Thanh, Tan Binh District</div>
+                <div className="whitespace-nowrap">720A Dien Bien Phu, Binh Thanh District</div>
                 <div className="whitespace-nowrap">Ho Chi Minh City, Vietnam</div>
               </div>
             </li>

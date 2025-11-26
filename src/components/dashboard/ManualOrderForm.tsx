@@ -12,7 +12,7 @@ import type { OrderInput } from '../../hooks/useOrders';
 import { evaluateRisk } from '../../utils/riskEngine';
 import { fetchPastOrdersByPhone } from '../../features/orders/services/ordersService';
 import { fetchCustomerBlacklist } from '../../features/customers/services/customersService';
-import { insertOrderEvent } from '../../features/orders/services/orderEventsService';
+import { logOrderEvent } from '../../features/orders/services/orderEventsService';
 import type { RiskInput } from '../../utils/riskEngine';
 import { markInvoicePaidForOrder } from '../../features/invoices/services/invoiceService';
 import { ORDER_STATUS } from '../../constants/orderStatus';
@@ -301,16 +301,17 @@ export const ManualOrderForm: React.FC<ManualOrderFormProps> = ({
 
                 // Log risk event if we have reasons
                 if (newOrder && riskReasons.length > 0) {
-                    await insertOrderEvent({
-                        order_id: newOrder.id,
-                        event_type: 'RISK_EVALUATED',
-                        payload_json: {
+                    await logOrderEvent(
+                        newOrder.id,
+                        'RISK_EVALUATED',
+                        {
                             score: riskScore,
                             level: riskLevel,
                             reasons: riskReasons,
                             version: riskVersion
-                        }
-                    });
+                        },
+                        'manual_order_form'
+                    );
                 }
 
                 // Log user action

@@ -5,9 +5,12 @@ import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { PrimaryActionButton } from '../../components/dashboard/PrimaryActionButton';
 import { ProductStatusBadge } from '../../features/products/components/ProductStatusBadge';
+import { MultiSelectFilter } from '../../components/filters/MultiSelectFilter';
+import { Pagination } from '../../features/products/components/Pagination';
 import { ConfirmModal } from '../../components/ui/ConfirmModal';
 import { AddProductModal } from '../../components/dashboard/AddProductModal';
 import { Plus, Edit, Trash2, X, Filter, ChevronDown } from 'lucide-react';
+import { useProductsData } from '../../features/products/hooks/useProductsData';
 import { useSupabaseTable } from '../../hooks/useSupabaseTable';
 import { useToast } from '../../components/ui/Toast';
 import { useAuth } from '../../features/auth';
@@ -21,22 +24,40 @@ const STATIC_STATUS_OPTIONS = ['active', 'inactive'];
 export const ProductsPage: React.FC = () => {
   const { user } = useAuth();
   const { showSuccess, showError } = useToast();
+
+  // Use new Products hook with pagination and filters
   const {
-    data: products,
+    products,
+    totalCount,
     loading,
     error,
+    page,
+    totalPages,
+    startIndex,
+    endIndex,
+    handlePageChange,
+    searchQuery,
+    setSearchQuery,
+    categoryFilter,
+    setCategoryFilter,
+    statusFilter,
+    setStatusFilter,
+    handleClearFilters,
+    refetch,
+  } = useProductsData();
+
+  // Keep useSupabaseTable for CRUD operations (add/update/delete)
+  const {
     addItem,
     updateItem,
     deleteItem,
-    fetchAll,
-  } = useSupabaseTable<Product>({ tableName: 'products', enableRealtime: true });
+    fetchAll: fetchAllLegacy,
+  } = useSupabaseTable<Product>({ tableName: 'products', enableRealtime: false });
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [categoryFilter, setCategoryFilter] = useState('all');
-  const [statusFilter, setStatusFilter] = useState('all');
   const [formData, setFormData] = useState({
     product_id: '',
     name: '',
@@ -191,7 +212,7 @@ export const ProductsPage: React.FC = () => {
         const updatedProduct = await updateItem(selectedProduct.id, updateData);
 
         // Explicitly refetch to ensure UI is in sync with database
-        await fetchAll();
+        await refetch();
 
         // Log user action (use product_id for logging)
         if (user) {
@@ -220,7 +241,7 @@ export const ProductsPage: React.FC = () => {
         const newProduct = await addItem(productData);
 
         // Explicitly refetch to ensure UI is in sync with database
-        await fetchAll();
+        await refetch();
 
         // Log user action (use product_id for logging)
         if (user && newProduct) {
@@ -253,7 +274,7 @@ export const ProductsPage: React.FC = () => {
 
       // Refetch on error to ensure UI reflects current database state
       try {
-        await fetchAll();
+        await refetch();
       } catch (fetchErr) {
         console.error('Error refetching products after save error:', fetchErr);
       }
@@ -291,7 +312,7 @@ export const ProductsPage: React.FC = () => {
       });
 
       // Explicitly refetch to ensure UI is in sync with database
-      await fetchAll();
+      await refetch();
 
       // Log user action
       if (user) {
@@ -322,7 +343,7 @@ export const ProductsPage: React.FC = () => {
 
       // Refetch on error to ensure UI reflects current database state
       try {
-        await fetchAll();
+        await refetch();
       } catch (fetchErr) {
         console.error('Error refetching products after delete error:', fetchErr);
       }
@@ -373,7 +394,7 @@ export const ProductsPage: React.FC = () => {
       setSelectedIds(new Set());
 
       // Explicitly refetch to ensure UI is in sync with database
-      await fetchAll();
+      await refetch();
 
       showSuccess(`Successfully deleted ${idsToDelete.length} product${idsToDelete.length > 1 ? 's' : ''} !`);
       setDeleteAllModal({ isOpen: false, selectedCount: 0 });
@@ -397,7 +418,7 @@ export const ProductsPage: React.FC = () => {
 
       // Refetch on error to ensure UI reflects current database state
       try {
-        await fetchAll();
+        await refetch();
       } catch (fetchErr) {
         console.error('Error refetching products after delete all error:', fetchErr);
       }
@@ -410,8 +431,7 @@ export const ProductsPage: React.FC = () => {
     setDeleteAllModal({ isOpen: false, selectedCount: 0 });
   };
 
-  // Unique categories from current products (for filter dropdown)
-  // We only show categories that actually exist in the user's data.
+  // Category and status options for multi-select
   const categoryOptions = getAllCategorySlugs()
     .map((slug) => ({
       value: slug,
@@ -419,39 +439,16 @@ export const ProductsPage: React.FC = () => {
     }))
     .sort((a, b) => a.label.localeCompare(b.label, "vi"));
 
-  // Unique statuses from current products (for filter dropdown)
-  const statusOptions = STATIC_STATUS_OPTIONS;
-
-  const clearAllFilters = () => {
-    setSearchQuery('');
-    setCategoryFilter('all');
-    setStatusFilter('all');
-  };
-
-  const filteredProducts = products.filter((product) => {
-    const term = searchQuery.trim().toLowerCase();
-
-    const matchesSearch =
-      term === "" ||
-      product.name.toLowerCase().includes(term) ||
-      (product.product_id?.toLowerCase().includes(term) ?? false);
-
-    // Compare categories case-insensitively for backward compatibility
-    const matchesCategory =
-      categoryFilter === "all" ||
-      product.category.toLowerCase() === categoryFilter.toLowerCase();
-
-    const matchesStatus =
-      statusFilter === "all" || product.status === statusFilter;
-
-    return matchesSearch && matchesCategory && matchesStatus;
-  });
+  const statusOptions = STATIC_STATUS_OPTIONS.map(status => ({
+    value: status,
+    label: status === 'active' ? 'Active' : 'Inactive',
+  }));
 
   const handleSelectAll = () => {
-    if (selectedIds.size === filteredProducts.length) {
+    if (selectedIds.size === products.length) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(filteredProducts.map(p => p.id)));
+      setSelectedIds(new Set(products.map(p => p.id)));
     }
   };
 
@@ -583,7 +580,7 @@ export const ProductsPage: React.FC = () => {
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={clearAllFilters}
+                onClick={handleClearFilters}
                 className="text-xs sm:text-sm text-white/60 hover:text-white underline-offset-2 hover:underline"
               >
                 Clear filters
@@ -600,40 +597,18 @@ export const ProductsPage: React.FC = () => {
               onChange={(e) => setSearchQuery(e.target.value)}
               className="h-10 !py-2"
             />
-            <div className="relative">
-              <select
-                value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value)}
-                className="w-full h-10 pr-10 px-3 py-2 bg-white/10 backdrop-blur-md border border-white/20 rounded-lg text-[#E5E7EB] text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
-              >
-                <option value="all">All Categories</option>
-                {categoryOptions.map((category) => (
-                  <option key={category.value} value={category.value}>
-                    {category.label}
-                  </option>
-                ))}
-              </select>
-              <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-              </svg>
-            </div>
-            <div className="relative">
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="w-full h-10 pr-10 px-3 py-2 bg-white/10 backdrop-blur-md border border-white/20 rounded-lg text-[#E5E7EB] text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
-              >
-                <option value="all">All Status</option>
-                {statusOptions.map((status) => (
-                  <option key={status} value={status}>
-                    {status === "active" ? "Active" : "Inactive"}
-                  </option>
-                ))}
-              </select>
-              <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-              </svg>
-            </div>
+            <MultiSelectFilter
+              label="Categories"
+              options={categoryOptions}
+              selectedValues={categoryFilter}
+              onChange={setCategoryFilter}
+            />
+            <MultiSelectFilter
+              label="Status"
+              options={statusOptions}
+              selectedValues={statusFilter}
+              onChange={setStatusFilter}
+            />
           </div>
         </CardContent>
       </Card>
@@ -646,7 +621,7 @@ export const ProductsPage: React.FC = () => {
                 onClick={handleSelectAll}
                 className="text-sm text-[var(--text-muted)] hover:text-[var(--text-main)] transition"
               >
-                {selectedIds.size === filteredProducts.length && filteredProducts.length > 0
+                {selectedIds.size === products.length && products.length > 0
                   ? 'Deselect All'
                   : 'Select All'}
               </button>
@@ -675,7 +650,7 @@ export const ProductsPage: React.FC = () => {
                   <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap w-12">
                     <input
                       type="checkbox"
-                      checked={selectedIds.size === filteredProducts.length && filteredProducts.length > 0}
+                      checked={selectedIds.size === products.length && products.length > 0}
                       onChange={handleSelectAll}
                       className="w-4 h-4 rounded border-white/20 bg-white/5 text-[#8B5CF6] focus:ring-[#8B5CF6] focus:ring-offset-0 cursor-pointer"
                     />
@@ -690,7 +665,7 @@ export const ProductsPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {filteredProducts.map((product) => (
+                {products.map((product) => (
                   <tr key={product.id} className="border-b border-[#1E223D] hover:bg-white/5 transition">
                     <td className="px-6 py-4 align-middle">
                       <input
@@ -744,7 +719,7 @@ export const ProductsPage: React.FC = () => {
                 ))}
               </tbody>
             </table>
-            {filteredProducts.length === 0 && (
+            {products.length === 0 && (
               <div className="p-12 text-center text-[#E5E7EB]/70">
                 {products.length === 0
                   ? 'No products found. Add your first product to get started.'
@@ -753,11 +728,21 @@ export const ProductsPage: React.FC = () => {
             )}
           </div>
         </CardContent>
+
+        {/* Pagination */}
+        <Pagination
+          currentPage={page}
+          totalPages={totalPages}
+          onPageChange={handlePageChange}
+          startIndex={startIndex}
+          endIndex={endIndex}
+          totalCount={totalCount}
+        />
       </Card>
 
       {/* Action Dropdown Menu - Rendered via Portal */}
       {openActionDropdown && typeof document !== 'undefined' && (() => {
-        const product = filteredProducts.find(p => p.id === openActionDropdown);
+        const product = products.find(p => p.id === openActionDropdown);
         if (!product) return null;
 
         const dropdownContent = (
@@ -799,7 +784,7 @@ export const ProductsPage: React.FC = () => {
           isOpen={isModalOpen}
           onClose={closeModal}
           onSuccess={async () => {
-            await fetchAll();
+            await refetch();
           }}
         />
       )}

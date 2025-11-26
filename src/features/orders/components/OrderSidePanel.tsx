@@ -1,5 +1,5 @@
-import React from 'react';
-import { X, Phone, MapPin, CreditCard, Save, AlertTriangle, ShieldAlert } from 'lucide-react';
+import React, { useState } from 'react';
+import { X, Phone, MapPin, CreditCard, Save, AlertTriangle, ShieldAlert, RefreshCw, RotateCcw, DollarSign } from 'lucide-react';
 import { Button } from '../../../components/ui/Button';
 import { Input } from '../../../components/ui/Input';
 import { StatusBadge } from '../../../components/dashboard/StatusBadge';
@@ -7,6 +7,9 @@ import { RiskBadge } from '../../../components/dashboard/RiskBadge';
 import { OrderTimeline } from './OrderTimeline';
 import { ORDER_STATUS } from '../../../constants/orderStatus';
 import type { Order, OrderEvent } from '../../../types/supabase';
+import { RefundModal } from './modals/RefundModal';
+import { ReturnModal } from './modals/ReturnModal';
+import { ExchangeModal } from './modals/ExchangeModal';
 
 interface OrderSidePanelProps {
     isOpen: boolean;
@@ -31,6 +34,7 @@ interface OrderSidePanelProps {
     onSimulateConfirmed?: (order: Order) => void;
     onSimulateCancelled?: (order: Order) => void;
     onSimulatePaid?: (order: Order) => void;
+    onOrderUpdated?: () => void; // Callback to refresh data
 }
 
 
@@ -52,7 +56,12 @@ export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
     onSimulateConfirmed,
     onSimulateCancelled,
     onSimulatePaid,
+    onOrderUpdated,
 }) => {
+    const [showRefundModal, setShowRefundModal] = useState(false);
+    const [showReturnModal, setShowReturnModal] = useState(false);
+    const [showExchangeModal, setShowExchangeModal] = useState(false);
+
     if (!isOpen || !order) return null;
 
     const isBlacklisted = order.phone && blacklistedPhones.has(order.phone);
@@ -76,6 +85,10 @@ export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
     };
 
     const riskAnalysis = getLatestRiskEvent();
+
+    const handleSuccess = () => {
+        if (onOrderUpdated) onOrderUpdated();
+    };
 
     return (
         <>
@@ -226,6 +239,55 @@ export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
                                         })()}
                                     </>
                                 )}
+
+                                {/* Normalized After-Sale Actions */}
+                                {(() => {
+                                    const isDelivering = order.status === ORDER_STATUS.DELIVERING;
+                                    const isCompleted = order.status === ORDER_STATUS.COMPLETED;
+                                    const canAfterSale = isDelivering || isCompleted;
+
+                                    if (!canAfterSale) return null;
+
+                                    const isOrderPaid = !!order.paid_at || order.status === ORDER_STATUS.ORDER_PAID;
+
+                                    const handleReturnClick = () => {
+                                        if (isOrderPaid) {
+                                            // Paid order -> Return + Refund flow
+                                            setShowRefundModal(true);
+                                        } else {
+                                            // Unpaid COD -> Return-to-seller flow
+                                            setShowReturnModal(true);
+                                        }
+                                    };
+
+                                    const handleExchangeClick = () => {
+                                        setShowExchangeModal(true);
+                                    };
+
+                                    return (
+                                        <>
+                                            <div className="w-full h-px bg-white/10 my-2" />
+                                            <div className="flex gap-3 w-full mt-2">
+                                                <Button
+                                                    size="sm"
+                                                    variant="secondary"
+                                                    onClick={handleReturnClick}
+                                                    className="flex-1 gap-1 bg-gradient-to-r from-red-500/10 to-orange-500/10 hover:from-red-500/20 hover:to-orange-500/20 border-red-500/20 text-red-200"
+                                                >
+                                                    <RotateCcw size={14} /> Return
+                                                </Button>
+                                                <Button
+                                                    size="sm"
+                                                    variant="secondary"
+                                                    onClick={handleExchangeClick}
+                                                    className="flex-1 gap-1 bg-gradient-to-r from-blue-500/10 to-cyan-500/10 hover:from-blue-500/20 hover:to-cyan-500/20 border-blue-500/20 text-blue-200"
+                                                >
+                                                    <RefreshCw size={14} /> Exchange
+                                                </Button>
+                                            </div>
+                                        </>
+                                    );
+                                })()}
                             </div>
                         </div>
                     </div>
@@ -390,6 +452,19 @@ export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
                                     <span>{order.payment_method || 'COD'}</span>
                                 </div>
                             </div>
+                            {/* New Financial Fields */}
+                            {(order.refunded_amount || 0) > 0 && (
+                                <div className="flex justify-between text-sm text-red-400">
+                                    <span>Refunded</span>
+                                    <span>-{order.refunded_amount?.toLocaleString('vi-VN')} VND</span>
+                                </div>
+                            )}
+                            {(order.customer_shipping_paid || 0) > 0 && (
+                                <div className="flex justify-between text-sm text-green-400">
+                                    <span>Cust. Shipping Paid</span>
+                                    <span>+{order.customer_shipping_paid?.toLocaleString('vi-VN')} VND</span>
+                                </div>
+                            )}
                         </div>
                     </div>
 
@@ -401,7 +476,30 @@ export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
                         </div>
                     </div>
                 </div>
+
+                {/* Modals */}
+                <RefundModal
+                    isOpen={showRefundModal}
+                    onClose={() => setShowRefundModal(false)}
+                    order={order}
+                    onSuccess={handleSuccess}
+                    title={!!order.paid_at || order.status === ORDER_STATUS.ORDER_PAID ? "Return & Refund" : "Refund Order"}
+                />
+                <ReturnModal
+                    isOpen={showReturnModal}
+                    onClose={() => setShowReturnModal(false)}
+                    order={order}
+                    onSuccess={handleSuccess}
+                />
+                <ExchangeModal
+                    isOpen={showExchangeModal}
+                    onClose={() => setShowExchangeModal(false)}
+                    order={order}
+                    onSuccess={handleSuccess}
+                    isPaid={!!order.paid_at || order.status === ORDER_STATUS.ORDER_PAID}
+                />
             </div>
         </>
     );
 };
+

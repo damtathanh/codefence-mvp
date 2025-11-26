@@ -44,3 +44,6 @@ coverage
 *.tsbuildinfo
 .cache
 
+# Supabase CLI temp
+supabase/.temp/
+

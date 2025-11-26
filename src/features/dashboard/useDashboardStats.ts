@@ -12,7 +12,18 @@ export interface DashboardStats {
     codOrders: number;
     prepaidOrders: number;
 
-    totalRevenue: number;
+    totalRevenue: number; // Added for backward compatibility (same as grossRevenue)
+
+    // --- Revenue Metrics (Updated) ---
+    grossRevenue: number; // Total value of all paid orders (product + shipping)
+    refundAmount: number; // Total refunded amount
+    logisticsCost: number; // Total shipping costs paid by seller (outbound + return + exchange)
+    netRevenue: number; // Gross Revenue - Refund - Logistics Cost
+
+    // --- Shipping Profit ---
+    shippingProfit: number; // (Customer Shipping Paid) - (Seller Shipping Paid)
+
+    // --- Legacy / Other Metrics ---
     avgOrderValue: number;
 
     pendingVerification: number;
@@ -173,7 +184,10 @@ export function useDashboardStats(
                             "channel",
                             "source",
                             "order_date",
-                            "created_at"
+                            "created_at",
+                            "refunded_amount",
+                            "customer_shipping_paid",
+                            "seller_shipping_paid"
                         ].join(",")
                     )
                     .eq("user_id", user.id)
@@ -346,12 +360,64 @@ function isCOD(order: Order): boolean {
     return method === "" || method === "COD";
 }
 
+// New Helper: Order has ever been paid
+function hasBeenPaid(order: Order): boolean {
+    // If we have an explicit paid_at timestamp, it's paid.
+    if (order.paid_at) return true;
+
+    if (!isCOD(order)) {
+        // Non-COD (Prepaid):
+        // Considered paid if status is PAID, DELIVERING, or COMPLETED
+        // (Assuming prepaid orders are paid before delivery)
+        return (
+            order.status === ORDER_STATUS.ORDER_PAID ||
+            order.status === ORDER_STATUS.DELIVERING ||
+            order.status === ORDER_STATUS.COMPLETED
+        );
+    } else {
+        // COD:
+        // Only considered paid if explicitly PAID status (or paid_at above)
+        return order.status === ORDER_STATUS.ORDER_PAID;
+    }
+}
+
+// New Helper: Customer has confirmed (for COD)
+function hasBeenCustomerConfirmed(order: Order): boolean {
+    if (!isCOD(order)) return false;
+
+    // Explicit timestamp
+    if (order.customer_confirmed_at) return true;
+
+    // Or status implies confirmation
+    return (
+        order.status === ORDER_STATUS.CUSTOMER_CONFIRMED ||
+        order.status === ORDER_STATUS.ORDER_APPROVED ||
+        order.status === ORDER_STATUS.DELIVERING ||
+        order.status === ORDER_STATUS.COMPLETED ||
+        order.status === ORDER_STATUS.ORDER_PAID
+    );
+}
+
+// New Helper: COD Payment Pending
+// COD confirmed/delivering/completed but NOT paid
+function isCodPaymentPending(order: Order): boolean {
+    if (!isCOD(order)) return false;
+    if (hasBeenPaid(order)) return false;
+
+    return (
+        order.status === ORDER_STATUS.CUSTOMER_CONFIRMED ||
+        order.status === ORDER_STATUS.ORDER_APPROVED ||
+        order.status === ORDER_STATUS.DELIVERING ||
+        order.status === ORDER_STATUS.COMPLETED
+    );
+}
+
 function computeStats(orders: Order[]): DashboardStats {
     const totalOrders = orders.length;
     const codOrders = orders.filter(isCOD).length;
     const prepaidOrders = totalOrders - codOrders;
 
-    // Status groups
+    // Status groups for counts/rates (keep existing logic for these where appropriate)
     const pendingStatuses = new Set<Order["status"]>([
         ORDER_STATUS.PENDING_REVIEW,
         ORDER_STATUS.VERIFICATION_REQUIRED,
@@ -369,11 +435,6 @@ function computeStats(orders: Order[]): DashboardStats {
         ORDER_STATUS.ORDER_REJECTED,
     ]);
 
-    const paidStatuses = new Set<Order["status"]>([
-        ORDER_STATUS.ORDER_PAID,
-        ORDER_STATUS.COMPLETED,
-    ]);
-
     const cancelledStatuses = new Set<Order["status"]>([
         ORDER_STATUS.CUSTOMER_CANCELLED,
         ORDER_STATUS.ORDER_REJECTED,
@@ -385,18 +446,62 @@ function computeStats(orders: Order[]): DashboardStats {
         pendingStatuses.has(o.status)
     ).length;
 
-    // Paid orders and revenue
-    const paidOrders = orders.filter((o) => paidStatuses.has(o.status));
-    const totalRevenue = paidOrders.reduce(
+    // --- 1. GROSS REVENUE ---
+    // Definition: Total amount of all PAID orders (COD or Prepaid)
+    // Note: 'amount' usually includes product price + shipping fee - discount
+    const paidOrdersForRevenue = orders.filter((o) => hasBeenPaid(o));
+
+    const grossRevenue = paidOrdersForRevenue.reduce(
         (sum, o) => sum + (o.amount ?? 0),
         0
     );
+
+    // --- 2. REFUND AMOUNT ---
+    // Sum of 'refunded_amount' from ALL orders (even if not fully paid, though usually refunds happen on paid orders)
+    // We should probably count refunds regardless of current payment status if the refund happened?
+    // Or only for paid orders? Usually refunds are against paid amount.
+    // Let's sum all recorded refunds in the period.
+    const refundAmount = orders.reduce(
+        (sum, o) => sum + (o.refunded_amount ?? 0),
+        0
+    );
+
+    // --- 3. LOGISTICS COST ---
+    // Sum of 'seller_shipping_paid' from ALL orders
+    // This tracks what the seller paid to carrier (outbound, return, exchange)
+    const logisticsCost = orders.reduce(
+        (sum, o) => sum + (o.seller_shipping_paid ?? 0),
+        0
+    );
+
+    // --- 4. NET REVENUE ---
+    // Gross Revenue - Refund - Logistics Cost
+    // Note: Gross Revenue is based on PAID orders.
+    // Refund and Logistics might include unpaid orders (e.g. return shipping for failed COD).
+    // This is correct: Net Revenue should account for costs of failed orders too.
+    const netRevenue = grossRevenue - refundAmount - logisticsCost;
+
+    // --- 5. SHIPPING PROFIT ---
+    // (Sum of customer_shipping_paid) - (Sum of seller_shipping_paid)
+    // customer_shipping_paid: what customer paid for shipping (collected via COD or prepaid)
+    // seller_shipping_paid: what seller paid to carrier
+    const totalCustomerShippingPaid = orders.reduce(
+        (sum, o) => sum + (o.customer_shipping_paid ?? 0),
+        0
+    );
+    // logisticsCost is same as totalSellerShippingPaid
+    const shippingProfit = totalCustomerShippingPaid - logisticsCost;
+
+
+    // --- Legacy / Other Metrics ---
+
+    // AVG ORDER VALUE (based on Gross Revenue)
     const avgOrderValue =
-        paidOrders.length > 0
-            ? Math.round(totalRevenue / paidOrders.length)
+        paidOrdersForRevenue.length > 0
+            ? Math.round(grossRevenue / paidOrdersForRevenue.length)
             : 0;
 
-    // Verified outcomes (COD only)
+    // --- Verified outcomes (COD only) - Keep existing logic ---
     const verifiedOutcomeCOD = orders.filter(
         (o) =>
             isCOD(o) &&
@@ -409,9 +514,10 @@ function computeStats(orders: Order[]): DashboardStats {
             ? Math.round((verifiedOutcomeCount / codOrders) * 1000) / 10
             : 0;
 
-    // Converted COD → Paid
+    // --- CONVERTED REVENUE ---
+    // COD orders that have been paid
     const convertedOrdersList = orders.filter(
-        (o) => isCOD(o) && paidStatuses.has(o.status)
+        (o) => isCOD(o) && hasBeenPaid(o)
     );
     const convertedOrders = convertedOrdersList.length;
     const convertedRevenue = convertedOrdersList.reduce(
@@ -423,34 +529,19 @@ function computeStats(orders: Order[]): DashboardStats {
             ? Math.round((convertedOrders / codOrders) * 1000) / 10
             : 0;
 
-    // Pending Revenue = COD đã confirmed / delivering nhưng chưa paid
-    const pendingRevenueOrders = orders.filter(
-        (o) =>
-            isCOD(o) &&
-            (
-                o.status === ORDER_STATUS.ORDER_APPROVED ||
-                o.status === ORDER_STATUS.CUSTOMER_CONFIRMED ||
-                o.status === ORDER_STATUS.DELIVERING
-            ) &&
-            !paidStatuses.has(o.status)
-    );
+    // --- PENDING REVENUE ---
+    // COD confirmed/delivering/completed but NOT paid
+    const pendingRevenueOrders = orders.filter((o) => isCodPaymentPending(o));
 
     const pendingRevenue = pendingRevenueOrders.reduce(
         (sum, o) => sum + (o.amount ?? 0),
         0
     );
 
-    // Total confirmed COD revenue
+    // --- CONFIRMED COD REVENUE ---
+    // COD orders that have ever been customer confirmed
     const confirmedCodOrders = orders.filter(
-        (o) =>
-            isCOD(o) &&
-            (
-                o.status === ORDER_STATUS.ORDER_APPROVED ||
-                o.status === ORDER_STATUS.CUSTOMER_CONFIRMED ||
-                o.status === ORDER_STATUS.DELIVERING ||
-                o.status === ORDER_STATUS.COMPLETED ||
-                o.status === ORDER_STATUS.ORDER_PAID
-            )
+        (o) => isCOD(o) && hasBeenCustomerConfirmed(o)
     );
 
     const confirmedCodRevenue = confirmedCodOrders.reduce(
@@ -458,12 +549,13 @@ function computeStats(orders: Order[]): DashboardStats {
         0
     );
 
-    // Delivered but NOT paid yet
+    // --- DELIVERED NOT PAID ---
+    // COD orders that are COMPLETED but NOT paid
     const deliveredNotPaidOrders = orders.filter(
         (o) =>
             isCOD(o) &&
-            o.status === ORDER_STATUS.DELIVERING &&
-            !paidStatuses.has(o.status)
+            o.status === ORDER_STATUS.COMPLETED &&
+            !hasBeenPaid(o)
     );
 
     const deliveredNotPaidRevenue = deliveredNotPaidOrders.reduce(
@@ -471,7 +563,7 @@ function computeStats(orders: Order[]): DashboardStats {
         0
     );
 
-    // Cancelled COD (for cancel rate)
+    // --- Cancelled COD (for cancel rate) ---
     const codCancelled = orders.filter(
         (o) => isCOD(o) && cancelledStatuses.has(o.status)
     ).length;
@@ -502,7 +594,12 @@ function computeStats(orders: Order[]): DashboardStats {
         totalOrders,
         codOrders,
         prepaidOrders,
-        totalRevenue,
+        grossRevenue,
+        refundAmount,
+        logisticsCost,
+        netRevenue,
+        shippingProfit,
+        totalRevenue: grossRevenue, // Map grossRevenue to totalRevenue for backward compatibility if needed, or just use grossRevenue
         avgOrderValue,
         pendingVerification,
         verifiedOutcomeCount,

@@ -99,8 +99,6 @@ export async function generateInvoicePdf(
         return "Đã thanh toán";
       case "pending":
         return "Chờ thanh toán";
-      case "refunded":
-        return "Đã hoàn tiền";
       default:
         return raw || "";
     }

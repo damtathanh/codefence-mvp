@@ -20,7 +20,7 @@ import {
     simulateCustomerPaid,
     zaloGateway,
 } from '../../zalo';
-import { insertOrderEvent } from '../services/orderEventsService';
+import { logOrderEvent } from '../services/orderEventsService';
 import { ORDER_STATUS } from '../../../constants/orderStatus';
 import { PAYMENT_METHODS } from '../../../constants/paymentMethods';
 import type { Order, OrderEvent } from '../../../types/supabase';
@@ -216,11 +216,15 @@ export const OrdersView: React.FC = () => {
                     return;
                 }
 
-                await insertOrderEvent({
-                    order_id: order.id,
-                    event_type: 'order_approved',
-                    payload_json: { user_id: user.id, from_verification: true },
-                });
+                await logOrderEvent(
+                    order.id,
+                    'APPROVED',
+                    {
+                        previous_status: order.status,
+                        new_status: ORDER_STATUS.CUSTOMER_CONFIRMED,
+                    },
+                    'orders_view'
+                );
 
                 showSuccess('Order approved → Customer Confirmed');
 
@@ -237,11 +241,15 @@ export const OrdersView: React.FC = () => {
             } else {
                 // Pending Review: Send confirmation via Zalo
                 // 1. First, insert ORDER_APPROVED event
-                await insertOrderEvent({
-                    order_id: order.id,
-                    event_type: 'order_approved',
-                    payload_json: { user_id: user.id },
-                });
+                await logOrderEvent(
+                    order.id,
+                    'APPROVED',
+                    {
+                        previous_status: order.status,
+                        new_status: ORDER_STATUS.ORDER_CONFIRMATION_SENT,
+                    },
+                    'orders_view'
+                );
 
                 // 2. Update order status
                 const success = await updateOrderLocal(order.id, {
@@ -305,11 +313,14 @@ export const OrdersView: React.FC = () => {
                     return;
                 }
 
-                await insertOrderEvent({
-                    order_id: order.id,
-                    event_type: 'ORDER_REJECTED',
-                    payload_json: { user_id: user.id, from_verification: true, reason: 'Rejected during verification' },
-                });
+                await logOrderEvent(
+                    order.id,
+                    'REJECTED',
+                    {
+                        reason: 'Rejected during verification',
+                    },
+                    'orders_view'
+                );
 
                 showSuccess('Order rejected');
 
@@ -494,11 +505,12 @@ export const OrdersView: React.FC = () => {
                 return;
             }
 
-            await insertOrderEvent({
-                order_id: order.id,
-                event_type: 'order_marked_delivering',
-                payload_json: { user_id: user.id },
-            });
+            await logOrderEvent(
+                order.id,
+                'ORDER_MARKED_DELIVERING',
+                {},
+                'orders_view'
+            );
 
             showSuccess('Order marked as delivering');
 
@@ -535,11 +547,12 @@ export const OrdersView: React.FC = () => {
                 return;
             }
 
-            await insertOrderEvent({
-                order_id: order.id,
-                event_type: 'order_completed',
-                payload_json: { user_id: user.id },
-            });
+            await logOrderEvent(
+                order.id,
+                'ORDER_COMPLETED',
+                {},
+                'orders_view'
+            );
 
             showSuccess('Order marked as completed');
             setIsSidePanelOpen(false);
@@ -580,11 +593,14 @@ export const OrdersView: React.FC = () => {
                 return;
             }
 
-            await insertOrderEvent({
-                order_id: order.id,
-                event_type: 'customer_unreachable',
-                payload_json: { user_id: user.id, reason: 'Customer did not respond to verification' },
-            });
+            await logOrderEvent(
+                order.id,
+                'CUSTOMER_UNREACHABLE',
+                {
+                    reason: 'Customer did not respond to verification',
+                },
+                'orders_view'
+            );
 
             showSuccess('Order marked as Customer Unreachable');
 
@@ -659,9 +675,9 @@ export const OrdersView: React.FC = () => {
 
     const handleClearFilters = () => {
         setSearchQuery('');
-        setStatusFilter('all');
-        setRiskScoreFilter('all');
-        setPaymentMethodFilter('all');
+        setStatusFilter([]);
+        setRiskScoreFilter([]);
+        setPaymentMethodFilter([]);
     };
 
     return (
@@ -672,25 +688,27 @@ export const OrdersView: React.FC = () => {
                 </div>
             )}
 
-            <OrderFilters
-                searchQuery={searchQuery}
-                setSearchQuery={setSearchQuery}
-                statusFilter={statusFilter}
-                setStatusFilter={setStatusFilter}
-                riskScoreFilter={riskScoreFilter}
-                setRiskScoreFilter={setRiskScoreFilter}
-                paymentMethodFilter={paymentMethodFilter}
-                setPaymentMethodFilter={setPaymentMethodFilter}
-                statusOptions={statusOptions}
-                paymentOptions={paymentMethodOptions}
-                onClearFilters={handleClearFilters}
-                onAddOrder={() => {
-                    setEditingOrder(null);
-                    setIsAddOrderModalOpen(true);
-                }}
-            />
+            <div className="relative z-20">
+                <OrderFilters
+                    searchQuery={searchQuery}
+                    setSearchQuery={setSearchQuery}
+                    statusFilter={statusFilter}
+                    setStatusFilter={setStatusFilter}
+                    riskScoreFilter={riskScoreFilter}
+                    setRiskScoreFilter={setRiskScoreFilter}
+                    paymentMethodFilter={paymentMethodFilter}
+                    setPaymentMethodFilter={setPaymentMethodFilter}
+                    statusOptions={statusOptions}
+                    paymentOptions={paymentMethodOptions}
+                    onClearFilters={handleClearFilters}
+                    onAddOrder={() => {
+                        setEditingOrder(null);
+                        setIsAddOrderModalOpen(true);
+                    }}
+                />
+            </div>
 
-            <div className="flex-1 min-h-0 mt-6">
+            <div className="flex-1 min-h-0 mt-6 relative z-10">
                 <OrderTable
                     orders={orders} // Current page orders
                     filteredOrders={filteredOrders} // Same as orders now
@@ -740,6 +758,18 @@ export const OrdersView: React.FC = () => {
                 onSimulateConfirmed={handleSimulateConfirmedClick}
                 onSimulateCancelled={handleSimulateCancelledClick}
                 onSimulatePaid={handleSimulatePaidClick}
+                onOrderUpdated={() => {
+                    refreshOrders();
+                    if (selectedOrder) {
+                        // Refresh selected order details if needed, or just close panel
+                        // Ideally we should re-fetch the selected order to update the panel content
+                        // But refreshOrders updates the list. We might need to update selectedOrder from the new list.
+                        // For now, let's just refresh the list. The panel might need to be closed or updated.
+                        // Let's try to update selectedOrder from the updated list in useEffect or similar?
+                        // Actually, refreshOrders is async but we don't await it here easily.
+                        // Let's just trigger refresh.
+                    }
+                }}
             />
 
             <AddOrderModal

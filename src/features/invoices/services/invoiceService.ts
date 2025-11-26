@@ -2,7 +2,7 @@
 import { supabase } from "../../../lib/supabaseClient";
 import { INVOICE_STATUS, type InvoiceStatus } from "./invoiceTypes";
 import type { Order, Invoice } from "../../../types/supabase";
-import { insertOrderEvent } from "../../orders/services/orderEventsService";
+import { logOrderEvent } from "../../orders/services/orderEventsService";
 
 // helper to get today's date as YYYY-MM-DD for the `date` column
 function getTodayDateString() {
@@ -108,12 +108,16 @@ export async function markInvoicePaidForOrder(order: Order) {
       throw updateError; // để biết là nó fail
     }
 
-    // Centralized Event Logging: Insert CUSTOMER_PAID event
-    await insertOrderEvent({
-      order_id: order.id,
-      event_type: 'CUSTOMER_PAID',
-      payload_json: { source: 'invoice_service', user_id: order.user_id },
-    });
+    // Centralized Event Logging: Insert PAID event
+    await logOrderEvent(
+      order.id,
+      'PAID',
+      {
+        amount: order.amount,
+        paid_at: now,
+      },
+      'invoice_service'
+    );
 
     return;
   }
@@ -134,12 +138,16 @@ export async function markInvoicePaidForOrder(order: Order) {
     throw insertError;
   }
 
-  // Centralized Event Logging: Insert CUSTOMER_PAID event
-  await insertOrderEvent({
-    order_id: order.id,
-    event_type: 'CUSTOMER_PAID',
-    payload_json: { source: 'invoice_service', user_id: order.user_id },
-  });
+  // Centralized Event Logging: Insert PAID event
+  await logOrderEvent(
+    order.id,
+    'PAID',
+    {
+      amount: order.amount,
+      paid_at: now,
+    },
+    'invoice_service'
+  );
 }
 
 /**

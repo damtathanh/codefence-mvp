@@ -57,6 +57,18 @@ export interface Order {
   shipped_at?: string | null;
   completed_at?: string | null;
   cancel_reason?: string | null;
+  // Refund/Return/Exchange fields
+  refunded_amount?: number | null;
+  customer_shipping_paid?: number | null;
+  seller_shipping_paid?: number | null;
+}
+
+export interface ShippingCost {
+  id: string;
+  order_id: string;
+  type: 'outbound' | 'return' | 'exchange';
+  amount: number;
+  created_at: string;
 }
 
 export interface OrderEvent {
@@ -72,7 +84,7 @@ export interface Invoice {
   user_id: string;
   order_id: string;
   amount: number;
-  status: 'Pending' | 'Paid' | 'Refunded' | 'Cancelled';
+  status: 'Pending' | 'Paid' | 'Cancelled';
   date: string;
   invoice_code?: string | null;
   paid_at?: string | null;

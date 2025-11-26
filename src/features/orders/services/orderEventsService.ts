@@ -22,28 +22,71 @@ export async function fetchOrderEvents(orderId: string) {
  * Insert a single order event
  */
 export async function insertOrderEvent(payload: InsertOrderEventPayload) {
-  return supabase
+  const { data, error } = await supabase
     .from("order_events")
-    .insert(payload);
+    .insert(payload)
+    .select()
+    .single();
+
+  if (error) {
+    console.error("[insertOrderEvent] error", error);
+    throw error;
+  }
+
+  return data as OrderEvent;
 }
 
 /**
  * Insert multiple order events (bulk)
  */
 export async function insertOrderEvents(payloads: InsertOrderEventPayload[]) {
-  return supabase
+  const { data, error } = await supabase
     .from("order_events")
-    .insert(payloads);
+    .insert(payloads)
+    .select();
+
+  if (error) {
+    console.error("[insertOrderEvents] error", error);
+    throw error;
+  }
+
+  return (data || []) as OrderEvent[];
 }
 
+/**
+ * Unified helper to log an order event.
+ * This matches how other services call logOrderEvent(orderId, type, metadata, source).
+ */
+export async function logOrderEvent(
+  orderId: string,
+  eventType: string,
+  metadata: Record<string, any> = {},
+  source: string = "system"
+) {
+  const cleanedMetadata = Object.fromEntries(
+    Object.entries(metadata ?? {}).filter(([, v]) => v !== undefined && v !== "")
+  );
+
+  const payload: InsertOrderEventPayload = {
+    order_id: orderId,
+    event_type: eventType,
+    payload_json: {
+      ...cleanedMetadata,
+      source,
+    },
+  };
+
+  return insertOrderEvent(payload);
+}
 
 /**
  * Log order paid event (manual action from Invoices page)
  */
 export async function logOrderPaidEvent(orderId: string) {
-  return insertOrderEvent({
-    order_id: orderId,
-    event_type: 'paid_confirmed',
-    payload_json: { source: 'manual_invoice_mark_paid' },
-  });
+  return logOrderEvent(
+    orderId,
+    "PAID_CONFIRMED",
+    { source: "manual_invoice_mark_paid" },
+    "invoice_page"
+  );
 }

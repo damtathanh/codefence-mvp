@@ -4,6 +4,7 @@ import { useAuth } from '../../auth';
 import { fetchOrdersByUser, updateOrder as updateOrderService, UpdateOrderPayload, OrderFilters, fetchOrderFilterOptions } from '../services/ordersService';
 import { fetchActiveProducts, SimpleProduct } from '../../products/services/productsService';
 import type { Order } from '../../../types/supabase';
+import { matchesStatusFilter, matchesPaymentMethodFilter, matchesRiskFilter } from '../utils/orderFilters';
 
 export const useOrdersData = () => {
     const { user } = useAuth();
@@ -20,9 +21,9 @@ export const useOrdersData = () => {
     const PAGE_SIZE = 50;
 
     const [searchQuery, setSearchQuery] = useState('');
-    const [statusFilter, setStatusFilter] = useState('all');
-    const [riskScoreFilter, setRiskScoreFilter] = useState('all');
-    const [paymentMethodFilter, setPaymentMethodFilter] = useState('all');
+    const [statusFilter, setStatusFilter] = useState<string[]>([]);
+    const [riskScoreFilter, setRiskScoreFilter] = useState<string[]>([]);
+    const [paymentMethodFilter, setPaymentMethodFilter] = useState<string[]>([]);
 
     // Filter Options
     const [statusOptions, setStatusOptions] = useState<string[]>([]);
@@ -122,56 +123,11 @@ export const useOrdersData = () => {
             const originalOrder = prevOrders[orderIndex];
             const updatedOrder = { ...originalOrder, ...patch };
 
-            // Check if updated order still matches current filters
-            let matches = true;
-
-            // 1. Status Filter
-            if (statusFilter !== 'all' && updatedOrder.status !== statusFilter) {
-                matches = false;
-            }
-
-            // 2. Payment Method Filter
-            if (paymentMethodFilter !== 'all') {
-                const method = (updatedOrder.payment_method || 'COD').trim();
-                if (paymentMethodFilter === 'COD') {
-                    if (method !== 'COD' && method !== '') matches = false;
-                } else {
-                    if (method !== paymentMethodFilter) matches = false;
-                }
-            }
-
-            // 3. Risk Score Filter
-            if (riskScoreFilter !== 'all') {
-                const score = updatedOrder.risk_score || 0;
-                if (riskScoreFilter === 'low' && score > 30) matches = false;
-                if (riskScoreFilter === 'medium' && (score <= 30 || score > 70)) matches = false;
-                if (riskScoreFilter === 'high' && score <= 70) matches = false;
-            }
-
-            // 4. Search Query (Client-side check for immediate feedback)
-            if (searchQuery) {
-                const term = searchQuery.toLowerCase();
-                const searchString = `
-                    ${updatedOrder.order_id || ''} 
-                    ${updatedOrder.customer_name || ''} 
-                    ${updatedOrder.phone || ''}
-                `.toLowerCase();
-                if (!searchString.includes(term)) matches = false;
-            }
-
-            if (!matches) {
-                // Remove order if it no longer matches filters
-                // We also decrement totalCount to keep pagination consistent-ish
-                setTotalCount(prev => Math.max(0, prev - 1));
-                return prevOrders.filter(o => o.id !== orderId);
-            }
-
-            // Update in place
             const newOrders = [...prevOrders];
             newOrders[orderIndex] = updatedOrder;
             return newOrders;
         });
-    }, [statusFilter, paymentMethodFilter, riskScoreFilter, searchQuery]);
+    }, []);
 
     // 4. Update Order (Optimistic)
     const updateOrderLocal = async (orderId: string, updates: UpdateOrderPayload) => {

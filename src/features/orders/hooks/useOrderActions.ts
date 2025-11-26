@@ -5,7 +5,7 @@ import { Order } from '../../../types/supabase';
 import { zaloGateway } from '../../zalo';
 import { logUserAction } from '../../../utils/logUserAction';
 import { generateChanges } from '../../../utils/generateChanges';
-import { insertOrderEvent } from '../services/orderEventsService';
+import { logOrderEvent } from '../services/orderEventsService';
 import { deleteOrders } from '../services/ordersService';
 import { deleteInvoicesByOrderIds } from '../../invoices/services/invoiceService';
 import { ORDER_STATUS } from '../../../constants/orderStatus';
@@ -86,16 +86,13 @@ export const useOrderActions = (
 
             await updateOrderLocal(order.id, updateData);
 
-            const eventType = mode === 'VERIFICATION_REQUIRED' ? 'VERIFICATION_REQUIRED' : 'ORDER_REJECTED';
-            const { error: eventError } = await insertOrderEvent({
-                order_id: order.id,
-                event_type: eventType,
-                payload_json: {
-                    reason: reason,
-                    mode: mode,
-                    source: 'ui',
-                },
-            });
+            const eventType = mode === 'VERIFICATION_REQUIRED' ? 'VERIFICATION_REQUIRED' : 'REJECTED';
+            const { error: eventError } = await logOrderEvent(
+                order.id,
+                eventType,
+                { reason },
+                'order_actions_hook'
+            );
 
             if (eventError) throw eventError;
 
@@ -133,11 +130,12 @@ export const useOrderActions = (
                 shipped_at: now,
             });
 
-            const { error: eventError } = await insertOrderEvent({
-                order_id: order.id,
-                event_type: 'ORDER_SHIPPED',
-                payload_json: { shipped_at: now, source: 'ui' },
-            });
+            const { error: eventError } = await logOrderEvent(
+                order.id,
+                'ORDER_SHIPPED',
+                { shipped_at: now },
+                'order_actions_hook'
+            );
 
             if (eventError) throw eventError;
 
@@ -173,11 +171,12 @@ export const useOrderActions = (
                 completed_at: now,
             });
 
-            const { error: eventError } = await insertOrderEvent({
-                order_id: order.id,
-                event_type: 'ORDER_COMPLETED',
-                payload_json: { completed_at: now, source: 'ui' },
-            });
+            const { error: eventError } = await logOrderEvent(
+                order.id,
+                'ORDER_COMPLETED',
+                { completed_at: now },
+                'order_actions_hook'
+            );
 
             if (eventError) throw eventError;
 

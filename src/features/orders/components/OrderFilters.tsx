@@ -8,17 +8,17 @@ import {
 } from '../../../components/ui/Card';
 import { Input } from '../../../components/ui/Input';
 import { PrimaryActionButton } from '../../../components/dashboard/PrimaryActionButton';
-import { ORDER_STATUS } from '../../../constants/orderStatus';
+import { MultiSelectFilter } from '../../../components/filters/MultiSelectFilter';
 
 interface OrderFiltersProps {
     searchQuery: string;
     setSearchQuery: (query: string) => void;
-    statusFilter: string;
-    setStatusFilter: (status: string) => void;
-    riskScoreFilter: string;
-    setRiskScoreFilter: (risk: string) => void;
-    paymentMethodFilter: string;
-    setPaymentMethodFilter: (method: string) => void;
+    statusFilter: string[];
+    setStatusFilter: (status: string[]) => void;
+    riskScoreFilter: string[];
+    setRiskScoreFilter: (risk: string[]) => void;
+    paymentMethodFilter: string[];
+    setPaymentMethodFilter: (method: string[]) => void;
     statusOptions: string[];
     paymentOptions: string[];
     onAddOrder: () => void;
@@ -76,92 +76,32 @@ export const OrderFilters: React.FC<OrderFiltersProps> = ({
                     />
 
                     {/* Status filter */}
-                    <div className="relative">
-                        <select
-                            value={statusFilter}
-                            onChange={(e) => setStatusFilter(e.target.value)}
-                            className="w-full h-10 pr-10 px-3 py-2 bg-white/10 backdrop-blur-sm border border-white/10 rounded-lg text-sm text-[#E5E7EB] appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
-                        >
-                            <option value="all">All Statuses</option>
-                            {statusOptions.map((status) => (
-                                <option key={status} value={status}>
-                                    {status}
-                                </option>
-                            ))}
-                        </select>
-                        <svg
-                            className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#9CA3AF]"
-                            xmlns="http://www.w3.org/2000/svg"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                        >
-                            <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth="2"
-                                d="M19 9l-7 7-7-7"
-                            />
-                        </svg>
-                    </div>
+                    <MultiSelectFilter
+                        label="Statuses"
+                        options={statusOptions.map(s => ({ value: s, label: s }))}
+                        selectedValues={statusFilter}
+                        onChange={setStatusFilter}
+                    />
 
                     {/* Risk score filter */}
-                    <div className="relative">
-                        <select
-                            value={riskScoreFilter}
-                            onChange={(e) => setRiskScoreFilter(e.target.value)}
-                            className="w-full h-10 pr-10 px-3 py-2 bg-white/10 backdrop-blur-sm border border-white/10 rounded-lg text-sm text-[#E5E7EB] appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
-                        >
-                            <option value="all">All Risk Levels</option>
-                            <option value="low">Low Risk (0–30)</option>
-                            <option value="medium">Medium Risk (31–70)</option>
-                            <option value="high">High Risk (70+)</option>
-                        </select>
-                        <svg
-                            className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#9CA3AF]"
-                            xmlns="http://www.w3.org/2000/svg"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                        >
-                            <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth="2"
-                                d="M19 9l-7 7-7-7"
-                            />
-                        </svg>
-                    </div>
+                    <MultiSelectFilter
+                        label="Risk Levels"
+                        options={[
+                            { value: 'low', label: 'Low Risk (0–30)' },
+                            { value: 'medium', label: 'Medium Risk (31–70)' },
+                            { value: 'high', label: 'High Risk (70+)' },
+                        ]}
+                        selectedValues={riskScoreFilter}
+                        onChange={setRiskScoreFilter}
+                    />
 
                     {/* Payment method filter */}
-                    <div className="relative">
-                        <select
-                            value={paymentMethodFilter}
-                            onChange={(e) => setPaymentMethodFilter(e.target.value)}
-                            className="w-full h-10 pr-10 px-3 py-2 bg-white/10 backdrop-blur-sm border border-white/10 rounded-lg text-sm text-[#E5E7EB] appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
-                        >
-                            <option value="all">All Payment Methods</option>
-                            {paymentOptions.map((method) => (
-                                <option key={method} value={method}>
-                                    {method}
-                                </option>
-                            ))}
-                        </select>
-                        <svg
-                            className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#9CA3AF]"
-                            xmlns="http://www.w3.org/2000/svg"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                        >
-                            <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth="2"
-                                d="M19 9l-7 7-7-7"
-                            />
-                        </svg>
-                    </div>
+                    <MultiSelectFilter
+                        label="Payment Methods"
+                        options={paymentOptions.map(m => ({ value: m, label: m }))}
+                        selectedValues={paymentMethodFilter}
+                        onChange={setPaymentMethodFilter}
+                    />
                 </div>
             </CardContent>
         </Card>
