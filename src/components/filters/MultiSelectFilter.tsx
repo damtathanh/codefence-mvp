@@ -82,11 +82,13 @@ export const MultiSelectFilter: React.FC<MultiSelectFilterProps> = ({
     const displayValue = getMultiSelectDisplayText(selectedValues, allOptionValues, label);
 
     return (
-        <div className={`relative ${className}`} ref={containerRef}>
+        <div className={`relative z-[70] overflow-visible ${className}`} ref={containerRef}>
             <button
                 type="button"
                 onClick={() => setIsOpen(!isOpen)}
-                className="w-full h-10 px-3 py-2 bg-white/10 backdrop-blur-sm border border-white/10 rounded-lg text-sm text-[#E5E7EB] flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-[#8B5CF6] transition-colors"
+                className={`flex items-center justify-between px-3 py-2 text-sm text-[#E5E7EB] transition-colors focus:outline-none focus:ring-2 focus:ring-[#8B5CF6] 
+                    bg-[var(--bg-input)] border border-[var(--border-subtle)] rounded-lg
+                    whitespace-nowrap min-w-[180px] h-10`}
             >
                 <span className="truncate">{displayValue}</span>
                 <ChevronDown
@@ -97,7 +99,7 @@ export const MultiSelectFilter: React.FC<MultiSelectFilterProps> = ({
             </button>
 
             {isOpen && (
-                <div className="absolute z-50 mt-1 w-full bg-[#1F2937] border border-white/10 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+                <div className="absolute left-0 top-full mt-1 z-[9999] origin-top w-full bg-[#1F2937] border border-white/10 rounded-lg shadow-xl max-h-60 overflow-y-auto">
                     {/* "All" option */}
                     <div
                         className="px-3 py-2 hover:bg-white/5 cursor-pointer flex items-center gap-2 text-sm text-[#E5E7EB] border-b border-white/5"
@@ -105,8 +107,8 @@ export const MultiSelectFilter: React.FC<MultiSelectFilterProps> = ({
                     >
                         <div
                             className={`w-4 h-4 border rounded flex items-center justify-center transition-colors ${allSelected
-                                    ? 'bg-[#8B5CF6] border-[#8B5CF6]'
-                                    : 'border-white/30'
+                                ? 'bg-[#8B5CF6] border-[#8B5CF6]'
+                                : 'border-white/30'
                                 }`}
                         >
                             {allSelected && <Check size={12} className="text-white" />}
@@ -125,8 +127,8 @@ export const MultiSelectFilter: React.FC<MultiSelectFilterProps> = ({
                             >
                                 <div
                                     className={`w-4 h-4 border rounded flex items-center justify-center transition-colors ${isSelected
-                                            ? 'bg-[#8B5CF6] border-[#8B5CF6]'
-                                            : 'border-white/30'
+                                        ? 'bg-[#8B5CF6] border-[#8B5CF6]'
+                                        : 'border-white/30'
                                         }`}
                                 >
                                     {isSelected && <Check size={12} className="text-white" />}

@@ -53,8 +53,9 @@ const DISPLAY_NAMES: Record<string, { en: string; vi: string }> = {
   order_date: { en: "Order Date", vi: "Ngày đặt hàng" },
 };
 
-export function normalize(str: string) {
-  return str.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+export function normalize(str: string | null | undefined) {
+  if (!str) return "";
+  return String(str).toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
 // Heuristics to detect misnamed columns
@@ -195,7 +196,6 @@ export function validateAndMapHeaders(headers: string[]): HeaderValidationResult
     };
   }
 
-  console.log('[DEBUG] headerMapping:', mapping);
   return { mapping };
 }
 

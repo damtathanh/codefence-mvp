@@ -84,3 +84,36 @@ export async function fetchProductsByUser(
         };
     }
 }
+
+export async function fetchProductFilterOptions(userId: string): Promise<{
+    categories: string[];
+    statuses: string[];
+}> {
+    const { data, error } = await supabase
+        .from('products')
+        .select('category,status')
+        .eq('user_id', userId);
+
+    if (error) {
+        console.error('Error fetching product filter options', error);
+        return { categories: [], statuses: [] };
+    }
+
+    const categories = Array.from(
+        new Set(
+            (data ?? [])
+                .map((p) => p.category as string | null)
+                .filter((c): c is string => !!c && c.trim().length > 0),
+        ),
+    ).sort((a, b) => a.localeCompare(b, 'vi'));
+
+    const statuses = Array.from(
+        new Set(
+            (data ?? [])
+                .map((p) => p.status as string | null)
+                .filter((s): s is string => !!s && s.trim().length > 0),
+        ),
+    );
+
+    return { categories, statuses };
+}

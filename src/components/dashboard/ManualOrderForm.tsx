@@ -17,11 +17,20 @@ import type { RiskInput } from '../../utils/riskEngine';
 import { markInvoicePaidForOrder } from '../../features/invoices/services/invoiceService';
 import { ORDER_STATUS } from '../../constants/orderStatus';
 
+// 👉 Mở rộng OrderInput để có thêm product_id
+type OrderInputWithProductId = OrderInput & {
+    product_id?: string | null;
+};
+
 interface ManualOrderFormProps {
     editingOrder?: Order | null;
     onClose: () => void;
     onSuccess?: () => void;
     products: Product[];
+    openAddProductModal?: (
+        options?: { initialName?: string; onSuccess?: () => void | Promise<void> }
+    ) => void;
+    refetchProducts?: () => Promise<void>;
 }
 
 export const ManualOrderForm: React.FC<ManualOrderFormProps> = ({
@@ -36,7 +45,9 @@ export const ManualOrderForm: React.FC<ManualOrderFormProps> = ({
     const isEditMode = !!editingOrder;
 
     // Manual entry form state
-    const [formData, setFormData] = useState<Partial<OrderInput & { amountDisplay: string }>>({
+    const [formData, setFormData] = useState<
+        Partial<OrderInputWithProductId & { amountDisplay: string }>
+    >({
         order_id: '',
         customer_name: '',
         phone: '',
@@ -53,8 +64,9 @@ export const ManualOrderForm: React.FC<ManualOrderFormProps> = ({
     // Initialize form data when editing
     useEffect(() => {
         if (editingOrder) {
-            // Populate form with existing order data
-            const formattedAmount = editingOrder.amount ? Number(editingOrder.amount).toLocaleString('en-US') : '';
+            const formattedAmount = editingOrder.amount
+                ? Number(editingOrder.amount).toLocaleString('en-US')
+                : '';
             setFormData({
                 order_id: editingOrder.order_id || '',
                 customer_name: editingOrder.customer_name || '',
@@ -72,19 +84,21 @@ export const ManualOrderForm: React.FC<ManualOrderFormProps> = ({
     }, [editingOrder]);
 
     // Helper function to handle formatted number input for amount
-    const handleFormattedNumberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFormattedNumberChange = (
+        e: React.ChangeEvent<HTMLInputElement>
+    ) => {
         let value = e.target.value.replace(/[^\d]/g, ''); // remove non-digits
         const formatted = value ? Number(value).toLocaleString('en-US') : '';
         setFormData({ ...formData, amountDisplay: formatted });
     };
 
     // Local validator function
-    const validateManualOrder = (o: OrderInput) => {
-        if (!o.order_id?.trim()) return "Order ID is required";
-        if (!o.customer_name?.trim()) return "Customer Name is required";
-        if (!o.phone?.trim()) return "Phone is required";
-        if (!o.product_id) return "Product is required";
-        if (!o.amount || o.amount <= 0) return "Amount is invalid";
+    const validateManualOrder = (o: OrderInputWithProductId) => {
+        if (!o.order_id?.trim()) return 'Order ID is required';
+        if (!o.customer_name?.trim()) return 'Customer Name is required';
+        if (!o.phone?.trim()) return 'Phone is required';
+        if (!o.product_id) return 'Product is required';
+        if (!o.amount || o.amount <= 0) return 'Amount is invalid';
         return null;
     };
 
@@ -102,7 +116,9 @@ export const ManualOrderForm: React.FC<ManualOrderFormProps> = ({
             }
 
             // Convert formatted amount string back to number (remove commas)
-            const numericAmount = formData.amountDisplay ? Number(formData.amountDisplay.replace(/,/g, '')) : 0;
+            const numericAmount = formData.amountDisplay
+                ? Number(formData.amountDisplay.replace(/,/g, ''))
+                : 0;
 
             if (numericAmount <= 0) {
                 showError('Amount must be greater than 0');
@@ -111,9 +127,12 @@ export const ManualOrderForm: React.FC<ManualOrderFormProps> = ({
             }
 
             if (isEditMode && editingOrder && user) {
-                // Capture previous data for change tracking
-                const previousProduct = products.find(p => p.id === editingOrder.product_id);
-                const newProduct = products.find(p => p.id === formData.product_id);
+                const previousProduct = products.find(
+                    (p) => p.id === editingOrder.product_id
+                );
+                const newProduct = products.find(
+                    (p) => p.id === formData.product_id
+                );
 
                 const previousData = {
                     order_id: editingOrder.order_id || '',
@@ -129,8 +148,12 @@ export const ManualOrderForm: React.FC<ManualOrderFormProps> = ({
                     formData.address_detail,
                     formData.ward,
                     formData.district,
-                    formData.province
-                ].filter(Boolean).map(s => s?.trim()).filter(s => s && s.length > 0).join(', ');
+                    formData.province,
+                ]
+                    .filter(Boolean)
+                    .map((s) => s?.trim())
+                    .filter((s) => s && s.length > 0)
+                    .join(', ');
 
                 const updateData = {
                     order_id: formData.order_id?.trim() || '',
@@ -142,14 +165,13 @@ export const ManualOrderForm: React.FC<ManualOrderFormProps> = ({
                     payment_method: formData.payment_method || 'COD',
                 };
 
-                // Generate changes before updating
                 const changes = generateChanges(previousData, updateData);
 
-                // Get product name for the selected product_id
-                const selectedProduct = products.find(p => p.id === formData.product_id);
+                const selectedProduct = products.find(
+                    (p) => p.id === formData.product_id
+                );
                 const productName = selectedProduct?.name || '';
 
-                // Update existing order
                 const { data: updatedOrder, error } = await supabase
                     .from('orders')
                     .update({
@@ -176,31 +198,37 @@ export const ManualOrderForm: React.FC<ManualOrderFormProps> = ({
                     throw error;
                 }
 
-                // Log user action
                 if (user && updatedOrder) {
                     await logUserAction({
                         userId: user.id,
                         action: 'Update Order',
                         status: 'success',
-                        orderId: updatedOrder.order_id ?? "",
-                        details: Object.keys(changes).length > 0 ? changes : null,
+                        orderId: updatedOrder.order_id ?? '',
+                        details:
+                            Object.keys(changes).length > 0 ? changes : null,
                     });
                 }
 
                 showSuccess('Order updated successfully!');
             } else {
                 // Insert new order
-                const selectedProduct = products.find(p => p.id === formData.product_id);
+                const selectedProduct = products.find(
+                    (p) => p.id === formData.product_id
+                );
                 const productName = selectedProduct?.name || '';
 
                 const fullAddress = [
                     formData.address_detail,
                     formData.ward,
                     formData.district,
-                    formData.province
-                ].filter(Boolean).map(s => s?.trim()).filter(s => s && s.length > 0).join(', ');
+                    formData.province,
+                ]
+                    .filter(Boolean)
+                    .map((s) => s?.trim())
+                    .filter((s) => s && s.length > 0)
+                    .join(', ');
 
-                const orderData: OrderInput = {
+                const orderData: OrderInputWithProductId = {
                     order_id: formData.order_id || '',
                     customer_name: formData.customer_name || '',
                     phone: formData.phone || '',
@@ -210,12 +238,11 @@ export const ManualOrderForm: React.FC<ManualOrderFormProps> = ({
                     district: formData.district || null,
                     province: formData.province || null,
                     product_id: formData.product_id || null,
-                    product: productName, // Store product name
+                    product: productName,
                     amount: numericAmount,
-                    payment_method: formData.payment_method || "COD",
+                    payment_method: formData.payment_method || 'COD',
                 };
 
-                // Validate order
                 const validationError = validateManualOrder(orderData);
                 if (validationError) {
                     showError(validationError);
@@ -223,26 +250,29 @@ export const ManualOrderForm: React.FC<ManualOrderFormProps> = ({
                     return;
                 }
 
-                // Calculate risk for COD orders
                 let riskScore: number | null = null;
                 let riskLevel: string | null = null;
                 let riskVersion: string | null = null;
                 let riskReasons: any[] = [];
 
-                const paymentMethod = (orderData.payment_method || 'COD').toUpperCase();
+                const paymentMethod =
+                    (orderData.payment_method || 'COD').toUpperCase();
 
-                // Only calculate risk for COD
                 if (paymentMethod === 'COD') {
                     try {
-                        // 1. Fetch blacklist
                         if (user) {
-                            const { data: blacklistData } = await fetchCustomerBlacklist(user.id);
-                            const blacklistSet = new Set((blacklistData || []).map(b => b.phone));
+                            const { data: blacklistData } =
+                                await fetchCustomerBlacklist(user.id);
+                            const blacklistSet = new Set(
+                                (blacklistData || []).map((b) => b.phone)
+                            );
 
-                            // 2. Fetch past orders
-                            const { data: pastOrders } = await fetchPastOrdersByPhone(user.id, orderData.phone);
+                            const { data: pastOrders } =
+                                await fetchPastOrdersByPhone(
+                                    user.id,
+                                    orderData.phone
+                                );
 
-                            // 3. Evaluate risk
                             const riskInput: RiskInput = {
                                 paymentMethod: 'COD',
                                 amountVnd: numericAmount,
@@ -252,7 +282,10 @@ export const ManualOrderForm: React.FC<ManualOrderFormProps> = ({
                                 productName: productName,
                             };
 
-                            const riskOutput = evaluateRisk(riskInput, blacklistSet);
+                            const riskOutput = evaluateRisk(
+                                riskInput,
+                                blacklistSet
+                            );
 
                             riskScore = riskOutput.score;
                             riskLevel = riskOutput.level;
@@ -261,19 +294,17 @@ export const ManualOrderForm: React.FC<ManualOrderFormProps> = ({
                         }
                     } catch (err) {
                         console.error('Error calculating risk:', err);
-                        // Continue without risk score if calculation fails
                     }
                 }
 
-                // Insert order directly via Supabase
                 const isCod = paymentMethod === 'COD';
 
                 const initialStatus = isCod
-                    ? ORDER_STATUS.PENDING_REVIEW           // "Pending Review"
-                    : ORDER_STATUS.ORDER_PAID;              // "Order Paid"
+                    ? ORDER_STATUS.PENDING_REVIEW
+                    : ORDER_STATUS.ORDER_PAID;
 
                 const { data: newOrder, error: insertError } = await supabase
-                    .from("orders")
+                    .from('orders')
                     .insert({
                         user_id: user?.id,
                         order_id: orderData.order_id,
@@ -285,21 +316,19 @@ export const ManualOrderForm: React.FC<ManualOrderFormProps> = ({
                         district: orderData.district,
                         province: orderData.province,
                         product_id: orderData.product_id,
-                        product: productName, // Store product name
+                        product: productName,
                         amount: orderData.amount,
                         payment_method: orderData.payment_method,
                         status: initialStatus,
                         risk_score: isCod ? riskScore : null,
                         risk_level: isCod ? riskLevel : null,
                         order_date: new Date().toISOString().split('T')[0],
-                        // risk_version: riskVersion, // Uncomment if column exists, otherwise skip
                     })
                     .select()
                     .single();
 
                 if (insertError) throw insertError;
 
-                // Log risk event if we have reasons
                 if (newOrder && riskReasons.length > 0) {
                     await logOrderEvent(
                         newOrder.id,
@@ -308,23 +337,22 @@ export const ManualOrderForm: React.FC<ManualOrderFormProps> = ({
                             score: riskScore,
                             level: riskLevel,
                             reasons: riskReasons,
-                            version: riskVersion
+                            version: riskVersion,
                         },
                         'manual_order_form'
                     );
                 }
 
-                // Log user action
                 if (user && newOrder) {
                     await logUserAction({
                         userId: user.id,
                         action: 'Create Order',
                         status: 'success',
-                        orderId: newOrder.order_id ?? "",
+                        orderId: newOrder.order_id ?? '',
                     });
 
-                    // Create invoice for non-COD orders
-                    const pm = newOrder.payment_method?.toUpperCase() || 'COD';
+                    const pm =
+                        newOrder.payment_method?.toUpperCase() || 'COD';
                     if (pm !== 'COD') {
                         await markInvoicePaidForOrder(newOrder);
                     }
@@ -333,23 +361,28 @@ export const ManualOrderForm: React.FC<ManualOrderFormProps> = ({
                 showSuccess('Order added successfully!');
             }
 
-            // Refresh orders table
             if (onSuccess) {
                 onSuccess();
             }
 
             onClose();
         } catch (err) {
-            const errorMessage = err instanceof Error ? err.message : (isEditMode ? 'Failed to update order' : 'Failed to add order');
+            const errorMessage =
+                err instanceof Error
+                    ? err.message
+                    : isEditMode
+                        ? 'Failed to update order'
+                        : 'Failed to add order';
             showError(errorMessage);
 
-            // Log failed action
             if (user) {
                 await logUserAction({
                     userId: user.id,
                     action: isEditMode ? 'Update Order' : 'Create Order',
                     status: 'failed',
-                    orderId: isEditMode ? (editingOrder?.order_id ?? "") : "",
+                    orderId: isEditMode
+                        ? editingOrder?.order_id ?? ''
+                        : '',
                 });
             }
         } finally {
@@ -362,7 +395,9 @@ export const ManualOrderForm: React.FC<ManualOrderFormProps> = ({
             <Input
                 label="Order ID"
                 value={formData.order_id}
-                onChange={(e) => setFormData({ ...formData, order_id: e.target.value })}
+                onChange={(e) =>
+                    setFormData({ ...formData, order_id: e.target.value })
+                }
                 required
                 disabled={loading}
                 placeholder="e.g., ORD-2024-001"
@@ -370,23 +405,37 @@ export const ManualOrderForm: React.FC<ManualOrderFormProps> = ({
             <Input
                 label="Customer Name"
                 value={formData.customer_name}
-                onChange={(e) => setFormData({ ...formData, customer_name: e.target.value })}
+                onChange={(e) =>
+                    setFormData({
+                        ...formData,
+                        customer_name: e.target.value,
+                    })
+                }
                 required
                 disabled={loading}
             />
             <Input
                 label="Phone Number"
                 value={formData.phone}
-                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                onChange={(e) =>
+                    setFormData({ ...formData, phone: e.target.value })
+                }
                 required
                 disabled={loading}
             />
             <div className="space-y-3 bg-white/5 p-4 rounded-xl border border-white/10">
-                <div className="text-sm font-medium text-white/80">Address Details</div>
+                <div className="text-sm font-medium text-white/80">
+                    Address Details
+                </div>
                 <Input
                     label="Address Number"
                     value={formData.address_detail || ''}
-                    onChange={(e) => setFormData({ ...formData, address_detail: e.target.value })}
+                    onChange={(e) =>
+                        setFormData({
+                            ...formData,
+                            address_detail: e.target.value,
+                        })
+                    }
                     required
                     disabled={loading}
                     placeholder="House number, street..."
@@ -395,21 +444,33 @@ export const ManualOrderForm: React.FC<ManualOrderFormProps> = ({
                     <Input
                         label="Ward"
                         value={formData.ward || ''}
-                        onChange={(e) => setFormData({ ...formData, ward: e.target.value })}
+                        onChange={(e) =>
+                            setFormData({ ...formData, ward: e.target.value })
+                        }
                         disabled={loading}
                         placeholder="Ward"
                     />
                     <Input
                         label="District"
                         value={formData.district || ''}
-                        onChange={(e) => setFormData({ ...formData, district: e.target.value })}
+                        onChange={(e) =>
+                            setFormData({
+                                ...formData,
+                                district: e.target.value,
+                            })
+                        }
                         disabled={loading}
                         placeholder="District"
                     />
                     <Input
                         label="Province"
                         value={formData.province || ''}
-                        onChange={(e) => setFormData({ ...formData, province: e.target.value })}
+                        onChange={(e) =>
+                            setFormData({
+                                ...formData,
+                                province: e.target.value,
+                            })
+                        }
                         disabled={loading}
                         placeholder="Province"
                     />
@@ -422,7 +483,12 @@ export const ManualOrderForm: React.FC<ManualOrderFormProps> = ({
                 <div className="relative">
                     <select
                         value={formData.product_id || ''}
-                        onChange={(e) => setFormData({ ...formData, product_id: e.target.value })}
+                        onChange={(e) =>
+                            setFormData({
+                                ...formData,
+                                product_id: e.target.value,
+                            })
+                        }
                         className="w-full pr-10 px-4 py-3.5 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl text-[#E5E7EB] appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6] focus:border-[#8B5CF6]/50 focus:bg-white/10 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
                         required
                         disabled={loading}
@@ -434,8 +500,20 @@ export const ManualOrderForm: React.FC<ManualOrderFormProps> = ({
                             </option>
                         ))}
                     </select>
-                    <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                    <svg
+                        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70"
+                        aria-hidden="true"
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                    >
+                        <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M19 9l-7 7-7-7"
+                        />
                     </svg>
                 </div>
                 {products.length === 0 && (
@@ -458,9 +536,12 @@ export const ManualOrderForm: React.FC<ManualOrderFormProps> = ({
                 <select
                     value={formData.payment_method}
                     onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, payment_method: e.target.value }))
+                        setFormData((prev) => ({
+                            ...prev,
+                            payment_method: e.target.value,
+                        }))
                     }
-                    className="mt-1 w-full h-10 px-3 py-2 rounded-lg bg-white/5 border border-white/20 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
+                    className="mt-1 w-full h-11 px-3 rounded-xl bg-white/5 backdrop-blur-xl border border-white/10 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#8B5CF6] focus:border-[#8B5CF6]/50 focus:bg-white/10 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     <option value="COD">COD</option>
                     <option value="BANK_TRANSFER">Bank Transfer</option>
@@ -469,12 +550,16 @@ export const ManualOrderForm: React.FC<ManualOrderFormProps> = ({
                     <option value="Credit Cards">Credit Cards</option>
                 </select>
             </label>
+
             {!isEditMode && (
                 <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3">
                     <p className="text-sm text-blue-300">
                         <strong>Note:</strong>{' '}
-                        For COD orders, status will start at <strong>Pending Review</strong> and risk score will be calculated automatically.
-                        For non-COD orders, status will be <strong>Order Paid</strong> and risk score will be <strong>N/A</strong>.
+                        For COD orders, status will start at{' '}
+                        <strong>Pending Review</strong> and risk score will
+                        be calculated automatically. For non-COD orders,
+                        status will be <strong>Order Paid</strong> and risk
+                        score will be <strong>N/A</strong>.
                     </p>
                 </div>
             )}
@@ -490,7 +575,10 @@ export const ManualOrderForm: React.FC<ManualOrderFormProps> = ({
                 <Button type="submit" disabled={loading}>
                     {loading ? (
                         <>
-                            <Loader2 size={16} className="mr-2 animate-spin" />
+                            <Loader2
+                                size={16}
+                                className="mr-2 animate-spin"
+                            />
                             {isEditMode ? 'Updating...' : 'Adding...'}
                         </>
                     ) : (

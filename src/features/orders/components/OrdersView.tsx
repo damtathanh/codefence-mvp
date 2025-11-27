@@ -2,9 +2,13 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useOrdersData } from '../hooks/useOrdersData';
 import { useOrderActions } from '../hooks/useOrderActions';
 import { useOrderSelection } from '../hooks/useOrderSelection';
-import { OrderFilters } from './OrderFilters';
 import { OrderTable } from './OrderTable';
 import { OrderSidePanel } from './OrderSidePanel';
+import { FilterBar } from '../../../components/ui/FilterBar';
+import { Button } from '../../../components/ui/Button';
+import { MultiSelectFilter } from '../../../components/filters/MultiSelectFilter';
+import { Plus, Search } from 'lucide-react';
+import { Input } from '../../../components/ui/Input';
 import { AddOrderModal } from '../../../components/dashboard/AddOrderModal';
 import RejectOrderModal from '../../../components/orders/RejectOrderModal';
 import { ConfirmModal } from '../../../components/ui/ConfirmModal';
@@ -25,6 +29,7 @@ import { ORDER_STATUS } from '../../../constants/orderStatus';
 import { PAYMENT_METHODS } from '../../../constants/paymentMethods';
 import type { Order, OrderEvent } from '../../../types/supabase';
 import { logUserAction } from '../../../utils/logUserAction';
+import { supabase } from '../../../lib/supabaseClient';
 
 export const OrdersView: React.FC = () => {
     const { user } = useAuth();
@@ -53,6 +58,8 @@ export const OrdersView: React.FC = () => {
         setRiskScoreFilter,
         paymentMethodFilter,
         setPaymentMethodFilter,
+        dateFilter,
+        setDateFilter,
     } = useOrdersData();
 
     // Derived state for selection (filteredOrders is just orders now because filtering is server-side + optimistic local)
@@ -184,103 +191,27 @@ export const OrdersView: React.FC = () => {
     };
 
     // ========= COD Approve with One-Time Guard =========
+    // ========= COD Approve with One-Time Guard =========
     const handleApproveOrder = async (order: Order) => {
         if (!user) return;
 
-        const rawMethod = order.payment_method || 'COD';
-        const method = rawMethod.toUpperCase();
-
-        if (method !== 'COD') {
-            showInfo('Non-COD orders are already paid. No approval needed.');
-            return;
-        }
-
-        const canApproveFromStatus =
-            order.status === ORDER_STATUS.PENDING_REVIEW ||
-            order.status === ORDER_STATUS.VERIFICATION_REQUIRED;
-        if (!canApproveFromStatus) {
-            showInfo('This order has already been processed.');
-            return;
-        }
-
         try {
-            // Different behavior for Pending Review vs Verification Required
-            if (order.status === ORDER_STATUS.VERIFICATION_REQUIRED) {
-                // Direct transition to Customer Confirmed (no modal, no Zalo)
-                const success = await updateOrderLocal(order.id, {
-                    status: ORDER_STATUS.CUSTOMER_CONFIRMED,
-                } as Partial<Order>);
+            // Call the new RPC
+            const { error } = await supabase.rpc('approve_medium_risk_order', {
+                p_order_id: order.id
+            });
 
-                if (!success) {
-                    showError('Failed to approve order');
-                    return;
-                }
+            if (error) throw error;
 
-                await logOrderEvent(
-                    order.id,
-                    'APPROVED',
-                    {
-                        previous_status: order.status,
-                        new_status: ORDER_STATUS.CUSTOMER_CONFIRMED,
-                    },
-                    'orders_view'
-                );
+            showSuccess('Order approved successfully');
 
-                showSuccess('Order approved → Customer Confirmed');
+            // Refresh data
+            refreshOrders();
 
-                await logUserAction({
-                    userId: user.id,
-                    action: 'Approve Order (Verification)',
-                    status: 'success',
-                    orderId: order.order_id || order.id,
-                    details: {
-                        status_from: order.status,
-                        status_to: ORDER_STATUS.CUSTOMER_CONFIRMED,
-                    },
-                });
-            } else {
-                // Pending Review: Send confirmation via Zalo
-                // 1. First, insert ORDER_APPROVED event
-                await logOrderEvent(
-                    order.id,
-                    'APPROVED',
-                    {
-                        previous_status: order.status,
-                        new_status: ORDER_STATUS.ORDER_CONFIRMATION_SENT,
-                    },
-                    'orders_view'
-                );
-
-                // 2. Update order status
-                const success = await updateOrderLocal(order.id, {
-                    status: ORDER_STATUS.ORDER_CONFIRMATION_SENT,
-                } as Partial<Order>);
-
-                if (!success) {
-                    showError('Failed to approve order');
-                    return;
-                }
-
-                // 3. Send confirmation via Zalo (this creates CONFIRMATION_SENT event)
-                await zaloGateway.sendConfirmation(order);
-
-                showSuccess('Order approved and confirmation sent');
-
-                await logUserAction({
-                    userId: user.id,
-                    action: 'Approve Order',
-                    status: 'success',
-                    orderId: order.order_id || order.id,
-                    details: {
-                        status_from: order.status,
-                        status_to: ORDER_STATUS.ORDER_CONFIRMATION_SENT,
-                    },
-                });
-            }
-
-            // Close side panel if it is open
+            // Close side panel
             setIsSidePanelOpen(false);
             setSelectedOrder(null);
+
         } catch (error) {
             showError('Failed to approve order');
             console.error('Error approving order:', error);
@@ -681,37 +612,73 @@ export const OrdersView: React.FC = () => {
     };
 
     return (
-        <div className="flex flex-col h-full min-h-0 p-6">
-            {error && (
-                <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4 text-red-400">
-                    {error}
-                </div>
-            )}
+        <div className="space-y-6 p-6 h-full flex flex-col min-h-0">
 
-            <div className="relative z-20">
-                <OrderFilters
-                    searchQuery={searchQuery}
-                    setSearchQuery={setSearchQuery}
-                    statusFilter={statusFilter}
-                    setStatusFilter={setStatusFilter}
-                    riskScoreFilter={riskScoreFilter}
-                    setRiskScoreFilter={setRiskScoreFilter}
-                    paymentMethodFilter={paymentMethodFilter}
-                    setPaymentMethodFilter={setPaymentMethodFilter}
-                    statusOptions={statusOptions}
-                    paymentOptions={paymentMethodOptions}
-                    onClearFilters={handleClearFilters}
-                    onAddOrder={() => {
+            {/* Filters & Actions */}
+            {/* Filters & Actions */}
+            <FilterBar
+                searchValue={searchQuery}
+                onSearch={setSearchQuery}
+                searchPlaceholder="Search orders..."
+            >
+                <MultiSelectFilter
+                    label="Statuses"
+                    options={statusOptions.map(s => ({ value: s, label: s }))}
+                    selectedValues={statusFilter}
+                    onChange={setStatusFilter}
+                />
+                <MultiSelectFilter
+                    label="Risk Levels"
+                    options={[
+                        { value: 'low', label: 'Low Risk (0–30)' },
+                        { value: 'medium', label: 'Medium Risk (31–70)' },
+                        { value: 'high', label: 'High Risk (70+)' },
+                    ]}
+                    selectedValues={riskScoreFilter}
+                    onChange={setRiskScoreFilter}
+                />
+                <MultiSelectFilter
+                    label="Payment Methods"
+                    options={paymentMethodOptions.map(m => ({ value: m, label: m }))}
+                    selectedValues={paymentMethodFilter}
+                    onChange={setPaymentMethodFilter}
+                />
+
+                {/* Date Filter */}
+                <input
+                    type="date"
+                    value={dateFilter}
+                    onChange={(e) => setDateFilter(e.target.value)}
+                    className="h-10 w-auto min-w-[180px] whitespace-nowrap px-3 bg-[var(--bg-input)] border border-[var(--border-subtle)] rounded-lg text-[var(--text-main)]"
+                />
+
+                {/* Clear filters */}
+                <button
+                    type="button"
+                    onClick={handleClearFilters}
+                    className="text-sm text-[var(--text-muted)] whitespace-nowrap hover:text-white transition"
+                >
+                    Clear filters
+                </button>
+
+                {/* Action Button */}
+                <Button
+                    className="whitespace-nowrap"
+                    onClick={() => {
                         setEditingOrder(null);
                         setIsAddOrderModalOpen(true);
                     }}
-                />
-            </div>
+                >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add Order
+                </Button>
+            </FilterBar>
 
-            <div className="flex-1 min-h-0 mt-6 relative z-10">
+            {/* Table occupies full remaining space */}
+            <div className="flex-1 min-h-0">
                 <OrderTable
-                    orders={orders} // Current page orders
-                    filteredOrders={filteredOrders} // Same as orders now
+                    orders={orders}
+                    filteredOrders={filteredOrders}
                     totalCount={totalCount}
                     currentPage={page}
                     pageSize={pageSize}
@@ -740,9 +707,14 @@ export const OrdersView: React.FC = () => {
                 />
             </div>
 
+
+            {/* Side Panel */}
             <OrderSidePanel
                 isOpen={isSidePanelOpen}
-                onClose={() => setIsSidePanelOpen(false)}
+                onClose={() => {
+                    setIsSidePanelOpen(false);
+                    setSelectedOrder(null);
+                }}
                 order={selectedOrder}
                 orderEvents={orderEvents}
                 addressForm={addressForm}
@@ -758,27 +730,25 @@ export const OrdersView: React.FC = () => {
                 onSimulateConfirmed={handleSimulateConfirmedClick}
                 onSimulateCancelled={handleSimulateCancelledClick}
                 onSimulatePaid={handleSimulatePaidClick}
-                onOrderUpdated={() => {
-                    refreshOrders();
-                    if (selectedOrder) {
-                        // Refresh selected order details if needed, or just close panel
-                        // Ideally we should re-fetch the selected order to update the panel content
-                        // But refreshOrders updates the list. We might need to update selectedOrder from the new list.
-                        // For now, let's just refresh the list. The panel might need to be closed or updated.
-                        // Let's try to update selectedOrder from the updated list in useEffect or similar?
-                        // Actually, refreshOrders is async but we don't await it here easily.
-                        // Let's just trigger refresh.
-                    }
-                }}
+                onOrderUpdated={refreshOrders}
             />
 
+            {/* Add/Edit Order Modal */}
             <AddOrderModal
                 isOpen={isAddOrderModalOpen}
-                onClose={() => setIsAddOrderModalOpen(false)}
-                onSuccess={() => refreshOrders()}
+                onClose={() => {
+                    setIsAddOrderModalOpen(false);
+                    setEditingOrder(null);
+                }}
+                onSuccess={() => {
+                    refreshOrders();
+                    setIsAddOrderModalOpen(false);
+                    setEditingOrder(null);
+                }}
                 editingOrder={editingOrder}
             />
 
+            {/* Reject Modal */}
             <RejectOrderModal
                 isOpen={isRejectModalOpen}
                 mode={rejectMode}
@@ -790,29 +760,37 @@ export const OrdersView: React.FC = () => {
                 loading={rejectLoading}
             />
 
+            {/* Delete All Confirmation Modal */}
             <ConfirmModal
                 isOpen={deleteAllModal.isOpen}
-                message={`Are you sure you want to delete ${deleteAllModal.selectedCount} selected orders? This action cannot be undone.`}
-                confirmText={deleteAllLoading ? 'Deleting...' : 'Delete'}
-                cancelText="Cancel"
-                variant="danger"
+                onCancel={() => setDeleteAllModal({ ...deleteAllModal, isOpen: false })}
                 onConfirm={handleDeleteAllConfirm}
-                onCancel={() => setDeleteAllModal({ isOpen: false, selectedCount: 0 })}
+                message={`Are you sure you want to delete ${deleteAllModal.selectedCount} selected orders? This action cannot be undone.`}
+                confirmText="Delete"
+                cancelText="Cancel"
                 loading={deleteAllLoading}
+                variant="danger"
             />
 
-            <CustomerConfirmationModal
-                isOpen={isConfirmationModalOpen}
-                onClose={handleConfirmationModalClose}
-                order={pendingConfirmOrder || selectedOrder!}
-            />
+            {/* Customer Confirmation Modal */}
+            {
+                pendingConfirmOrder && (
+                    <>
+                        <CustomerConfirmationModal
+                            isOpen={isConfirmationModalOpen}
+                            onClose={handleConfirmationModalClose}
+                            order={pendingConfirmOrder}
+                        />
 
-            <CancellationReasonModal
-                isOpen={isCancellationModalOpen}
-                onClose={handleCancellationModalClose}
-                onConfirm={handleCancellationConfirm}
-                order={pendingConfirmOrder || selectedOrder!}
-            />
-        </div>
+                        <CancellationReasonModal
+                            isOpen={isCancellationModalOpen}
+                            onClose={handleCancellationModalClose}
+                            onConfirm={handleCancellationConfirm}
+                            order={pendingConfirmOrder}
+                        />
+                    </>
+                )
+            }
+        </div >
     );
 };

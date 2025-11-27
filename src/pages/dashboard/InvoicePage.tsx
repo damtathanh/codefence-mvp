@@ -2,7 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
-import { Download, Filter } from 'lucide-react';
+import { FilterBar } from '../../components/ui/FilterBar';
+import { MultiSelectFilter } from '../../components/filters/MultiSelectFilter';
+import { StatusBadge } from '../../components/ui/StatusBadge';
+import { Download, Search } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient';
 import { useAuth } from '../../features/auth';
 import { useUserProfile } from '../../hooks/useUserProfile';
@@ -32,7 +35,7 @@ export const InvoicePage: React.FC = () => {
   const [ordersMap, setOrdersMap] = useState<Map<string, Order>>(new Map());
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [dateFilter, setDateFilter] = useState('');
   const [isMarkingMap, setIsMarkingMap] = useState<Record<string, boolean>>({});
 
@@ -51,7 +54,7 @@ export const InvoicePage: React.FC = () => {
 
   const clearAllFilters = () => {
     setSearchQuery('');
-    setStatusFilter('all');
+    setStatusFilter([]);
     setDateFilter('');
   };
 
@@ -620,56 +623,46 @@ export const InvoicePage: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col h-full min-h-0 p-6">
+    <div className="space-y-6 p-6 h-full flex flex-col min-h-0">
       {/* Filters */}
-      <Card className="shrink-0">
-        <CardHeader className="!pt-3 !pb-2 !px-4">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Filter size={18} />
-            Filters
-          </CardTitle>
-          <button
-            type="button"
-            onClick={clearAllFilters}
-            className="text-xs sm:text-sm text-white/60 hover:text-white underline-offset-2 hover:underline"
-          >
-            Clear filters
-          </button>
-        </CardHeader>
-        <CardContent className="!pt-0 !px-4 !pb-3">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <Input
-              placeholder="Search by Invoice ID, Order ID, or Customer…"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-10 !py-2"
-            />
-            <div className="relative">
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="w-full h-10 pr-10 px-3 py-2 bg-white/10 backdrop-blur-md border border-white/20 rounded-lg text-[#E5E7EB] text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
-              >
-                <option value="all">All Status</option>
-                <option value="Paid">Paid</option>
-                <option value="Pending">Pending</option>
-                <option value="Cancelled">Cancelled</option>
-              </select>
-              <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-              </svg>
-            </div>
-            <Input
-              type="date"
-              value={dateFilter}
-              onChange={(e) => setDateFilter(e.target.value)}
-              className="h-10 !py-2"
-            />
-          </div>
-        </CardContent>
-      </Card>
+      {/* Header */}
+      {/* Filters */}
+      {/* Filters */}
+      <FilterBar
+        searchValue={searchQuery}
+        onSearch={setSearchQuery}
+        searchPlaceholder="Search by Invoice ID, Order ID, or Customer..."
+      >
+        <MultiSelectFilter
+          label="Status"
+          options={[
+            { value: 'Paid', label: 'Paid' },
+            { value: 'Pending', label: 'Pending' },
+            { value: 'Cancelled', label: 'Cancelled' },
+          ]}
+          selectedValues={Array.isArray(statusFilter) ? statusFilter : statusFilter === 'all' ? [] : [statusFilter]}
+          onChange={(values) => setStatusFilter(values)}
+        />
 
-      <Card className="flex-1 flex flex-col min-h-0 mt-6">
+        {/* Date Filter */}
+        <input
+          type="date"
+          value={dateFilter}
+          onChange={(e) => setDateFilter(e.target.value)}
+          className="h-10 w-auto min-w-[180px] whitespace-nowrap px-3 bg-[var(--bg-input)] border border-[var(--border-subtle)] rounded-lg text-[var(--text-main)]"
+        />
+
+        {/* Clear filters */}
+        <button
+          type="button"
+          onClick={clearAllFilters}
+          className="text-sm text-[var(--text-muted)] whitespace-nowrap hover:text-white transition"
+        >
+          Clear filters
+        </button>
+      </FilterBar>
+
+      <Card className="flex-1 flex flex-col min-h-0 relative z-0">
         <CardHeader className="!pt-4 !pb-1 !px-6 flex-shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
@@ -730,7 +723,6 @@ export const InvoicePage: React.FC = () => {
               </thead>
               <tbody>
                 {filteredInvoices.map((invoice) => {
-                  const statusBadge = getStatusBadge(invoice.status);
                   return (
                     <tr
                       key={invoice.id}
@@ -770,9 +762,7 @@ export const InvoicePage: React.FC = () => {
                         {invoice.date}
                       </td>
                       <td className="px-6 py-4 align-middle">
-                        <span className={`px-2 py-1 rounded text-xs font-medium whitespace-nowrap ${statusBadge.className}`}>
-                          {statusBadge.label}
-                        </span>
+                        <StatusBadge status={invoice.status} />
                       </td>
                       <td className="px-6 py-4 align-middle" onClick={(e) => e.stopPropagation()}>
                         {canDownloadInvoice(invoice) ? (

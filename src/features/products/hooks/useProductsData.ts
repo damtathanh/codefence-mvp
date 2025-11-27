@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../auth';
-import { fetchProductsByUser, ProductFilters } from '../services/productsService';
+import { fetchProductsByUser, fetchProductFilterOptions, ProductFilters } from '../services/productsService';
 import type { Product } from '../../../types/supabase';
 
 export const useProductsData = () => {
@@ -20,6 +20,29 @@ export const useProductsData = () => {
     const [searchQuery, setSearchQuery] = useState('');
     const [categoryFilter, setCategoryFilter] = useState<string[]>([]);
     const [statusFilter, setStatusFilter] = useState<string[]>([]);
+
+    // Available Filter Options State
+    const [availableCategories, setAvailableCategories] = useState<string[]>([]);
+    const [availableStatuses, setAvailableStatuses] = useState<string[]>([]);
+
+    // Fetch Filter Options
+    useEffect(() => {
+        if (!user?.id) return;
+
+        let isMounted = true;
+
+        (async () => {
+            const { categories, statuses } = await fetchProductFilterOptions(user.id);
+            if (!isMounted) return;
+
+            setAvailableCategories(categories);
+            setAvailableStatuses(statuses);
+        })();
+
+        return () => {
+            isMounted = false;
+        };
+    }, [user?.id]);
 
     // Fetch Products
     const fetchProducts = useCallback(async (
@@ -112,6 +135,8 @@ export const useProductsData = () => {
         statusFilter,
         setStatusFilter,
         handleClearFilters,
+        availableCategories,
+        availableStatuses,
 
         // Actions
         refetch: () => fetchProducts(page),

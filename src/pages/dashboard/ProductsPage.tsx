@@ -4,12 +4,13 @@ import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Ca
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { PrimaryActionButton } from '../../components/dashboard/PrimaryActionButton';
-import { ProductStatusBadge } from '../../features/products/components/ProductStatusBadge';
+import { FilterBar } from '../../components/ui/FilterBar';
+import { StatusBadge } from '../../components/ui/StatusBadge';
 import { MultiSelectFilter } from '../../components/filters/MultiSelectFilter';
 import { Pagination } from '../../features/products/components/Pagination';
 import { ConfirmModal } from '../../components/ui/ConfirmModal';
 import { AddProductModal } from '../../components/dashboard/AddProductModal';
-import { Plus, Edit, Trash2, X, Filter, ChevronDown } from 'lucide-react';
+import { Edit, Trash2, ChevronDown, X, Search } from 'lucide-react';
 import { useProductsData } from '../../features/products/hooks/useProductsData';
 import { useSupabaseTable } from '../../hooks/useSupabaseTable';
 import { useToast } from '../../components/ui/Toast';
@@ -44,6 +45,8 @@ export const ProductsPage: React.FC = () => {
     setStatusFilter,
     handleClearFilters,
     refetch,
+    availableCategories,
+    availableStatuses,
   } = useProductsData();
 
   // Keep useSupabaseTable for CRUD operations (add/update/delete)
@@ -432,16 +435,14 @@ export const ProductsPage: React.FC = () => {
   };
 
   // Category and status options for multi-select
-  const categoryOptions = getAllCategorySlugs()
-    .map((slug) => ({
-      value: slug,
-      label: getCategoryDisplayName(slug),
-    }))
-    .sort((a, b) => a.label.localeCompare(b.label, "vi"));
+  const categoryOptions = (availableCategories ?? []).map((c) => ({
+    value: c,
+    label: c, // Display category name as is from DB
+  }));
 
-  const statusOptions = STATIC_STATUS_OPTIONS.map(status => ({
-    value: status,
-    label: status === 'active' ? 'Active' : 'Inactive',
+  const statusOptions = (availableStatuses ?? []).map((s) => ({
+    value: s,
+    label: s.toUpperCase(), // Format status if needed
   }));
 
   const handleSelectAll = () => {
@@ -568,52 +569,45 @@ export const ProductsPage: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col h-full min-h-0 p-6">
+    <div className="space-y-6 p-6 h-full flex flex-col min-h-0">
       {/* Filters */}
-      <Card className="shrink-0">
-        <CardHeader className="!pt-3 !pb-2 !px-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Filter size={18} />
-              Filters
-            </CardTitle>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleClearFilters}
-                className="text-xs sm:text-sm text-white/60 hover:text-white underline-offset-2 hover:underline"
-              >
-                Clear filters
-              </button>
-              <PrimaryActionButton label="Add Product" onClick={openAddModal} />
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="!pt-0 !px-4 !pb-3">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <Input
-              placeholder="Search by product name…"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-10 !py-2"
-            />
-            <MultiSelectFilter
-              label="Categories"
-              options={categoryOptions}
-              selectedValues={categoryFilter}
-              onChange={setCategoryFilter}
-            />
-            <MultiSelectFilter
-              label="Status"
-              options={statusOptions}
-              selectedValues={statusFilter}
-              onChange={setStatusFilter}
-            />
-          </div>
-        </CardContent>
-      </Card>
+      {/* Header */}
+      {/* Filters & Actions */}
+      {/* Filters & Actions */}
+      <FilterBar
+        searchValue={searchQuery}
+        onSearch={setSearchQuery}
+        searchPlaceholder="Search by product name..."
+      >
+        <MultiSelectFilter
+          label="Categories"
+          options={categoryOptions}
+          selectedValues={categoryFilter}
+          onChange={setCategoryFilter}
+        />
+        <MultiSelectFilter
+          label="Status"
+          options={statusOptions}
+          selectedValues={statusFilter}
+          onChange={setStatusFilter}
+        />
 
-      <Card className="flex-1 flex flex-col min-h-0 mt-6">
+        {/* Clear filters */}
+        <button
+          type="button"
+          onClick={handleClearFilters}
+          className="text-sm text-[var(--text-muted)] whitespace-nowrap hover:text-white transition"
+        >
+          Clear filters
+        </button>
+
+        {/* Action Button */}
+        <Button onClick={openAddModal} className="whitespace-nowrap">
+          + Add Product
+        </Button>
+      </FilterBar>
+
+      <Card className="flex-1 flex flex-col min-h-0 relative z-0">
         <CardHeader className="!pt-4 !pb-1 !px-6 flex-shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
@@ -698,7 +692,7 @@ export const ProductsPage: React.FC = () => {
                       {product.stock}
                     </td>
                     <td className="px-6 py-4 align-middle">
-                      <ProductStatusBadge status={product.status} />
+                      <StatusBadge status={product.status} />
                     </td>
                     <td className="px-6 py-4 align-middle">
                       <div className="relative action-dropdown-container">

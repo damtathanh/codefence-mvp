@@ -235,11 +235,21 @@ export async function fetchCustomerBlacklist(userId: string) {
 }
 
 export async function addToBlacklist(userId: string, phone: string, reason?: string) {
-  return await supabase
+  const { data, error } = await supabase
     .from("customer_blacklist")
     .insert([{ user_id: userId, phone, reason: reason ?? null }])
     .select()
     .single();
+
+  if (!error) {
+    // Trigger risk re-evaluation for pending orders
+    await supabase.rpc('reevaluate_risk_for_phone', {
+      p_user_id: userId,
+      p_phone: phone
+    });
+  }
+
+  return { data, error };
 }
 
 export async function removeFromBlacklist(userId: string, phone: string) {

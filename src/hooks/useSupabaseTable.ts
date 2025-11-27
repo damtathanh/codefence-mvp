@@ -19,16 +19,16 @@ async function getCurrentUserId(explicitUserId?: string): Promise<string> {
   }
 
   const { data: { user }, error } = await supabase.auth.getUser();
-  
+
   if (error) {
     console.error('[useSupabaseTable] Authentication error:', error);
     throw new Error(`Authentication failed: ${error.message}`);
   }
-  
+
   if (!user) {
     throw new Error('User not authenticated. Please log in again.');
   }
-  
+
   return user.id;
 }
 
@@ -40,21 +40,29 @@ export function useSupabaseTable<T extends { id: string; user_id: string }>(
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch all items for the current user
-  const fetchAll = useCallback(async () => {
+  // Fetch items for the current user with optional pagination
+  const fetchAll = useCallback(async (page?: number, pageSize?: number) => {
     try {
       setLoading(true);
       setError(null);
 
       // Get authenticated user ID
       const userId = await getCurrentUserId(explicitUserId);
-      console.log(`[${tableName}] Fetching items for user ${userId}`);
+      console.log(`[${tableName}] Fetching items for user ${userId} (Page: ${page}, Size: ${pageSize})`);
 
-      const { data: items, error: fetchError } = await supabase
+      let query = supabase
         .from(tableName)
-        .select('*')
+        .select('*', { count: 'exact' })
         .eq('user_id', userId)
         .order('created_at', { ascending: false });
+
+      if (page && pageSize) {
+        const from = (page - 1) * pageSize;
+        const to = from + pageSize - 1;
+        query = query.range(from, to);
+      }
+
+      const { data: items, error: fetchError, count } = await query;
 
       if (fetchError) {
         console.error(`[${tableName}] Error fetching items:`, fetchError);
@@ -70,9 +78,9 @@ export function useSupabaseTable<T extends { id: string; user_id: string }>(
         throw new Error(errorMessage);
       }
 
-      console.log(`[${tableName}] Successfully fetched ${items?.length || 0} items`);
+      console.log(`[${tableName}] Successfully fetched ${items?.length || 0} items (Total: ${count})`);
       setData((items as T[]) || []);
-      return items as T[];
+      return { data: items as T[], count: count || 0 };
     } catch (err) {
       console.error(`[${tableName}] Unexpected error fetching items:`, err);
       const errorMessage = err instanceof Error ? err.message : 'Failed to fetch data';
@@ -147,12 +155,12 @@ export function useSupabaseTable<T extends { id: string; user_id: string }>(
     async (id: string, updates: Partial<Omit<T, 'id' | 'user_id' | 'created_at'>>) => {
       try {
         const userId = await getCurrentUserId(explicitUserId);
-  
+
         // Không thêm updated_at thủ công (DB trigger tự cập nhật)
         const updateData: any = { ...updates };
-  
+
         console.log(`[${tableName}] Updating item ${id} for user ${userId}:`, updateData);
-  
+
         const { data: updatedItems, error: updateError } = await supabase
           .from(tableName)
           .update(updateData)
@@ -160,21 +168,21 @@ export function useSupabaseTable<T extends { id: string; user_id: string }>(
           .eq('user_id', userId)
           .select()
           .single(); // lấy 1 record thôi, gọn
-  
+
         if (updateError) {
           console.error(`[${tableName}] Error updating item ${id}:`, updateError);
           throw new Error(updateError.message || 'Failed to update item');
         }
-  
+
         if (!updatedItems) {
           throw new Error('Update failed or item not found (possible RLS restriction)');
         }
-  
+
         console.log(`[${tableName}] Successfully updated item ${id}`, updatedItems);
-  
+
         // Cập nhật UI state
         setData((prev) => prev.map((item) => (item.id === id ? updatedItems : item)));
-  
+
         return updatedItems;
       } catch (err) {
         console.error(`[${tableName}] Unexpected error updating item ${id}:`, err);
@@ -190,21 +198,21 @@ export function useSupabaseTable<T extends { id: string; user_id: string }>(
       try {
         const userId = await getCurrentUserId(explicitUserId);
         console.log(`[${tableName}] Deleting item ${id} for user ${userId}`);
-  
+
         const { error: deleteError } = await supabase
           .from(tableName)
           .delete()
           .eq('id', id)
           .eq('user_id', userId);
-  
+
         if (deleteError) {
           console.error(`[${tableName}] Delete error for item ${id}:`, deleteError);
           throw new Error(deleteError.message || 'Failed to delete item');
         }
-  
+
         // Thêm delay nhỏ (chờ DB apply RLS + replication)
         await new Promise((res) => setTimeout(res, 300));
-  
+
         // Kiểm tra lại xem item còn không
         const { data: verifyItem } = await supabase
           .from(tableName)
@@ -212,12 +220,12 @@ export function useSupabaseTable<T extends { id: string; user_id: string }>(
           .eq('id', id)
           .eq('user_id', userId)
           .maybeSingle();
-  
+
         if (verifyItem) {
           console.warn(`[${tableName}] Delete verification: item still exists (${id})`);
           throw new Error('Delete operation failed: Item still exists (possible RLS issue).');
         }
-  
+
         console.log(`[${tableName}] Successfully deleted item ${id}`);
         setData((prev) => prev.filter((item) => item.id !== id));
       } catch (err) {
@@ -226,7 +234,7 @@ export function useSupabaseTable<T extends { id: string; user_id: string }>(
       }
     },
     [tableName]
-  );  
+  );
 
   // Initial fetch on mount
   useEffect(() => {
@@ -242,7 +250,7 @@ export function useSupabaseTable<T extends { id: string; user_id: string }>(
     const setupRealtime = async () => {
       // Get authenticated user
       const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
-      
+
       if (authError || !authUser) {
         console.warn(`[${tableName}] Cannot setup realtime: user not authenticated`);
         return;

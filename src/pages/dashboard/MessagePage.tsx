@@ -25,7 +25,7 @@ export const MessagePage: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const pollingRef = useRef<NodeJS.Timeout | null>(null);
+
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const isUserScrollingUp = useRef(false);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -170,34 +170,7 @@ export const MessagePage: React.FC = () => {
     };
   }, [user, fetchMessages]);
 
-  // Visibility-based polling fallback
-  useEffect(() => {
-    const handleVisibility = () => {
-      if (document.hidden) {
-        // Tab NOT active → enable fallback polling
-        if (!pollingRef.current) {
-          pollingRef.current = setInterval(() => {
-            fetchMessages();
-          }, 3000); // every 3 seconds
-        }
-      } else {
-        // Tab active → stop polling and refresh immediately
-        if (pollingRef.current) {
-          clearInterval(pollingRef.current);
-          pollingRef.current = null;
-        }
-        fetchMessages(); // refresh instantly when tab becomes active
-      }
-    };
 
-    document.addEventListener("visibilitychange", handleVisibility);
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibility);
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current);
-      }
-    };
-  }, [fetchMessages]);
 
   useEffect(() => {
     if (!messages || messages.length === 0) return;

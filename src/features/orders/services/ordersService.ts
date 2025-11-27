@@ -64,6 +64,7 @@ export interface OrderFilters {
   status?: string | string[];
   riskScore?: string | string[];
   paymentMethod?: string | string[];
+  date?: string;
 }
 
 export async function fetchOrdersByUser(
@@ -162,6 +163,10 @@ export async function fetchOrdersByUser(
           query = query.or(conditions.join(','));
         }
       }
+    }
+    // Date Filter
+    if (filters.date) {
+      query = query.eq('order_date', filters.date);
     }
   }
 

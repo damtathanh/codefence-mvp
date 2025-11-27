@@ -1,3 +1,4 @@
+// src/utils/orderImport.tsx
 import React from 'react';
 import type { OrderInput } from '../hooks/useOrders';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -21,8 +22,12 @@ export async function checkDuplicateOrderIds(
     supabase: SupabaseClient
 ): Promise<DuplicateCheckResult> {
     // A. Check for duplicates within the file
-    const fileOrderIds = orders.map((o, idx) => ({ orderId: o.order_id, rowIndex: idx + 1 }));
+    const fileOrderIds = orders.map((o, idx) => ({
+        orderId: o.order_id,
+        rowIndex: idx + 1,
+    }));
     const fileDuplicateMap = new Map<string, number[]>();
+
     fileOrderIds.forEach(({ orderId, rowIndex }) => {
         if (orderId) {
             if (!fileDuplicateMap.has(orderId)) {
@@ -31,6 +36,7 @@ export async function checkDuplicateOrderIds(
             fileDuplicateMap.get(orderId)!.push(rowIndex);
         }
     });
+
     const fileDuplicates: Array<{ orderId: string; rows: number[] }> = [];
     fileDuplicateMap.forEach((rows, orderId) => {
         if (rows.length > 1) {
@@ -39,8 +45,9 @@ export async function checkDuplicateOrderIds(
     });
 
     // B. Check for duplicates in existing orders
-    const orderIdsToCheck = orders.map(o => o.order_id).filter(Boolean);
+    const orderIdsToCheck = orders.map((o) => o.order_id).filter(Boolean);
     let existingOrderIds: string[] = [];
+
     if (orderIdsToCheck.length > 0 && userId) {
         const chunks = chunkArray(orderIdsToCheck);
 
@@ -58,7 +65,9 @@ export async function checkDuplicateOrderIds(
             }
 
             if (existingOrders) {
-                const ids = existingOrders.map(o => o.order_id).filter(Boolean) as string[];
+                const ids = existingOrders
+                    .map((o) => o.order_id)
+                    .filter(Boolean) as string[];
                 existingOrderIds.push(...ids);
             }
         }
@@ -67,56 +76,65 @@ export async function checkDuplicateOrderIds(
     // If any duplicates found, build the warning message
     if (fileDuplicates.length > 0 || existingOrderIds.length > 0) {
         const duplicateMessage = (
-            <div className="space-y-3" >
+            <div className="space-y-3">
                 {/* Top section - warning yellow */}
-                < div >
-                    <p className="font-semibold text-yellow-300" > We couldn't import this file.</p>
-                    < p className="text-yellow-300/90 mt-1" > Please fix the following issues: </p>
+                <div>
+                    <p className="font-semibold text-yellow-300">
+                        We couldn't import this file.
+                    </p>
+                    <p className="text-yellow-300/90 mt-1">
+                        Please fix the following issues:
+                    </p>
                 </div>
 
                 {/* Duplicate Order IDs in file - critical (red inside yellow toast) */}
-                {
-                    fileDuplicates.length > 0 && (
-                        <div className="mt-4 bg-red-500/10 border border-red-500/20 rounded-md p-3" >
-                            <p className="font-bold text-red-400 mb-2" > Duplicate Order IDs in your file: </p>
-                            < ul className="space-y-1.5" >
-                                {
-                                    fileDuplicates.map((dup, idx) => (
-                                        <li key={idx} className="flex items-start gap-2 text-sm text-red-300" >
-                                            <Circle className="w-3 h-3 fill-red-400 text-red-400 mt-1 flex-shrink-0" />
-                                            <span>{dup.orderId}(found in rows {dup.rows.join(', ')}) </span>
-                                        </li>
-                                    ))
-                                }
-                            </ul>
-                        </div>
-                    )
-                }
+                {fileDuplicates.length > 0 && (
+                    <div className="mt-4 bg-red-500/10 border border-red-500/20 rounded-md p-3">
+                        <p className="font-bold text-red-400 mb-2">
+                            Duplicate Order IDs in your file:
+                        </p>
+                        <ul className="space-y-1.5">
+                            {fileDuplicates.map((dup, idx) => (
+                                <li
+                                    key={idx}
+                                    className="flex items-start gap-2 text-sm text-red-300"
+                                >
+                                    <Circle className="w-3 h-3 fill-red-400 text-red-400 mt-1 flex-shrink-0" />
+                                    <span>
+                                        {dup.orderId} (found in rows {dup.rows.join(', ')})
+                                    </span>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
 
                 {/* Order IDs that already exist in DB - critical (red inside yellow toast) */}
-                {
-                    existingOrderIds.length > 0 && (
-                        <div className={fileDuplicates.length > 0 ? "mt-3" : "mt-4"}>
-                            <div className="bg-red-500/10 border border-red-500/20 rounded-md p-3" >
-                                <p className="font-bold text-red-400 mb-2" > Order IDs that already exist in your account: </p>
-                                < ul className="space-y-1.5" >
-                                    {
-                                        existingOrderIds.map((orderId, idx) => (
-                                            <li key={idx} className="flex items-start gap-2 text-sm text-red-300" >
-                                                <Circle className="w-3 h-3 fill-red-400 text-red-400 mt-1 flex-shrink-0" />
-                                                <span>{orderId} </span>
-                                            </li>
-                                        ))
-                                    }
-                                </ul>
-                            </div>
+                {existingOrderIds.length > 0 && (
+                    <div className={fileDuplicates.length > 0 ? 'mt-3' : 'mt-4'}>
+                        <div className="bg-red-500/10 border border-red-500/20 rounded-md p-3">
+                            <p className="font-bold text-red-400 mb-2">
+                                Order IDs that already exist in your account:
+                            </p>
+                            <ul className="space-y-1.5">
+                                {existingOrderIds.map((orderId, idx) => (
+                                    <li
+                                        key={idx}
+                                        className="flex items-start gap-2 text-sm text-red-300"
+                                    >
+                                        <Circle className="w-3 h-3 fill-red-400 text-red-400 mt-1 flex-shrink-0" />
+                                        <span>{orderId}</span>
+                                    </li>
+                                ))}
+                            </ul>
                         </div>
-                    )
-                }
+                    </div>
+                )}
 
                 {/* Footer message - normal text */}
-                <p className="text-white/80 text-sm mt-3" >
-                    Order ID must be unique.Please update the values in your spreadsheet and upload again.
+                <p className="text-white/80 text-sm mt-3">
+                    Order ID must be unique. Please update the values in your spreadsheet
+                    and upload again.
                 </p>
             </div>
         );
@@ -142,7 +160,7 @@ export async function insertOrdersWithLogging(
     logUserAction: (params: {
         userId: string;
         action: string;
-        status: "success" | "failed";
+        status: 'success' | 'failed';
         orderId?: string;
     }) => Promise<void>
 ): Promise<{
@@ -155,18 +173,17 @@ export async function insertOrdersWithLogging(
 
     // Nếu có userId thì log 1 event tổng cho cả lần import
     if (userId) {
-        const status: "success" | "failed" =
-            result.failed === 0 && result.success > 0 ? "success" : "failed";
+        const status: 'success' | 'failed' =
+            result.failed === 0 && result.success > 0 ? 'success' : 'failed';
 
         await logUserAction({
             userId,
-            action: "Bulk Create Orders",
+            action: 'Bulk Create Orders',
             status,
-            // Nếu sau này m muốn gửi thêm details thì sửa signature logUserAction
+            // Nếu sau này muốn gửi thêm details thì sửa signature logUserAction
             // và nhét result vào details
         });
     }
 
     return result;
 }
-

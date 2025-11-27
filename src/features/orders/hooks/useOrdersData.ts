@@ -24,6 +24,7 @@ export const useOrdersData = () => {
     const [statusFilter, setStatusFilter] = useState<string[]>([]);
     const [riskScoreFilter, setRiskScoreFilter] = useState<string[]>([]);
     const [paymentMethodFilter, setPaymentMethodFilter] = useState<string[]>([]);
+    const [dateFilter, setDateFilter] = useState('');
 
     // Filter Options
     const [statusOptions, setStatusOptions] = useState<string[]>([]);
@@ -65,7 +66,8 @@ export const useOrdersData = () => {
                 searchQuery,
                 status: statusFilter,
                 riskScore: riskScoreFilter,
-                paymentMethod: paymentMethodFilter
+                paymentMethod: paymentMethodFilter,
+                date: dateFilter
             };
 
             const { orders: ordersData, totalCount: count, error: ordersError } = await fetchOrdersByUser(
@@ -92,14 +94,14 @@ export const useOrdersData = () => {
         } finally {
             setLoading(false);
         }
-    }, [user, page, searchQuery, statusFilter, riskScoreFilter, paymentMethodFilter]);
+    }, [user, page, searchQuery, statusFilter, riskScoreFilter, paymentMethodFilter, dateFilter]);
 
     // 3. Initial Load & Filter Changes
     // We want to refetch when filters change, but NOT when they are just set initially if we can avoid double fetch.
     // However, simple useEffect on filters is easiest.
     useEffect(() => {
         fetchOrders(1); // Reset to page 1 on filter change
-    }, [searchQuery, statusFilter, riskScoreFilter, paymentMethodFilter]);
+    }, [searchQuery, statusFilter, riskScoreFilter, paymentMethodFilter, dateFilter]);
     // Note: We intentionally exclude 'fetchOrders' from dependency to avoid loop, 
     // and we exclude 'page' because page changes are handled by setPage -> fetchOrders call in UI or separate effect? 
     // Actually, let's handle page changes separately or expose a handlePageChange.
@@ -237,6 +239,8 @@ export const useOrdersData = () => {
         setRiskScoreFilter,
         paymentMethodFilter,
         setPaymentMethodFilter,
+        dateFilter,
+        setDateFilter,
 
         // Options
         statusOptions,

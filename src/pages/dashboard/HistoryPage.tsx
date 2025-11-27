@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
-import { Badge } from '../../components/ui/Badge';
-import { Filter } from 'lucide-react';
+import { FilterBar } from '../../components/ui/FilterBar';
+import { MultiSelectFilter } from '../../components/filters/MultiSelectFilter';
+import { StatusBadge } from '../../components/ui/StatusBadge';
 import { useSupabaseTable } from '../../hooks/useSupabaseTable';
 import { useAuth } from '../../features/auth';
 import { formatToGMT7 } from '../../utils/formatTimezone';
@@ -23,7 +24,16 @@ export const HistoryPage: React.FC = () => {
     error,
   } = useSupabaseTable<History>({ tableName: 'history', enableRealtime: true });
   const [dateFilter, setDateFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
+  const [eventTypeFilter, setEventTypeFilter] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const clearAllFilters = () => {
+    setDateFilter('');
+    setStatusFilter([]);
+    setEventTypeFilter([]);
+    setSearchQuery('');
+  };
 
   // Format history logs with date/time and filter by current user
   const formattedLogs: HistoryWithFormatted[] = logs
@@ -38,10 +48,24 @@ export const HistoryPage: React.FC = () => {
       };
     });
 
+  // Get unique event types for filter
+  const eventTypeOptions = Array.from(new Set(formattedLogs.map(log => log.action))).map(action => ({
+    value: action,
+    label: action
+  }));
+
   const filteredLogs = formattedLogs.filter(log => {
     const matchesDate = !dateFilter || log.date === dateFilter;
-    const matchesStatus = statusFilter === 'all' || log.status === statusFilter;
-    return matchesDate && matchesStatus;
+    const matchesStatus = statusFilter.length === 0 || statusFilter.includes(log.status);
+    const matchesEventType = eventTypeFilter.length === 0 || eventTypeFilter.includes(log.action);
+
+    const searchLower = searchQuery.toLowerCase();
+    const matchesSearch = !searchQuery ||
+      (log.order_id && log.order_id.toLowerCase().includes(searchLower)) ||
+      (log.action && log.action.toLowerCase().includes(searchLower)) ||
+      (log.details && JSON.stringify(log.details).toLowerCase().includes(searchLower));
+
+    return matchesDate && matchesStatus && matchesEventType && matchesSearch;
   });
 
   const getStatusBadge = (status: string) => {
@@ -56,43 +80,50 @@ export const HistoryPage: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-full min-h-0 p-6">
+    <div className="space-y-6 p-6 h-full flex flex-col min-h-0">
       {/* Filters */}
-      <Card className="shrink-0">
-        <CardHeader className="!pt-3 !pb-2 !px-4">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Filter size={18} />
-            Filters
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="!pt-0 !px-4 !pb-3">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="relative">
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="w-full h-10 pr-10 px-3 py-2 bg-white/10 backdrop-blur-md border border-white/20 rounded-lg text-[#E5E7EB] text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
-              >
-                <option value="all">All Status</option>
-                <option value="success">Success</option>
-                <option value="failed">Failed</option>
-              </select>
-              <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-              </svg>
-            </div>
-            <Input
-              type="date"
-              value={dateFilter}
-              onChange={(e) => setDateFilter(e.target.value)}
-              className="h-10 !py-2"
-            />
-          </div>
-        </CardContent>
-      </Card>
+      {/* Filters */}
+      <FilterBar
+        searchValue={searchQuery}
+        onSearch={setSearchQuery}
+        searchPlaceholder="Search by Order ID / Product / Phone / Name..."
+      >
+        <MultiSelectFilter
+          label="Status"
+          options={[
+            { value: 'success', label: 'Success' },
+            { value: 'failed', label: 'Failed' },
+          ]}
+          selectedValues={statusFilter}
+          onChange={setStatusFilter}
+        />
+        <MultiSelectFilter
+          label="Event Type"
+          options={eventTypeOptions}
+          selectedValues={eventTypeFilter}
+          onChange={setEventTypeFilter}
+        />
+
+        {/* Date Filter */}
+        <input
+          type="date"
+          value={dateFilter}
+          onChange={(e) => setDateFilter(e.target.value)}
+          className="h-10 w-auto min-w-[180px] whitespace-nowrap px-3 bg-[var(--bg-input)] border border-[var(--border-subtle)] rounded-lg text-[var(--text-main)]"
+        />
+
+        {/* Clear filters */}
+        <button
+          type="button"
+          onClick={clearAllFilters}
+          className="text-sm text-[var(--text-muted)] whitespace-nowrap hover:text-white transition"
+        >
+          Clear filters
+        </button>
+      </FilterBar>
 
       {/* History Logs */}
-      <Card className="flex-1 flex flex-col min-h-0 mt-6">
+      <Card className="flex-1 flex flex-col min-h-0 relative z-0">
         <CardHeader className="!pt-4 !pb-3 !px-6 flex-shrink-0">
           <CardTitle>History Logs</CardTitle>
         </CardHeader>
@@ -120,7 +151,6 @@ export const HistoryPage: React.FC = () => {
                   </thead>
                   <tbody>
                     {filteredLogs.map((log) => {
-                      const statusBadge = getStatusBadge(log.status);
                       return (
                         <tr key={log.id} className="border-b border-[#1E223D] hover:bg-white/5 transition">
                           <td className="px-6 py-4 text-sm text-[#E5E7EB] whitespace-nowrap">
@@ -156,7 +186,7 @@ export const HistoryPage: React.FC = () => {
                             )}
                           </td>
                           <td className="px-6 py-4 align-middle">
-                            <Badge variant={statusBadge.variant}>{statusBadge.label}</Badge>
+                            <StatusBadge status={log.status} />
                           </td>
                         </tr>
                       );

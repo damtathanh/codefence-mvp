@@ -1,9 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertTriangle, ChevronDown, Edit, CheckCircle, XCircle, Trash2 } from 'lucide-react';
-import { Card, CardHeader, CardContent } from '../../../components/ui/Card';
 import { Button } from '../../../components/ui/Button';
-import { StatusBadge } from '../../../components/dashboard/StatusBadge';
+import { StatusBadge } from '../../../components/ui/StatusBadge';
 import { RiskBadge } from '../../../components/dashboard/RiskBadge';
 import type { Order } from '../../../types/supabase';
 import type { SimpleProduct } from '../../products/services/productsService';
@@ -55,9 +54,23 @@ export const OrderTable: React.FC<OrderTableProps> = ({
     const [dropdownPosition, setDropdownPosition] = useState({ x: 0, y: 0, placement: 'bottom' as 'bottom' | 'top' });
 
     const isInvalidProduct = (order: Order): boolean => {
-        if (!order.product_id) return true;
-        if (order.products === null) return true;
-        return false;
+        // Nếu đã có product_id thì coi như hợp lệ
+        if (order.product_id) return false;
+
+        // Lấy tên product đang có trên order
+        const rawName = (order.products?.name || order.product || '')
+            .trim()
+            .toLowerCase();
+
+        if (!rawName) return true;
+
+        // Nếu tên này trùng với bất kỳ product nào trong ProductsPage thì cũng coi là hợp lệ
+        const hasMatch = products.some((p) =>
+            p.name.trim().toLowerCase() === rawName,
+        );
+
+        // Chỉ báo Invalid khi KHÔNG tìm thấy match
+        return !hasMatch;
     };
 
     const getProductName = (order: Order): string => {
@@ -116,8 +129,8 @@ export const OrderTable: React.FC<OrderTableProps> = ({
 
     return (
         <>
-            <Card className="flex-1 flex flex-col min-h-0">
-                <CardHeader className="!pt-4 !pb-1 !px-6 flex-shrink-0">
+            <div className="flex-1 flex flex-col min-h-0 bg-[var(--bg-card)] backdrop-blur-sm rounded-lg border border-[var(--border-subtle)] shadow-lg relative z-0">
+                <div className="px-6 pt-4 pb-1 flex-shrink-0">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-4">
                             <button
@@ -145,9 +158,9 @@ export const OrderTable: React.FC<OrderTableProps> = ({
                             </button>
                         )}
                     </div>
-                </CardHeader>
-                <CardContent className="flex-1 min-h-0 overflow-y-auto p-0">
-                    <div className="w-full overflow-x-auto">
+                </div>
+                <div className="flex-1 min-h-0 overflow-y-auto p-0">
+                    <div className="w-full max-w-full overflow-x-auto scrollbar-thin scrollbar-thumb-[#1E223D] scrollbar-track-transparent">
                         <table className="w-full border-separate border-spacing-0" style={{ tableLayout: 'fixed', minWidth: '100%' }}>
                             <colgroup>
                                 <col style={{ width: '30px' }} />
@@ -190,175 +203,199 @@ export const OrderTable: React.FC<OrderTableProps> = ({
                             </thead>
 
                             <tbody>
-                                {orders.map((order) => (
-                                    <tr
-                                        key={order.id}
-                                        className="border-b border-[#1E223D] hover:bg-white/5 transition-colors cursor-pointer"
-                                        onClick={() => onRowClick(order)}
-                                    >
-                                        {/* Checkbox */}
-                                        <td
-                                            className="px-6 py-4"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                            }}
+                                {orders.map((order) => {
+                                    // 1. Build parts from specific fields
+                                    const parts = [
+                                        order.address_detail,
+                                        order.ward,
+                                        order.district,
+                                        order.province,
+                                    ];
+
+                                    // 2. Filter out empty/null/undefined/whitespace-only strings
+                                    const validParts = parts
+                                        .filter((p): p is string => typeof p === 'string' && p.trim().length > 0)
+                                        .map(p => p.trim());
+
+                                    // 3. Construct full address or use fallback
+                                    let fullAddress = '';
+                                    if (validParts.length > 0) {
+                                        fullAddress = validParts.join(', ');
+                                    } else {
+                                        // Fallback to order.address if no specific parts are available
+                                        fullAddress = order.address || '-';
+                                    }
+
+                                    return (
+                                        <tr
+                                            key={order.id}
+                                            className="border-b border-[#1E223D] hover:bg-white/5 transition-colors cursor-pointer"
+                                            onClick={() => onRowClick(order)}
                                         >
-                                            <input
-                                                type="checkbox"
-                                                checked={selectedIds.has(order.id)}
-                                                onChange={() => onToggleSelect(order.id)}
-                                                className="w-4 h-4 rounded border-white/20 bg-white/5 text-[#8B5CF6] focus:ring-[#8B5CF6] focus:ring-offset-0 cursor-pointer"
-                                            />
-                                        </td>
+                                            {/* Checkbox */}
+                                            <td
+                                                className="px-6 py-4"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                }}
+                                            >
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedIds.has(order.id)}
+                                                    onChange={() => onToggleSelect(order.id)}
+                                                    className="w-4 h-4 rounded border-white/20 bg-white/5 text-[#8B5CF6] focus:ring-[#8B5CF6] focus:ring-offset-0 cursor-pointer"
+                                                />
+                                            </td>
 
-                                        {/* Order ID */}
-                                        <td className="px-6 py-4 text-sm text-[#E5E7EB] font-medium text-center">
-                                            <div className="truncate" title={order.order_id || order.id}>
-                                                {order.order_id || order.id}
-                                            </div>
-                                        </td>
-
-                                        {/* Customer */}
-                                        <td className="px-6 py-4 text-sm text-[#E5E7EB]">
-                                            <div className="break-words line-clamp-2" title={order.customer_name}>
-                                                {order.customer_name}
-                                            </div>
-                                        </td>
-
-                                        {/* Phone */}
-                                        <td className="px-6 py-4 text-sm text-[#E5E7EB] text-center">
-                                            <div className="truncate">
-                                                {order.phone || '-'}
-                                            </div>
-                                        </td>
-
-                                        {/* Address - Allow wrapping */}
-                                        <td className="px-6 py-4 text-sm text-[#E5E7EB]">
-                                            <div className="break-words line-clamp-2" title={order.address || '-'}>
-                                                {order.address || '-'}
-                                            </div>
-                                        </td>
-
-                                        {/* Product */}
-                                        <td
-                                            className="px-6 py-4 text-sm text-[#E5E7EB] align-top"
-                                            onClick={(e) => e.stopPropagation()}
-                                        >
-                                            {isInvalidProduct(order) ? (
-                                                <div className="space-y-2 min-w-0">
-                                                    <div className="flex items-center gap-2 min-w-0">
-                                                        <span
-                                                            className="inline-flex items-center gap-1 px-2 py-1 rounded bg-red-900/40 border border-red-600 text-red-300 text-xs break-words"
-                                                            title={getProductName(order)}
-                                                        >
-                                                            <AlertTriangle size={12} className="flex-shrink-0" />
-                                                            <span className="break-words">{getProductName(order)}</span>
-                                                        </span>
-                                                    </div>
-                                                    <div className="relative">
-                                                        <select
-                                                            value={productCorrections.get(order.id) || ''}
-                                                            onChange={(e) => {
-                                                                if (e.target.value) {
-                                                                    const productId = e.target.value;
-                                                                    const product = products.find((p) => p.id === productId);
-                                                                    const productName = product?.name || 'Unknown';
-
-                                                                    setProductCorrections((prev) => {
-                                                                        const next = new Map(prev);
-                                                                        next.set(order.id, productId);
-                                                                        return next;
-                                                                    });
-                                                                    onProductCorrection(order, productId, productName);
-                                                                }
-                                                            }}
-                                                            className="w-full pr-10 px-2 py-1.5 text-xs bg-white/5 backdrop-blur-xl border border-white/10 rounded-lg text-[#E5E7EB] appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6] focus:border-[#8B5CF6]/50"
-                                                        >
-                                                            <option value="">Select product</option>
-                                                            {products.map((product) => (
-                                                                <option key={product.id} value={product.id}>
-                                                                    {product.name}
-                                                                </option>
-                                                            ))}
-                                                        </select>
-                                                        <svg
-                                                            className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70"
-                                                            aria-hidden="true"
-                                                            xmlns="http://www.w3.org/2000/svg"
-                                                            fill="none"
-                                                            viewBox="0 0 24 24"
-                                                            stroke="currentColor"
-                                                        >
-                                                            <path
-                                                                strokeLinecap="round"
-                                                                strokeLinejoin="round"
-                                                                strokeWidth="2"
-                                                                d="M19 9l-7 7-7-7"
-                                                            />
-                                                        </svg>
-                                                    </div>
-                                                    <p className="text-xs text-red-400">
-                                                        Invalid product. Please select from the list.
-                                                    </p>
+                                            {/* Order ID */}
+                                            <td className="px-6 py-4 text-sm text-[#E5E7EB] font-medium text-center">
+                                                <div className="truncate" title={order.order_id || order.id}>
+                                                    {order.order_id || order.id}
                                                 </div>
-                                            ) : (
-                                                <div
-                                                    className="text-sm text-[#E5E7EB] break-words"
-                                                    title={getProductName(order)}
-                                                >
-                                                    {getProductName(order)}
+                                            </td>
+
+                                            {/* Customer */}
+                                            <td className="px-6 py-4 text-sm text-[#E5E7EB]">
+                                                <div className="break-words line-clamp-2" title={order.customer_name}>
+                                                    {order.customer_name}
                                                 </div>
-                                            )}
-                                        </td>
+                                            </td>
 
-                                        {/* Amount */}
-                                        <td className="px-6 py-4 text-sm text-[#E5E7EB] text-center">
-                                            <div className="truncate">
-                                                {order.amount.toLocaleString('vi-VN')}
-                                            </div>
-                                        </td>
+                                            {/* Phone */}
+                                            <td className="px-6 py-4 text-sm text-[#E5E7EB] text-center">
+                                                <div className="truncate">
+                                                    {order.phone || '-'}
+                                                </div>
+                                            </td>
 
-                                        {/* Payment Method */}
-                                        <td className="px-6 py-4 text-sm text-[#E5E7EB] text-center">
-                                            <div className="truncate" title={order.payment_method || 'COD'}>
-                                                {order.payment_method || 'COD'}
-                                            </div>
-                                        </td>
+                                            {/* Address - Allow wrapping */}
+                                            <td className="px-6 py-4 text-sm text-[#E5E7EB]">
+                                                <div className="break-words line-clamp-2" title={fullAddress}>
+                                                    {fullAddress}
+                                                </div>
+                                            </td>
 
-                                        {/* Risk Score */}
-                                        <td className="px-6 py-4 text-sm text-center">
-                                            <div className="flex justify-center">
-                                                <RiskBadge score={order.risk_score} />
-                                            </div>
-                                        </td>
+                                            {/* Product */}
+                                            <td
+                                                className="px-6 py-4 text-sm text-[#E5E7EB] align-top"
+                                                onClick={(e) => e.stopPropagation()}
+                                            >
+                                                {isInvalidProduct(order) ? (
+                                                    <div className="space-y-2 min-w-0">
+                                                        <div className="flex items-center gap-2 min-w-0">
+                                                            <span
+                                                                className="inline-flex items-center gap-1 px-2 py-1 rounded bg-red-900/40 border border-red-600 text-red-300 text-xs break-words"
+                                                                title={getProductName(order)}
+                                                            >
+                                                                <AlertTriangle size={12} className="flex-shrink-0" />
+                                                                <span className="break-words">{getProductName(order)}</span>
+                                                            </span>
+                                                        </div>
+                                                        <div className="relative">
+                                                            <select
+                                                                value={productCorrections.get(order.id) || ''}
+                                                                onChange={(e) => {
+                                                                    if (e.target.value) {
+                                                                        const productId = e.target.value;
+                                                                        const product = products.find((p) => p.id === productId);
+                                                                        const productName = product?.name || 'Unknown';
 
-                                        {/* Status */}
-                                        <td className="px-6 py-4 text-sm">
-                                            <StatusBadge status={order.status} />
-                                        </td>
+                                                                        setProductCorrections((prev) => {
+                                                                            const next = new Map(prev);
+                                                                            next.set(order.id, productId);
+                                                                            return next;
+                                                                        });
+                                                                        onProductCorrection(order, productId, productName);
+                                                                    }
+                                                                }}
+                                                                className="w-full pr-10 px-2 py-1.5 text-xs bg-white/5 backdrop-blur-xl border border-white/10 rounded-lg text-[#E5E7EB] appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6] focus:border-[#8B5CF6]/50"
+                                                            >
+                                                                <option value="">Select product</option>
+                                                                {products.map((product) => (
+                                                                    <option key={product.id} value={product.id}>
+                                                                        {product.name}
+                                                                    </option>
+                                                                ))}
+                                                            </select>
+                                                            <svg
+                                                                className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70"
+                                                                aria-hidden="true"
+                                                                xmlns="http://www.w3.org/2000/svg"
+                                                                fill="none"
+                                                                viewBox="0 0 24 24"
+                                                                stroke="currentColor"
+                                                            >
+                                                                <path
+                                                                    strokeLinecap="round"
+                                                                    strokeLinejoin="round"
+                                                                    strokeWidth="2"
+                                                                    d="M19 9l-7 7-7-7"
+                                                                />
+                                                            </svg>
+                                                        </div>
+                                                        <p className="text-xs text-red-400">
+                                                            Invalid product. Please select from the list.
+                                                        </p>
+                                                    </div>
+                                                ) : (
+                                                    <div
+                                                        className="text-sm text-[#E5E7EB] break-words"
+                                                        title={getProductName(order)}
+                                                    >
+                                                        {getProductName(order)}
+                                                    </div>
+                                                )}
+                                            </td>
 
-                                        {/* Actions */}
-                                        <td
-                                            className="px-6 py-4 text-sm text-right"
-                                            onClick={(e) => e.stopPropagation()}
-                                        >
-                                            <div className="relative action-dropdown-container inline-flex justify-end">
-                                                <Button
-                                                    onClick={(e) => toggleActionDropdown(order.id, e)}
-                                                    size="sm"
-                                                    className="!px-3 !py-1.5 !text-xs"
-                                                >
-                                                    <span>Action</span>
-                                                    <ChevronDown
-                                                        size={14}
-                                                        className={`ml-1.5 transition-transform duration-200 ${openActionDropdown === order.id ? 'rotate-180' : ''
-                                                            }`}
-                                                    />
-                                                </Button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
+                                            {/* Amount */}
+                                            <td className="px-6 py-4 text-sm text-[#E5E7EB] text-center">
+                                                <div className="truncate">
+                                                    {order.amount.toLocaleString('vi-VN')}
+                                                </div>
+                                            </td>
+
+                                            {/* Payment Method */}
+                                            <td className="px-6 py-4 text-sm text-[#E5E7EB] text-center">
+                                                <div className="truncate" title={order.payment_method || 'COD'}>
+                                                    {order.payment_method || 'COD'}
+                                                </div>
+                                            </td>
+
+                                            {/* Risk Score */}
+                                            <td className="px-6 py-4 text-sm text-center">
+                                                <div className="flex justify-center">
+                                                    <RiskBadge score={order.risk_score} />
+                                                </div>
+                                            </td>
+
+                                            {/* Status */}
+                                            <td className="px-6 py-4 text-sm">
+                                                <StatusBadge status={order.status} />
+                                            </td>
+
+                                            {/* Actions */}
+                                            <td
+                                                className="px-6 py-4 text-sm text-right"
+                                                onClick={(e) => e.stopPropagation()}
+                                            >
+                                                <div className="relative action-dropdown-container inline-flex justify-end">
+                                                    <Button
+                                                        onClick={(e) => toggleActionDropdown(order.id, e)}
+                                                        size="sm"
+                                                        className="!px-3 !py-1.5 !text-xs"
+                                                    >
+                                                        <span>Action</span>
+                                                        <ChevronDown
+                                                            size={14}
+                                                            className={`ml-1.5 transition-transform duration-200 ${openActionDropdown === order.id ? 'rotate-180' : ''
+                                                                }`}
+                                                        />
+                                                    </Button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    )
+                                })}
                             </tbody>
                         </table>
                     </div>
@@ -409,8 +446,8 @@ export const OrderTable: React.FC<OrderTableProps> = ({
                             </button>
                         </div>
                     </div>
-                </CardContent>
-            </Card>
+                </div>
+            </div>
 
             {openActionDropdown &&
                 createPortal(

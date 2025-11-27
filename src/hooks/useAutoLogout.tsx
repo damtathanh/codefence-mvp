@@ -34,15 +34,15 @@ interface UseAutoLogoutOptions {
  */
 export function useAutoLogout(role: UserRole, enabled: boolean = true) {
   const navigate = useNavigate();
-  
+
   // Timeout durations in milliseconds
   const TIMEOUT_DURATIONS = {
     admin: 15 * 60 * 1000, // 15 minutes
     user: 30 * 60 * 1000,  // 30 minutes
   };
-  
+
   const WARNING_TIME = 60 * 1000; // 1 minute before logout
-  
+
   // Refs to store timer IDs
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
   const warningTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -72,14 +72,14 @@ export function useAutoLogout(role: UserRole, enabled: boolean = true) {
     if (isLoggingOutRef.current) {
       return; // Prevent multiple logout calls
     }
-    
+
     isLoggingOutRef.current = true;
     clearTimers();
 
     try {
       // Sign out from Supabase
       await supabase.auth.signOut();
-      
+
       // Clear auth-related localStorage items
       try {
         localStorage.removeItem('supabase_session');
@@ -88,14 +88,14 @@ export function useAutoLogout(role: UserRole, enabled: boolean = true) {
       } catch (error) {
         console.error('Error clearing localStorage:', error);
       }
-      
+
       // Clear sessionStorage (marks session as ended)
       try {
         sessionStorage.removeItem('codfence_session_start');
       } catch (error) {
         console.error('Error clearing sessionStorage:', error);
       }
-      
+
       // Redirect to login
       navigate('/login', { replace: true });
     } catch (error) {
@@ -114,14 +114,15 @@ export function useAutoLogout(role: UserRole, enabled: boolean = true) {
     if (warningShownRef.current) {
       return; // Prevent showing multiple warnings
     }
-    
+
     warningShownRef.current = true;
-    
+
+    // TODO: Replace window.confirm with Modal
     const userConfirmed = window.confirm(
       'You have been inactive for a while. You will be logged out in 1 minute.\n\n' +
       'Click "OK" to stay logged in, or "Cancel" to continue.'
     );
-    
+
     if (userConfirmed) {
       // User wants to stay logged in - reset timer
       warningShownRef.current = false;
@@ -168,7 +169,7 @@ export function useAutoLogout(role: UserRole, enabled: boolean = true) {
 
     const now = Date.now();
     const timeSinceLastActivity = now - lastActivityRef.current;
-    
+
     // Only reset if there's been actual activity (debounce rapid events)
     if (timeSinceLastActivity > 1000) { // 1 second debounce
       resetTimer();
@@ -191,7 +192,7 @@ export function useAutoLogout(role: UserRole, enabled: boolean = true) {
       // Tab is now visible - check if user has been inactive too long
       const timeSinceLastActivity = Date.now() - lastActivityRef.current;
       const timeoutDuration = TIMEOUT_DURATIONS[role];
-      
+
       if (timeSinceLastActivity >= timeoutDuration) {
         // User has been inactive too long - logout immediately
         performLogout();

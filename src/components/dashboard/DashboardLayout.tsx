@@ -9,7 +9,7 @@ import { isAdminByEmail } from '../../utils/isAdmin';
 import type { Notification as SupabaseNotification } from '../../types/supabase';
 import { AddOrderModal } from './AddOrderModal';
 import { AddProductModal } from './AddProductModal';
-import { BulkCreateProductsModal } from './BulkCreateProductsModal';
+
 import type { Order, Product } from '../../types/supabase';
 import {
   LayoutDashboard,
@@ -55,7 +55,6 @@ const sidebarItems: SidebarItem[] = [
   { icon: FileText, label: 'Invoice', path: '/dashboard/invoice', id: 'invoice' },
   { icon: History, label: 'History', path: '/dashboard/history', id: 'history' },
   { icon: MessageSquare, label: 'Message', path: '/dashboard/message', id: 'message' },
-  { icon: Settings, label: 'Settings', path: '/dashboard/settings', id: 'settings' },
 ];
 
 interface Notification {
@@ -99,12 +98,7 @@ export const DashboardLayout: React.FC = () => {
     fetchAll: refetchProducts,
   } = useSupabaseTable<Product>({ tableName: 'products', enableRealtime: false });
 
-  // Bulk create products modal state
-  const [isBulkCreateProductsModalOpen, setIsBulkCreateProductsModalOpen] = useState(false);
-  const [bulkCreateProductsModalMissingProducts, setBulkCreateProductsModalMissingProducts] = useState<string[]>([]);
-  const [bulkCreateProductsModalPendingUploadState, setBulkCreateProductsModalPendingUpload] = useState<any>(null);
-  const bulkCreateProductsModalSuccessRef = useRef<((pendingUpload?: any) => void | Promise<void>) | null>(null);
-  const bulkCreateProductsModalPendingUpload = useRef<any>(null);
+
 
   const openAddOrderModal = useCallback((options?: { order?: Order | null; onSuccess?: () => void }) => {
     setOrderModalEditingOrder(options?.order ?? null);
@@ -116,9 +110,7 @@ export const DashboardLayout: React.FC = () => {
     setIsOrderModalOpen(false);
     setOrderModalEditingOrder(null);
     orderModalSuccessRef.current = null;
-    // Clear the pending upload ref when AddOrderModal closes
-    // This ensures it doesn't persist across multiple upload sessions
-    bulkCreateProductsModalPendingUpload.current = null;
+
   }, []);
 
   const handleOrderModalSuccess = useCallback(() => {
@@ -145,45 +137,7 @@ export const DashboardLayout: React.FC = () => {
     closeAddProductModal();
   }, [closeAddProductModal]);
 
-  const openBulkCreateProductsModal = useCallback((options: { missingProducts: string[]; pendingUpload: any }) => {
-    setBulkCreateProductsModalMissingProducts(options.missingProducts || []);
-    setBulkCreateProductsModalPendingUpload(options.pendingUpload || null);
-    bulkCreateProductsModalPendingUpload.current = options.pendingUpload || null;
-    setIsBulkCreateProductsModalOpen(true);
-  }, []);
 
-  const closeBulkCreateProductsModal = useCallback(() => {
-    setIsBulkCreateProductsModalOpen(false);
-    setBulkCreateProductsModalMissingProducts([]);
-    setBulkCreateProductsModalPendingUpload(null);
-    // Do NOT clear bulkCreateProductsModalPendingUpload.current here,
-    // because handleBulkCreateProductsModalSuccess will need it.
-    // Only clear it after AddOrderModal finishes or after processParsedOrders runs.
-    bulkCreateProductsModalSuccessRef.current = null;
-  }, []);
-
-  const handleBulkCreateProductsModalSuccess = useCallback(async (pendingUpload?: any) => {
-    // Close bulk modal first
-    closeBulkCreateProductsModal();
-
-    // Store pendingUpload in ref so AddOrderModal can access it
-    if (pendingUpload) {
-      bulkCreateProductsModalPendingUpload.current = pendingUpload;
-
-      // Small delay to ensure modal closes, then re-open AddOrderModal
-      setTimeout(() => {
-        openAddOrderModal({
-          onSuccess: async () => {
-            // Import will be continued automatically by AddOrderModal
-          },
-        });
-      }, 150);
-    }
-
-    if (bulkCreateProductsModalSuccessRef.current) {
-      await bulkCreateProductsModalSuccessRef.current(pendingUpload);
-    }
-  }, [closeBulkCreateProductsModal, openAddOrderModal]);
 
   const outletContext = useMemo<DashboardOutletContext>(
     () => ({
@@ -215,9 +169,6 @@ export const DashboardLayout: React.FC = () => {
         }
         if (item.id === 'message') {
           return { ...item, path: '/admin/message' };
-        }
-        if (item.id === 'settings') {
-          return { ...item, path: '/admin/settings' };
         }
         return item;
       });
@@ -289,6 +240,10 @@ export const DashboardLayout: React.FC = () => {
   const mainContentRef = useRef<HTMLElement>(null);
   const notificationRef = useRef<HTMLDivElement>(null);
 
+  // Profile dropdown state
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const profileMenuRef = useRef<HTMLDivElement>(null);
+
   // Listen for profile update events from Settings page
   useEffect(() => {
     const handleProfileUpdate = () => {
@@ -309,22 +264,25 @@ export const DashboardLayout: React.FC = () => {
     }
   }, [location.pathname]);
 
-  // Close notifications when clicking outside
+  // Close notifications and profile menu when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (notificationRef.current && !notificationRef.current.contains(event.target as Node)) {
         setShowNotifications(false);
       }
+      if (profileMenuRef.current && !profileMenuRef.current.contains(event.target as Node)) {
+        setShowProfileMenu(false);
+      }
     };
 
-    if (showNotifications) {
+    if (showNotifications || showProfileMenu) {
       document.addEventListener('mousedown', handleClickOutside);
     }
 
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [showNotifications]);
+  }, [showNotifications, showProfileMenu]);
 
   // Format Supabase notifications for display
   useEffect(() => {
@@ -751,14 +709,45 @@ export const DashboardLayout: React.FC = () => {
             </div>
 
             {/* Profile */}
-            <button className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[var(--bg-card-soft)] transition">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-r from-[#6366F1] via-[#7C3AED] to-[#8B5CF6] flex items-center justify-center">
-                <User size={18} className="text-white" />
-              </div>
-              <span className="text-[var(--text-main)] font-medium hidden md:block">
-                {profile?.full_name || 'User'}
-              </span>
-            </button>
+            <div className="relative" ref={profileMenuRef}>
+              <button
+                onClick={() => setShowProfileMenu(!showProfileMenu)}
+                className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[var(--bg-card-soft)] transition"
+              >
+                <div className="w-8 h-8 rounded-full bg-gradient-to-r from-[#6366F1] via-[#7C3AED] to-[#8B5CF6] flex items-center justify-center">
+                  <User size={18} className="text-white" />
+                </div>
+                <span className="text-[var(--text-main)] font-medium hidden md:block">
+                  {profile?.full_name || 'User'}
+                </span>
+              </button>
+
+              {/* Profile Dropdown */}
+              {showProfileMenu && (
+                <div className="absolute right-0 top-12 w-48 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg shadow-xl z-50 overflow-hidden py-1">
+                  <button
+                    onClick={() => {
+                      setShowProfileMenu(false);
+                      navigate(isAdmin ? '/admin/settings' : '/dashboard/settings');
+                    }}
+                    className="w-full text-left px-4 py-2.5 text-sm text-[var(--text-main)] hover:bg-white/5 flex items-center gap-2 transition-colors"
+                  >
+                    <Settings size={16} />
+                    Settings
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowProfileMenu(false);
+                      handleLogout();
+                    }}
+                    className="w-full text-left px-4 py-2.5 text-sm text-red-400 hover:bg-white/5 flex items-center gap-2 transition-colors"
+                  >
+                    <LogOut size={16} />
+                    Logout
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 
@@ -767,7 +756,8 @@ export const DashboardLayout: React.FC = () => {
           ref={mainContentRef}
           className="flex-1 min-h-0 bg-[var(--bg-page)] overflow-y-auto"
         >
-          <div className="w-full min-h-[calc(100vh-4rem)] flex flex-col bg-[var(--bg-page)] px-6 pt-4 pb-2 lg:pb-3">
+          <div className="w-full h-[calc(100vh-4rem)] flex flex-col bg-[var(--bg-page)] 
+          px-0 pt-0 pb-0 lg:pb-1">
             <Outlet context={outletContext} />
           </div>
         </main>
@@ -782,8 +772,6 @@ export const DashboardLayout: React.FC = () => {
         refetchProducts={async () => {
           await refetchProducts();
         }}
-        openBulkCreateProductsModal={openBulkCreateProductsModal}
-        pendingUploadAfterProductsCreated={bulkCreateProductsModalPendingUpload.current}
       />
 
       <AddProductModal
@@ -793,13 +781,6 @@ export const DashboardLayout: React.FC = () => {
         initialName={productModalInitialName}
       />
 
-      <BulkCreateProductsModal
-        isOpen={isBulkCreateProductsModalOpen}
-        onClose={closeBulkCreateProductsModal}
-        missingProducts={bulkCreateProductsModalMissingProducts}
-        pendingUpload={bulkCreateProductsModalPendingUpload.current}
-        onSuccess={handleBulkCreateProductsModalSuccess}
-      />
 
       {/* All Notifications Modal */}
       {showAllNotifications && (

@@ -92,135 +92,15 @@ export const Register: React.FC = () => {
       return;
     }
 
-    if (!error && data?.user?.identities?.length && data.user.identities.length > 0) {
-      // Ensure profile is created/updated in users_profile table
-      // The trigger will create it automatically, but we also upsert to ensure all fields are set correctly
-      try {
-        // Determine role based on email domain
-        const userEmail = data.user.email || formData.email.trim();
-        const isAdminEmail = userEmail.toLowerCase().endsWith('@codfence.com');
-        const userRole = isAdminEmail ? 'admin' : 'user';
+    // ✅ Success! The database trigger 'handle_new_user' will automatically create the profile.
+    // We don't need to manually upsert or wait.
+    setSuccess(true);
+    setSuccessMessage(`Welcome ${formData.fullName}! Please check your email to confirm your account.`);
 
-        // Wait a moment for the trigger to run, then upsert to ensure all fields are set
-        // This handles race conditions and ensures phone/company_name are saved
-        await new Promise(resolve => setTimeout(resolve, 500));
-
-        // ✅ Prepare profile data with correct field names matching table schema
-        const profileData = {
-          id: data.user.id,
-          email: userEmail,
-          full_name: formData.fullName.trim(),  // ✅ Table uses full_name (not fullname)
-          phone: formData.phone.trim(),         // ✅ Table uses phone (not phoneNumber)
-          company_name: formData.company.trim(), // ✅ Table uses company_name (from user input, not hardcoded)
-          role: userRole,                       // ✅ Explicitly set role based on domain
-        };
-
-        console.log('📝 Inserting profile with data:', profileData);
-
-        const { error: profileError } = await supabase
-          .from('users_profile')
-          .upsert([{
-            id: data.user.id,
-            email: userEmail,
-            full_name: formData.fullName.trim(),
-            phone: formData.phone.trim(),
-            company_name: formData.company.trim(),
-            role: userRole,
-          }]);
-
-        if (profileError) {
-          console.error('❌ Error creating/updating profile:', profileError);
-          console.error('Error details:', {
-            message: profileError.message,
-            code: profileError.code,
-            details: profileError.details,
-            hint: profileError.hint,
-          });
-          
-          // If upsert failed, try to fetch the profile created by trigger
-          // and update it with the missing fields
-          const { data: existingProfile, error: fetchError } = await supabase
-            .from('users_profile')
-            .select('*')
-            .eq('id', data.user.id)
-            .single();
-
-          if (fetchError) {
-            console.error('❌ Error fetching existing profile:', fetchError);
-          }
-
-          if (existingProfile) {
-            console.log('📋 Existing profile found:', existingProfile);
-            
-            // Profile exists but might be missing fields - update it
-            const updateData: any = {};
-            
-            // ✅ Always update with user input (don't check if null, just update)
-            if (formData.phone.trim()) {
-              updateData.phone = formData.phone.trim();
-            }
-            if (formData.company.trim()) {
-              updateData.company_name = formData.company.trim(); // ✅ Use user input, not hardcoded
-            }
-            if (formData.fullName.trim()) {
-              updateData.full_name = formData.fullName.trim();
-            }
-            // Ensure role is correct
-            updateData.role = userRole;
-
-            console.log('📝 Updating profile with:', updateData);
-
-            if (Object.keys(updateData).length > 0) {
-              const { error: updateError, data: updatedData } = await supabase
-                .from('users_profile')
-                .update(updateData)
-                .eq('id', data.user.id)
-                .select();
-
-              if (updateError) {
-                console.error('❌ Error updating profile fields:', updateError);
-                console.error('Update error details:', {
-                  message: updateError.message,
-                  code: updateError.code,
-                  details: updateError.details,
-                  hint: updateError.hint,
-                });
-              } else {
-                console.log('✅ Profile updated successfully:', updatedData);
-              }
-            }
-          } else {
-            console.warn('⚠️ No existing profile found to update');
-          }
-        } else {
-          console.log('📊 Profile data:', {
-            id: data.user.id,
-            full_name: formData.fullName.trim(),
-            email: userEmail,
-            phone: formData.phone.trim(),
-            company_name: formData.company.trim(), // ✅ User input, not hardcoded
-            role: userRole,
-          });
-        }
-      } catch (err) {
-        console.error('Error creating/updating profile:', err);
-        // The trigger should have created the profile automatically
-        // Even if this fails, the user can still verify their email and log in
-      }
-
-      setSuccess(true);
-      setSuccessMessage(`Welcome ${formData.fullName}! Please check your email to confirm your account.`);
-      setTimeout(() => {
-        setFormData({ 
-          email: '', 
-          password: '', 
-          confirmPassword: '',
-          fullName: '',
-          phone: '',
-          company: '',
-        });
-      }, 2000);
-    }
+    // Redirect after a short delay to show success message
+    setTimeout(() => {
+      navigate('/login');
+    }, 2000);
 
     setLoading(false);
   };

@@ -199,7 +199,7 @@ export async function getInvoiceByOrderId(
 
 export interface InvoiceFilters {
   searchQuery?: string;
-  status?: string;
+  status?: string | string[];
   date?: string;
 }
 
@@ -251,8 +251,12 @@ export async function fetchInvoicesByUser(
       }
     }
 
-    if (filters.status && filters.status !== 'all') {
-      query = query.eq('status', filters.status);
+    if (filters.status) {
+      if (Array.isArray(filters.status) && filters.status.length > 0) {
+        query = query.in('status', filters.status);
+      } else if (typeof filters.status === 'string' && filters.status !== 'all') {
+        query = query.eq('status', filters.status);
+      }
     }
 
     if (filters.date) {
