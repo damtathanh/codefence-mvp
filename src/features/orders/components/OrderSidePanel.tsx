@@ -10,7 +10,11 @@ import {
     ShieldAlert,
     RefreshCw,
     RotateCcw,
-    DollarSign,
+    Truck,
+    CheckCircle,
+    Ban,
+    Banknote,
+    QrCode
 } from 'lucide-react';
 import { Button } from '../../../components/ui/Button';
 import { Input } from '../../../components/ui/Input';
@@ -38,15 +42,16 @@ interface OrderSidePanelProps {
     onAddressChange: (field: string, value: string) => void;
     onSaveAddress: () => void;
     blacklistedPhones: Set<string>;
+    // Updated handlers
     onApprove: (order: Order) => void;
-    onReject: (order: Order) => void;
+    onReject: (order: Order, reason: string) => void;
     onMarkDelivered: (order: Order) => void;
     onMarkCompleted: (order: Order) => void;
-    onMarkMissed?: (order: Order) => void;
-    onSimulateConfirmed?: (order: Order) => void;
-    onSimulateCancelled?: (order: Order) => void;
-    onSimulatePaid?: (order: Order) => void;
-    onOrderUpdated?: () => void; // Callback to refresh data
+    onMarkMissed?: (order: Order) => void; // Optional if needed
+    onSimulateConfirmed: (order: Order) => void;
+    onSimulateCancelled: (order: Order) => void;
+    onSimulatePaid: (order: Order) => void;
+    onOrderUpdated?: () => void;
 }
 
 export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
@@ -76,6 +81,8 @@ export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
     if (!isOpen || !order || typeof document === 'undefined') return null;
 
     const isBlacklisted = order.phone && blacklistedPhones.has(order.phone);
+    const isCOD = (!order.payment_method || order.payment_method === 'COD');
+    const hasPaid = !!order.paid_at || order.status === ORDER_STATUS.ORDER_PAID;
 
     const getLatestRiskEvent = () => {
         const riskEvents = orderEvents.filter(
@@ -105,7 +112,6 @@ export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
 
     return createPortal(
         <>
-            {/* Wrapper full màn hình giống CustomerInsightPanel */}
             <div className="fixed inset-0 z-50 flex justify-end">
                 {/* Overlay */}
                 <div
@@ -113,7 +119,7 @@ export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
                     onClick={onClose}
                 />
 
-                {/* Side Panel FULL HEIGHT */}
+                {/* Side Panel */}
                 <div className="w-[500px] h-full bg-[#131625] border-l border-white/10 shadow-2xl flex flex-col">
                     {/* Header */}
                     <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-[#1E223D]/50 flex-shrink-0">
@@ -131,212 +137,132 @@ export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
                         </button>
                     </div>
 
-                    {/* BODY scrollable, chiếm full chiều cao */}
+                    {/* Content Scrollable */}
                     <div className="flex-1 overflow-y-auto px-6 py-6 space-y-8">
-                        {/* STATUS & ACTIONS */}
+
+                        {/* --- MAIN ACTION AREA --- */}
                         <div className="space-y-4">
                             <div className="flex items-center justify-between">
                                 <StatusBadge status={order.status} />
-                                <div className="flex gap-2 flex-wrap">
-                                    {(order.status === ORDER_STATUS.COMPLETED ||
-                                        order.status === ORDER_STATUS.ORDER_REJECTED ||
-                                        order.status === ORDER_STATUS.CUSTOMER_CANCELLED) ? null : (
-                                        <>
-                                            {(() => {
-                                                const rawMethod = order.payment_method || 'COD';
-                                                const isCod = rawMethod.toUpperCase() === 'COD';
-                                                const hasCustomerPaid =
-                                                    order.status === ORDER_STATUS.ORDER_PAID ||
-                                                    orderEvents.some(
-                                                        (e) =>
-                                                            e.event_type === 'CUSTOMER_PAID' ||
-                                                            e.event_type === 'PAYMENT_CONFIRMED',
-                                                    );
-
-                                                if (isCod) {
-                                                    return (
-                                                        <>
-                                                            {order.status ===
-                                                                ORDER_STATUS.PENDING_REVIEW && (
-                                                                    <>
-                                                                        <Button
-                                                                            size="sm"
-                                                                            variant="secondary"
-                                                                            onClick={() => onReject(order)}
-                                                                        >
-                                                                            Reject
-                                                                        </Button>
-                                                                        <Button
-                                                                            size="sm"
-                                                                            onClick={() => onApprove(order)}
-                                                                        >
-                                                                            Approve
-                                                                        </Button>
-                                                                    </>
-                                                                )}
-
-                                                            {order.status ===
-                                                                ORDER_STATUS.VERIFICATION_REQUIRED && (
-                                                                    <>
-                                                                        <Button
-                                                                            size="sm"
-                                                                            variant="secondary"
-                                                                            onClick={() => onReject(order)}
-                                                                        >
-                                                                            Reject
-                                                                        </Button>
-                                                                        {onMarkMissed && (
-                                                                            <Button
-                                                                                size="sm"
-                                                                                variant="secondary"
-                                                                                onClick={() => onMarkMissed(order)}
-                                                                                className="bg-yellow-600/20 hover:bg-yellow-600/30 border-yellow-600/40 text-yellow-300"
-                                                                            >
-                                                                                Mark as Missed
-                                                                            </Button>
-                                                                        )}
-                                                                        <Button
-                                                                            size="sm"
-                                                                            onClick={() => onApprove(order)}
-                                                                        >
-                                                                            Approve
-                                                                        </Button>
-                                                                    </>
-                                                                )}
-
-                                                            {order.status ===
-                                                                ORDER_STATUS.ORDER_CONFIRMATION_SENT && (
-                                                                    <>
-                                                                        {onSimulateConfirmed && (
-                                                                            <Button
-                                                                                size="sm"
-                                                                                variant="secondary"
-                                                                                onClick={() =>
-                                                                                    onSimulateConfirmed(order)
-                                                                                }
-                                                                            >
-                                                                                Simulate Confirmed
-                                                                            </Button>
-                                                                        )}
-                                                                        {onSimulateCancelled && (
-                                                                            <Button
-                                                                                size="sm"
-                                                                                variant="secondary"
-                                                                                onClick={() =>
-                                                                                    onSimulateCancelled(order)
-                                                                                }
-                                                                            >
-                                                                                Simulate Cancelled
-                                                                            </Button>
-                                                                        )}
-                                                                    </>
-                                                                )}
-
-                                                            {(order.status ===
-                                                                ORDER_STATUS.CUSTOMER_CONFIRMED ||
-                                                                order.status === ORDER_STATUS.ORDER_PAID) && (
-                                                                    <Button
-                                                                        size="sm"
-                                                                        onClick={() => onMarkDelivered(order)}
-                                                                    >
-                                                                        Mark as Delivered
-                                                                    </Button>
-                                                                )}
-
-                                                            {order.status ===
-                                                                ORDER_STATUS.DELIVERING && (
-                                                                    <Button
-                                                                        size="sm"
-                                                                        onClick={() => onMarkCompleted(order)}
-                                                                    >
-                                                                        Mark as Completed
-                                                                    </Button>
-                                                                )}
-
-                                                            {onSimulatePaid &&
-                                                                !hasCustomerPaid &&
-                                                                (order.status ===
-                                                                    ORDER_STATUS.CUSTOMER_CONFIRMED ||
-                                                                    order.status ===
-                                                                    ORDER_STATUS.DELIVERING) && (
-                                                                    <Button
-                                                                        size="sm"
-                                                                        variant="secondary"
-                                                                        onClick={() => onSimulatePaid(order)}
-                                                                    >
-                                                                        Simulate Paid
-                                                                    </Button>
-                                                                )}
-                                                        </>
-                                                    );
-                                                }
-
-                                                // Non-COD
-                                                return (
-                                                    <>
-                                                        {order.status === ORDER_STATUS.ORDER_PAID && (
-                                                            <Button
-                                                                size="sm"
-                                                                onClick={() => onMarkDelivered(order)}
-                                                            >
-                                                                Mark as Delivered
-                                                            </Button>
-                                                        )}
-                                                        {order.status === ORDER_STATUS.DELIVERING && (
-                                                            <Button
-                                                                size="sm"
-                                                                onClick={() => onMarkCompleted(order)}
-                                                            >
-                                                                Mark as Completed
-                                                            </Button>
-                                                        )}
-                                                    </>
-                                                );
-                                            })()}
-                                        </>
-                                    )}
-
-                                    {/* AFTER-SALE (Return / Exchange) */}
-                                    {(() => {
-                                        const isDelivering =
-                                            order.status === ORDER_STATUS.DELIVERING;
-                                        const isCompleted =
-                                            order.status === ORDER_STATUS.COMPLETED;
-                                        const canAfterSale = isDelivering || isCompleted;
-                                        if (!canAfterSale) return null;
-
-                                        const isOrderPaid =
-                                            !!order.paid_at ||
-                                            order.status === ORDER_STATUS.ORDER_PAID;
-
-                                        return (
-                                            <>
-                                                <div className="w-full h-px bg-white/10 my-2" />
-                                                <div className="flex gap-3 w-full mt-2">
-                                                    <Button
-                                                        size="sm"
-                                                        variant="secondary"
-                                                        onClick={() => {
-                                                            if (isOrderPaid) setShowRefundModal(true);
-                                                            else setShowReturnModal(true);
-                                                        }}
-                                                        className="flex-1 gap-1 bg-gradient-to-r from-red-500/10 to-orange-500/10 hover:from-red-500/20 hover:to-orange-500/20 border-red-500/20 text-red-200"
-                                                    >
-                                                        <RotateCcw size={14} /> Return
-                                                    </Button>
-                                                    <Button
-                                                        size="sm"
-                                                        variant="secondary"
-                                                        onClick={() => setShowExchangeModal(true)}
-                                                        className="flex-1 gap-1 bg-gradient-to-r from-blue-500/10 to-cyan-500/10 hover:from-blue-500/20 hover:to-cyan-500/20 border-blue-500/20 text-blue-200"
-                                                    >
-                                                        <RefreshCw size={14} /> Exchange
-                                                    </Button>
-                                                </div>
-                                            </>
-                                        );
-                                    })()}
+                                <div className="text-xs text-white/50 uppercase tracking-wider font-bold">
+                                    {isCOD ? "COD Order" : "Prepaid Order"}
                                 </div>
+                            </div>
+
+                            <div className="p-4 bg-white/5 rounded-xl border border-white/10 flex flex-col gap-3">
+
+                                {/* 1. REVIEW STAGE */}
+                                {(order.status === ORDER_STATUS.PENDING_REVIEW) && (
+                                    <>
+                                        <p className="text-sm text-yellow-200 mb-1">⚠️ This order needs risk review.</p>
+                                        <div className="flex gap-2">
+                                            <Button variant="danger" className="flex-1" onClick={() => onReject(order, "Shop rejected risk")}>
+                                                <Ban size={16} className="mr-2" /> Reject
+                                            </Button>
+                                            <Button className="flex-1 bg-blue-600 hover:bg-blue-700" onClick={() => onApprove(order)}>
+                                                <CheckCircle size={16} className="mr-2" /> Approve & Send Zalo
+                                            </Button>
+                                        </div>
+                                    </>
+                                )}
+
+                                {/* 2. VERIFICATION REQUIRED STAGE */}
+                                {order.status === ORDER_STATUS.VERIFICATION_REQUIRED && (
+                                    <>
+                                        <p className="text-sm text-red-200 mb-1">🚫 No Zalo / High Risk. Manual check required.</p>
+                                        <div className="flex gap-2">
+                                            <Button variant="danger" className="flex-1" onClick={() => onReject(order, "Verification failed")}>
+                                                Reject
+                                            </Button>
+                                            <Button variant="secondary" className="flex-1" onClick={() => onApprove(order)}>
+                                                Approve (Called)
+                                            </Button>
+                                        </div>
+                                    </>
+                                )}
+
+                                {/* 3. WAITING FOR CUSTOMER (Simulation Zone) */}
+                                {order.status === ORDER_STATUS.ORDER_CONFIRMATION_SENT && (
+                                    <div className="bg-blue-500/10 p-3 rounded-lg border border-blue-500/30">
+                                        <p className="text-xs text-blue-300 font-bold uppercase mb-2">Customer Simulation (Zalo)</p>
+                                        <div className="flex gap-2">
+                                            <Button size="sm" variant="danger" className="flex-1" onClick={() => onSimulateCancelled(order)}>
+                                                Customer Cancels
+                                            </Button>
+                                            <Button size="sm" className="flex-1 bg-green-600 hover:bg-green-700" onClick={() => onSimulateConfirmed(order)}>
+                                                Customer Confirms
+                                            </Button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* 4. READY TO SHIP / PAY */}
+                                {(order.status === ORDER_STATUS.CUSTOMER_CONFIRMED || order.status === ORDER_STATUS.ORDER_PAID) && (
+                                    <div className="space-y-2">
+                                        {!hasPaid && (
+                                            <Button variant="outline" size="sm" className="w-full border-purple-500 text-purple-300 hover:bg-purple-500/10" onClick={() => onSimulatePaid(order)}>
+                                                <QrCode size={16} className="mr-2" /> Simulate: Customer Paid (QR)
+                                            </Button>
+                                        )}
+
+                                        <Button className="w-full bg-blue-600 hover:bg-blue-700" onClick={() => onMarkDelivered(order)}>
+                                            <Truck size={16} className="mr-2" /> Start Delivery
+                                        </Button>
+                                    </div>
+                                )}
+
+                                {/* 5. DELIVERING */}
+                                {order.status === ORDER_STATUS.DELIVERING && (
+                                    <div className="space-y-2">
+                                        {!hasPaid && (
+                                            <Button variant="outline" size="sm" className="w-full" onClick={() => onSimulatePaid(order)}>
+                                                <Banknote size={16} className="mr-2" /> Mark Paid (Collected on Delivery)
+                                            </Button>
+                                        )}
+                                        <Button size="sm" className="w-full bg-green-600 hover:bg-green-700" onClick={() => onMarkCompleted(order)}>
+                                            <CheckCircle size={16} className="mr-2" /> Complete Order
+                                        </Button>
+                                    </div>
+                                )}
+
+                                {/* 6. COMPLETED (Late Payment Collection) */}
+                                {order.status === ORDER_STATUS.COMPLETED && !hasPaid && isCOD && (
+                                    <div className="space-y-2">
+                                        <p className="text-xs text-white/50 text-center">Order delivered but COD payment pending.</p>
+                                        <Button size="sm" className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={() => onSimulatePaid(order)}>
+                                            <Banknote size={16} className="mr-2" /> Confirm COD Received
+                                        </Button>
+                                    </div>
+                                )}
+
+                                {/* AFTER-SALE ACTIONS (Always available for terminal states) */}
+                                {((order.status === ORDER_STATUS.DELIVERING || order.status === ORDER_STATUS.COMPLETED)) && (
+                                    <>
+                                        <div className="w-full h-px bg-white/10 my-2" />
+                                        <div className="flex gap-2">
+                                            <Button
+                                                size="sm"
+                                                variant="secondary"
+                                                onClick={() => {
+                                                    if (hasPaid) setShowRefundModal(true);
+                                                    else setShowReturnModal(true);
+                                                }}
+                                                className="flex-1 gap-1 text-xs"
+                                            >
+                                                <RotateCcw size={14} /> Return
+                                            </Button>
+                                            <Button
+                                                size="sm"
+                                                variant="secondary"
+                                                onClick={() => setShowExchangeModal(true)}
+                                                className="flex-1 gap-1 text-xs"
+                                            >
+                                                <RefreshCw size={14} /> Exchange
+                                            </Button>
+                                        </div>
+                                    </>
+                                )}
+
                             </div>
                         </div>
 
@@ -359,12 +285,11 @@ export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
                                         <div className="flex items-center gap-2 text-sm text-white/50 mt-1">
                                             <Phone size={14} />
                                             <span>{order.phone}</span>
-                                            {order.phone &&
-                                                blacklistedPhones.has(order.phone) && (
-                                                    <span className="flex items-center gap-1 text-red-400 bg-red-400/10 px-1.5 py-0.5 rounded text-xs border border-red-400/20">
-                                                        <AlertTriangle size={10} /> Blacklisted
-                                                    </span>
-                                                )}
+                                            {isBlacklisted && (
+                                                <span className="flex items-center gap-1 text-red-400 bg-red-400/10 px-1.5 py-0.5 rounded text-xs border border-red-400/20">
+                                                    <AlertTriangle size={10} /> Blacklisted
+                                                </span>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -524,7 +449,7 @@ export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
                                     <div className="flex justify-between text-sm text-red-400">
                                         <span>Refunded</span>
                                         <span>
-                                            -{order.refunded_amount.toLocaleString('vi-VN')} VND
+                                            -{order.refunded_amount?.toLocaleString('vi-VN')} VND
                                         </span>
                                     </div>
                                 )}
@@ -534,7 +459,7 @@ export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
                                         <span>Cust. Shipping Paid</span>
                                         <span>
                                             +
-                                            {order.customer_shipping_paid.toLocaleString('vi-VN')}{' '}
+                                            {order.customer_shipping_paid?.toLocaleString('vi-VN')}{' '}
                                             VND
                                         </span>
                                     </div>
@@ -561,11 +486,7 @@ export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
                 onClose={() => setShowRefundModal(false)}
                 order={order}
                 onSuccess={handleSuccess}
-                title={
-                    !!order.paid_at || order.status === ORDER_STATUS.ORDER_PAID
-                        ? 'Return & Refund'
-                        : 'Refund Order'
-                }
+                title={hasPaid ? 'Return & Refund' : 'Refund Order'}
             />
             <ReturnModal
                 isOpen={showReturnModal}
@@ -578,7 +499,7 @@ export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
                 onClose={() => setShowExchangeModal(false)}
                 order={order}
                 onSuccess={handleSuccess}
-                isPaid={!!order.paid_at || order.status === ORDER_STATUS.ORDER_PAID}
+                isPaid={hasPaid}
             />
         </>,
         document.body,

@@ -1,5 +1,8 @@
 // src/utils/riskEngine.ts
 
+import { ORDER_STATUS } from "../constants/orderStatus";
+import type { OrderStatus } from "../constants/orderStatus";
+
 export type RiskLevel = "none" | "low" | "medium" | "high";
 
 export interface RiskFactor {
@@ -19,8 +22,6 @@ export interface RiskScoreResult {
   factors: RiskFactor[];
 }
 
-// This is a lightweight shape of an order used for risk breakdown UI.
-// It intentionally does NOT import from useOrders to avoid circular deps.
 export interface SimpleOrderInput {
   payment_method?: string | null;
   amount?: number | null;
@@ -28,8 +29,8 @@ export interface SimpleOrderInput {
   product?: string | null;
 }
 
-const normStr = (v: string | null | undefined) =>
-  (v || "").toString().trim();
+// Helper functions
+const normStr = (v: string | null | undefined) => (v || "").toString().trim();
 
 function normalizeVNPhone(raw: string): string {
   let s = raw.trim();
@@ -54,10 +55,19 @@ function hasManyRepeatedDigits(raw: string): boolean {
 }
 
 /**
- * computeRiskScoreV1
- * Used for detailed risk breakdown in the UI (side panel).
- * - Only applies to COD orders.
- * - Non-COD returns: { score: null, level: "none", factors: [] }.
+ * Hàm giả lập Check Zalo API (Mới thêm)
+ * Rule: Đuôi 00, 11, 99 là KHÔNG CÓ ZALO (Sim rác giả lập)
+ */
+export function mockCheckZaloExistence(phone: string): boolean {
+  const clean = phone.replace(/\D/g, "");
+  if (clean.endsWith("00") || clean.endsWith("11") || clean.endsWith("99")) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * computeRiskScoreV1 (Giữ nguyên logic cũ cho UI SidePanel)
  */
 export function computeRiskScoreV1(
   order: SimpleOrderInput,
@@ -67,15 +77,10 @@ export function computeRiskScoreV1(
   const isCOD = !paymentMethod || paymentMethod === "COD";
 
   if (!isCOD) {
-    return {
-      score: null,
-      level: "none",
-      factors: [],
-    };
+    return { score: null, level: "none", factors: [] };
   }
 
   const factors: RiskFactor[] = [];
-
   const amount = order.amount ?? 0;
   const phoneRaw = normStr(order.phone);
   const phoneNormalized = normalizeVNPhone(phoneRaw);
@@ -89,11 +94,7 @@ export function computeRiskScoreV1(
   else amountScore = 25;
 
   if (amountScore > 0) {
-    factors.push({
-      key: "amount",
-      label: "Order value",
-      score: amountScore,
-    });
+    factors.push({ key: "amount", label: "Order value", score: amountScore });
   }
 
   // Phone factor
@@ -105,41 +106,21 @@ export function computeRiskScoreV1(
   }
 
   if (phoneScore > 0) {
-    factors.push({
-      key: "phone",
-      label: "Phone quality",
-      score: phoneScore,
-    });
+    factors.push({ key: "phone", label: "Phone quality", score: phoneScore });
   }
 
   // Product factor
   let productScore = 0;
-  const riskyKeywords = [
-    "giảm cân",
-    "trà giảm cân",
-    "weight loss",
-    "detox",
-    "trắng da",
-    "serum b",
-    "kem trộn",
-    "kích trắng",
-  ];
-
+  const riskyKeywords = ["giảm cân", "trắng da", "kem trộn", "kích trắng"];
   if (productName && riskyKeywords.some((kw) => productName.includes(kw))) {
     productScore += 5;
   }
-
   if (productScore > 0) {
-    factors.push({
-      key: "product",
-      label: "Product type",
-      score: productScore,
-    });
+    factors.push({ key: "product", label: "Product type", score: productScore });
   }
 
-  // History factor (if provided)
+  // History factor
   const stats: CustomerHistoryStats = history || { badOrders: 0, goodOrders: 0 };
-
   let historyScore = 0;
   let historyDiscount = 0;
 
@@ -150,21 +131,8 @@ export function computeRiskScoreV1(
     historyDiscount = 10;
   }
 
-  if (historyScore > 0) {
-    factors.push({
-      key: "history_bad",
-      label: "Past failed orders",
-      score: historyScore,
-    });
-  }
-
-  if (historyDiscount > 0) {
-    factors.push({
-      key: "history_good",
-      label: "Good customer history",
-      score: -historyDiscount,
-    });
-  }
+  if (historyScore > 0) factors.push({ key: "history_bad", label: "Past failed orders", score: historyScore });
+  if (historyDiscount > 0) factors.push({ key: "history_good", label: "Good customer history", score: -historyDiscount });
 
   let total = factors.reduce((sum, f) => sum + f.score, 0);
   total = Math.max(0, Math.min(total, 100));
@@ -174,17 +142,10 @@ export function computeRiskScoreV1(
   else if (total <= 70) level = "medium";
   else level = "high";
 
-  return {
-    score: total,
-    level,
-    factors,
-  };
+  return { score: total, level, factors };
 }
 
 // ===== Simplified risk evaluation for import flow =====
-
-import type { OrderStatus } from "../constants/orderStatus";
-import { ORDER_STATUS } from "../constants/orderStatus";
 
 export interface RiskInput {
   paymentMethod: string | null | undefined;
@@ -193,45 +154,40 @@ export interface RiskInput {
   address?: string | null;
   pastOrders: { status: string | null }[];
   productName?: string | null;
+  zaloExists?: boolean; // <-- Đã thêm thuộc tính này để fix lỗi
 }
 
 export interface RiskOutput {
-  score: number | null;     // 0–100 for COD, null for non-COD
+  score: number | null;
   level: RiskLevel;
   reasons: (string | { factor: string; score: number; desc: string })[];
   version?: "v1";
 }
 
 /**
- * evaluateRisk
- * - Used when importing orders.
- * - Only COD orders get a risk score.
- * - Non-COD orders → score = null, level = "none".
- * - Thresholds:
- *   - 0–30   = low
- *   - 31–70  = medium
- *   - 71–100 = high
+ * evaluateRisk (Cập nhật logic mới cho Import)
  */
 export function evaluateRisk(input: RiskInput, blacklistPhones?: Set<string>): RiskOutput {
-  const { paymentMethod, amountVnd, phone, address, pastOrders } = input;
+  const { paymentMethod, amountVnd, phone, address, pastOrders, zaloExists } = input;
 
   const method = (paymentMethod || "").toUpperCase();
 
-  // ❗ Non-COD: không chấm risk
+  // Non-COD: không chấm risk
   if (method && method !== "COD") {
-    return {
-      score: null,
-      level: "none",
-      reasons: [],
-      version: "v1",
-    };
+    return { score: null, level: "none", reasons: [], version: "v1" };
   }
 
   let score = 0;
   const reasons: (string | { factor: string; score: number; desc: string })[] = [];
 
+  // Rule 0: Zalo Check (Quan trọng nhất - Mock)
+  if (zaloExists === false) {
+    score += 40;
+    reasons.push({ factor: 'zalo', score: 40, desc: 'Phone not on Zalo (Mock)' });
+  }
+
   // Rule 1: COD base risk
-  score += 30;
+  score += 10;
   reasons.push("COD order");
 
   // Rule 2: high amount
@@ -240,7 +196,7 @@ export function evaluateRisk(input: RiskInput, blacklistPhones?: Set<string>): R
     reasons.push("High order value (>= 1M VND)");
   }
 
-  // Rule 3: past failed COD orders (based on status)
+  // Rule 3: past failed COD orders
   const failedStatuses: OrderStatus[] = [
     ORDER_STATUS.CUSTOMER_CANCELLED,
     ORDER_STATUS.ORDER_REJECTED,
@@ -258,7 +214,7 @@ export function evaluateRisk(input: RiskInput, blacklistPhones?: Set<string>): R
     reasons.push("Customer previously failed COD");
   }
 
-  // Rule 4: address heuristic (ví dụ khu công nghiệp)
+  // Rule 4: address heuristic
   if (address) {
     const lower = address.toLowerCase();
     if (lower.includes("khu công nghiệp")) {
@@ -281,7 +237,7 @@ export function evaluateRisk(input: RiskInput, blacklistPhones?: Set<string>): R
   if (score > 100) score = 100;
   if (score < 0) score = 0;
 
-  // Mapping level theo chuẩn của m: <=30 / 31–70 / 71+
+  // Mapping level
   let level: RiskLevel;
   if (score <= 30) level = "low";
   else if (score <= 70) level = "medium";
