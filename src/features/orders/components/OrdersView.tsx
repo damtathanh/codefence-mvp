@@ -322,10 +322,47 @@ export const OrdersView: React.FC = () => {
             // Since simulateCustomerConfirmed does complex logic, we might need to refresh OR trust that it worked and just update status.
 
             // Let's try to just update status locally to avoid full refresh
-            await updateOrderLocal(pendingConfirmOrder.id, { status: ORDER_STATUS.CUSTOMER_CONFIRMED });
+            // Only update status if it was a full confirmation simulation, not just sending QR link
+            // For QR link only (low risk), we don't change status.
+            // We can check if status is already CONFIRMED or if we should just clear pending.
+
+            // If the order was low-risk auto-approved, we didn't change status, so no need to update status here.
+            // But if it was a normal confirmation, we might want to ensure UI reflects it.
+
+            // Since we don't easily know which flow triggered this (unless we track it), 
+            // we can rely on the fact that handleSendQrPaymentLinkClick didn't change status.
+            // So if status is still APPROVED, we leave it.
+
+            if (pendingConfirmOrder.status === ORDER_STATUS.ORDER_CONFIRMATION_SENT) {
+                await updateOrderLocal(pendingConfirmOrder.id, { status: ORDER_STATUS.CUSTOMER_CONFIRMED });
+            }
 
             // Also fetch events to update side panel if open? Side panel is closed above.
             setPendingConfirmOrder(null);
+        }
+    };
+
+    // ========= Send QR Payment Link (Low Risk) =========
+    const handleSendQrPaymentLinkClick = async (order: Order) => {
+        if (!user) return;
+        try {
+            // 1. Log QR_PAYMENT_LINK_SENT event
+            await logOrderEvent(
+                order.id,
+                'QR_PAYMENT_LINK_SENT',
+                { desc: 'Sent via low-risk flow' },
+                'manual_action'
+            );
+
+            // 2. Open Confirmation Modal (reuse existing one)
+            setPendingConfirmOrder(order);
+            setIsConfirmationModalOpen(true);
+            setIsSidePanelOpen(false);
+
+            showSuccess('QR Payment Link sent successfully');
+        } catch (error) {
+            showError('Failed to send QR Payment Link');
+            console.error('Error sending QR link:', error);
         }
     };
 
@@ -730,6 +767,7 @@ export const OrdersView: React.FC = () => {
                 onSimulateConfirmed={handleSimulateConfirmedClick}
                 onSimulateCancelled={handleSimulateCancelledClick}
                 onSimulatePaid={handleSimulatePaidClick}
+                onSendQrPaymentLink={handleSendQrPaymentLinkClick}
                 onOrderUpdated={refreshOrders}
             />
 

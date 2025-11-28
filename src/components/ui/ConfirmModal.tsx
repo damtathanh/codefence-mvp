@@ -71,7 +71,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm"
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-[50] p-4 backdrop-blur-sm"
       onClick={handleOverlayClick}
       role="dialog"
       aria-modal="true"
@@ -108,13 +108,12 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
             type="button"
             onClick={onConfirm}
             disabled={loading}
-            className={`px-6 py-3 rounded-xl font-semibold text-white transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[#0B0F28] disabled:opacity-50 disabled:cursor-not-allowed ${
-              variant === 'danger'
-                ? 'bg-red-500 hover:bg-red-600 focus:ring-red-500'
-                : variant === 'warning'
+            className={`px-6 py-3 rounded-xl font-semibold text-white transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[#0B0F28] disabled:opacity-50 disabled:cursor-not-allowed ${variant === 'danger'
+              ? 'bg-red-500 hover:bg-red-600 focus:ring-red-500'
+              : variant === 'warning'
                 ? 'bg-yellow-500 hover:bg-yellow-600 focus:ring-yellow-500'
                 : 'bg-blue-500 hover:bg-blue-600 focus:ring-blue-500'
-            }`}
+              }`}
           >
             {loading ? (
               <span className="flex items-center">

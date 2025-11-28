@@ -18,6 +18,8 @@ export const statusStyles: Record<OrderStatus, string> = {
   [ORDER_STATUS.CUSTOMER_CANCELLED]: "bg-red-600/20 text-red-300 border-red-600/40",
   [ORDER_STATUS.CUSTOMER_UNREACHABLE]: "bg-red-600/20 text-red-300 border-red-600/40",
   [ORDER_STATUS.ORDER_REJECTED]: "bg-red-600/20 text-red-300 border-red-600/40",
+  [ORDER_STATUS.RETURNED]: "bg-purple-600/20 text-purple-300 border-purple-600/40",
+  [ORDER_STATUS.EXCHANGED]: "bg-indigo-600/20 text-indigo-300 border-indigo-600/40",
 };
 
 export function getStatusBadge(status: string | null | undefined) {

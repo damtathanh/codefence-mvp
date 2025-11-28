@@ -12,7 +12,10 @@ const shortLabelMap: Record<string, string> = {
   "Customer Unreachable": "Missed",
   "Order Rejected": "Rejected",
   "Delivering": "Delivering",
-  "Completed": "Completed"
+  "Completed": "Completed",
+  "Order Approved": "Approved",
+  "Returned": "Returned",
+  "Exchanged": "Exchanged"
 };
 
 export const StatusBadge = ({ status }: { status: string | null | undefined }) => {

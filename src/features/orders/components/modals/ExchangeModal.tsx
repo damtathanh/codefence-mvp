@@ -3,7 +3,9 @@ import { X, AlertCircle } from 'lucide-react';
 import { Button } from '../../../../components/ui/Button';
 import { Input } from '../../../../components/ui/Input';
 import { processExchange, processRefund } from '../../services/ordersService';
-import type { Order } from '../../../../types/supabase';
+import { fetchProductsByUser } from '../../../products/services/productsService';
+import { useAuth } from '../../../auth';
+import type { Product, Order } from '../../../../types/supabase';
 
 interface ExchangeModalProps {
     isOpen: boolean;
@@ -14,26 +16,45 @@ interface ExchangeModalProps {
 }
 
 export const ExchangeModal: React.FC<ExchangeModalProps> = ({ isOpen, onClose, order, onSuccess, isPaid }) => {
+    const { user } = useAuth();
     const [payer, setPayer] = useState<'customer' | 'shop'>('customer');
-    const [customerAmount, setCustomerAmount] = useState<string>('50000'); // Default: 25k return + 25k new outbound = 50k
+    const [customerAmount, setCustomerAmount] = useState<string>('50000');
     const [note, setNote] = useState('');
     const [refundAmount, setRefundAmount] = useState<string>(order.amount.toString());
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    if (!isOpen) return null;
+    // Product Selection State
+    const [products, setProducts] = useState<Product[]>([]);
+    const [selectedProductId, setSelectedProductId] = useState<string>(order.product_id || '');
+    const [loadingProducts, setLoadingProducts] = useState(false);
 
-    // Logic for defaults:
-    // Case 1C/2C (Customer pays): 25k return + 25k outbound = 50k (or 75k if old outbound included? Prompt says "customer pays 25k return + 25k outbound new" = 50k for Case 1C)
-    // Case 1D/2D (Shop pays return): Customer pays 25k (outbound new).
+    // Fetch products on mount
+    React.useEffect(() => {
+        if (isOpen && user) {
+            setLoadingProducts(true);
+            fetchProductsByUser(user.id, 1, 100, {}) // Fetch first 100 products for now
+                .then(({ products }) => {
+                    setProducts(products);
+                    // Ensure current product is selected if valid
+                    if (order.product_id) {
+                        setSelectedProductId(order.product_id);
+                    } else if (products.length > 0 && !selectedProductId) {
+                        setSelectedProductId(products[0].id);
+                    }
+                })
+                .catch(err => console.error('Failed to fetch products', err))
+                .finally(() => setLoadingProducts(false));
+        }
+    }, [isOpen, user, order.product_id]);
+
+    if (!isOpen) return null;
 
     const handlePayerChange = (newPayer: 'customer' | 'shop') => {
         setPayer(newPayer);
         if (newPayer === 'shop') {
-            // Shop pays return -> Customer pays only new outbound (25k)
             setCustomerAmount('25000');
         } else {
-            // Customer pays return + new outbound (25k + 25k = 50k)
             setCustomerAmount('50000');
         }
     };
@@ -45,9 +66,8 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({ isOpen, onClose, o
 
         try {
             const custAmount = parseInt(customerAmount.replace(/[^0-9]/g, ''), 10) || 0;
-            const finalShopAmount = 0; // Keeping simple as per ReturnModal logic
+            const finalShopAmount = 0;
 
-            // If paid, process refund first
             if (isPaid) {
                 const refundVal = parseInt(refundAmount.replace(/[^0-9]/g, ''), 10);
                 if (isNaN(refundVal) || refundVal <= 0) {
@@ -56,7 +76,8 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({ isOpen, onClose, o
                 await processRefund(order.id, refundVal, `Refund for Exchange: ${note}`);
             }
 
-            await processExchange(order.id, payer === 'customer', custAmount, finalShopAmount, note);
+            // Pass selectedProductId to processExchange
+            await processExchange(order.id, payer === 'customer', custAmount, finalShopAmount, note, selectedProductId);
             onSuccess();
             onClose();
         } catch (err: any) {
@@ -70,7 +91,7 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({ isOpen, onClose, o
     return (
         <>
             <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60]" onClick={onClose} />
-            <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-[#131625] border border-white/10 rounded-xl shadow-2xl z-[61] p-6">
+            <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-[#131625] border border-white/10 rounded-xl shadow-2xl z-[61] p-6 max-h-[90vh] overflow-y-auto">
                 <div className="flex items-center justify-between mb-6">
                     <h2 className="text-lg font-semibold text-white">Exchange Order</h2>
                     <button onClick={onClose} className="text-white/50 hover:text-white transition-colors">
@@ -86,11 +107,30 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({ isOpen, onClose, o
                 )}
 
                 <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg text-blue-300 text-xs">
-                    This will create a new order (clone) and record shipping costs for the exchange.
+                    This will create a new order and record shipping costs.
                     {isPaid && " The original order will be refunded."}
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-4">
+                    {/* Product Selection */}
+                    <div>
+                        <label className="block text-sm font-medium text-white/70 mb-1">Exchange For Product</label>
+                        <select
+                            value={selectedProductId}
+                            onChange={(e) => setSelectedProductId(e.target.value)}
+                            className="w-full bg-white/5 border border-white/10 rounded-lg p-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
+                            required
+                            disabled={loadingProducts}
+                        >
+                            <option value="" disabled>Select a product</option>
+                            {products.map(p => (
+                                <option key={p.id} value={p.id}>
+                                    {p.name} - {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(p.price)}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
                     {isPaid && (
                         <div>
                             <label className="block text-sm font-medium text-white/70 mb-1">Refund Amount (VND)</label>

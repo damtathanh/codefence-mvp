@@ -1,4 +1,4 @@
-import { supabase } from '../../../lib/supabaseClient';
+import { ShippingRepository } from '../repositories/shippingRepository';
 import type { ShippingCost } from '../../../types/supabase';
 
 export async function addShippingCost(
@@ -6,15 +6,7 @@ export async function addShippingCost(
     type: 'outbound' | 'return' | 'exchange',
     amount: number
 ) {
-    const { data, error } = await supabase
-        .from('shipping_costs')
-        .insert({
-            order_id: orderId,
-            type,
-            amount,
-        })
-        .select()
-        .single();
+    const { data, error } = await ShippingRepository.addShippingCost(orderId, type, amount);
 
     if (error) {
         console.error('Error adding shipping cost:', error);
@@ -25,10 +17,7 @@ export async function addShippingCost(
 }
 
 export async function fetchShippingCosts(orderId: string) {
-    const { data, error } = await supabase
-        .from('shipping_costs')
-        .select('*')
-        .eq('order_id', orderId);
+    const { data, error } = await ShippingRepository.fetchShippingCosts(orderId);
 
     if (error) {
         console.error('Error fetching shipping costs:', error);

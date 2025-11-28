@@ -830,6 +830,7 @@ export const InvoicePage: React.FC = () => {
         onSimulateConfirmed={() => { }}
         onSimulateCancelled={() => { }}
         onSimulatePaid={() => { }}
+        onSendQrPaymentLink={() => { }}
       />
     </div>
   );

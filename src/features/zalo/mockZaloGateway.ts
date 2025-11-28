@@ -65,16 +65,7 @@ export async function simulateCustomerConfirmed(order: Order) {
   await logOrderEvent(order.id, 'CUSTOMER_CONFIRMED', { channel: 'zalo' }, 'mock_zalo');
   await logOrderEvent(order.id, 'QR_PAYMENT_LINK_SENT', { qr_expired_at: qrExpiredAt }, 'mock_zalo');
 
-  // Create Pending invoice for COD orders only
-  const rawMethod = order.payment_method || 'COD';
-  const method = rawMethod.toUpperCase();
-  const isCOD = method === 'COD';
-
-  if (isCOD) {
-    // Fetch the updated order to ensure we have the latest data
-    const updatedOrder = { ...order, status: ORDER_STATUS.CUSTOMER_CONFIRMED };
-    await ensurePendingInvoiceForOrder(updatedOrder);
-  }
+  // Create Pending invoice for COD orders only - REMOVED: Centralized in updateOrder -> applyInvoiceRules
 }
 
 export async function simulateCustomerCancelled(order: Order, reason: string) {
@@ -113,59 +104,9 @@ export async function simulateCustomerPaid(order: Order) {
   // await logOrderEvent(order.id, 'customer_paid', { source: 'mock' });
 
   // 3) Cập nhật Invoice tương ứng
-  const updatedOrder: Order = {
-    ...order,
-    status: ORDER_STATUS.ORDER_PAID,
-    paid_at: now,
-  };
-
-  try {
-    await markInvoicePaidForOrder(updatedOrder);
-
-    // 4) Generate and upload PDF if in browser environment
-    if (typeof window !== 'undefined' && order.user_id) {
-      const { getInvoiceByOrderId } = await import('../invoices/services/invoiceService');
-      const { ensureInvoicePdfStored } = await import('../invoices/services/invoiceStorage');
-
-      const invoice = await getInvoiceByOrderId(order.id, order.user_id);
-      if (invoice) {
-        try {
-          // Fetch seller profile for PDF generation
-          let sellerProfile = {
-            company_name: undefined,
-            email: undefined,
-            phone: undefined,
-            website: undefined,
-            address: undefined,
-          };
-
-          const { data: profileData } = await supabase
-            .from("users_profile")
-            .select("company_name, email, phone, website, address")
-            .eq("id", order.user_id)
-            .maybeSingle();
-
-          if (profileData) {
-            sellerProfile = {
-              company_name: profileData.company_name || undefined,
-              email: profileData.email || undefined,
-              phone: profileData.phone || undefined,
-              website: (profileData as any).website || undefined,
-              address: (profileData as any).address || undefined,
-            };
-          }
-
-          await ensureInvoicePdfStored(invoice, updatedOrder, sellerProfile);
-        } catch (pdfError) {
-          console.error('[mockZaloGateway] Failed to store invoice PDF', pdfError);
-          // Don't break the flow if PDF upload fails
-        }
-      }
-    }
-  } catch (invoiceError) {
-    console.error('[mockZaloGateway] Failed to mark invoice paid', invoiceError);
-    // tuỳ m: có thể show toast báo lỗi, nhưng không nuốt im lặng nữa
-  }
+  // REMOVED: Centralized in updateOrder -> applyInvoiceRules
+  // const updatedOrder: Order = { ...order, status: ORDER_STATUS.ORDER_PAID, paid_at: now };
+  // await markInvoicePaidForOrder(updatedOrder);
 }
 
 

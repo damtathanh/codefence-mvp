@@ -2,11 +2,8 @@ import { supabase } from "../../../lib/supabaseClient";
 import type { Order } from "../../../types/supabase";
 import { ORDER_STATUS } from "../../../constants/orderStatus";
 import { DashboardDateRange, resolveDashboardDateRange } from "../../dashboard/useDashboardStats";
-import { fetchAddressHistoryForUser, fetchPhoneHistoryForUser } from "../../risk/services/riskHistoryService";
 
 // --- Types ---
-
-
 
 export interface OverviewKpis {
     totalOrders: number;
@@ -130,11 +127,14 @@ export interface OperationalAnalytics {
 
 // --- Helpers ---
 
-
-
-function isCOD(order: Partial<Order>): boolean {
-    const method = (order.payment_method || "").toUpperCase();
-    return method === "" || method === "COD";
+// View has is_cod boolean, but we might still need this if we process raw Order objects elsewhere.
+// But here we will use the view's data.
+// We'll define a type for the view row to be safe.
+interface AnalyticsOrderFact extends Order {
+    is_cod: boolean;
+    net_revenue: number;
+    invoice_status: string | null;
+    invoice_code: string | null;
 }
 
 const successStatuses = new Set<string>([
@@ -159,7 +159,7 @@ export async function fetchCodReturnAnalytics(
     const resolved = resolveDashboardDateRange(dateRange, customFrom, customTo);
 
     const { data, error } = await supabase
-        .from("orders")
+        .from("analytics_order_facts")
         .select("*")
         .eq("user_id", userId)
         .gte("order_date", resolved.from.toISOString())
@@ -170,8 +170,8 @@ export async function fetchCodReturnAnalytics(
         return { codStatus: [], codByRegion: [] };
     }
 
-    const orders = (data as Order[]) || [];
-    const codOrders = orders.filter(isCOD);
+    const orders = (data as AnalyticsOrderFact[]) || [];
+    const codOrders = orders.filter(o => o.is_cod);
 
     // Status Breakdown
     const statusMap = new Map<string, number>();
@@ -183,8 +183,6 @@ export async function fetchCodReturnAnalytics(
     // Region Breakdown
     const regionMap = new Map<string, CodByRegion>();
     codOrders.forEach(o => {
-        // Fallback to parsing address if province/district fields are missing
-        // Ideally, we should have structured fields. For now, we'll use what's available or "Unknown"
         const province = o.province || "Unknown";
         const district = o.district || "Unknown";
         const key = `${province}|${district}`;
@@ -200,7 +198,7 @@ export async function fetchCodReturnAnalytics(
     const codByRegion = Array.from(regionMap.values()).map(r => ({
         ...r,
         boomRate: r.totalCodOrders > 0 ? (r.failedCodOrders / r.totalCodOrders) * 100 : 0
-    })).sort((a, b) => b.boomRate - a.boomRate); // Sort by boom rate desc
+    })).sort((a, b) => b.boomRate - a.boomRate);
 
     return { codStatus, codByRegion };
 }
@@ -214,7 +212,7 @@ export async function fetchRiskScoreAnalytics(
     const resolved = resolveDashboardDateRange(dateRange, customFrom, customTo);
 
     const { data, error } = await supabase
-        .from("orders")
+        .from("analytics_order_facts")
         .select("*")
         .eq("user_id", userId)
         .gte("order_date", resolved.from.toISOString())
@@ -224,8 +222,8 @@ export async function fetchRiskScoreAnalytics(
         return { buckets: [] };
     }
 
-    const orders = (data as Order[]) || [];
-    const codOrders = orders.filter(isCOD);
+    const orders = (data as AnalyticsOrderFact[]) || [];
+    const codOrders = orders.filter(o => o.is_cod);
 
     const buckets: Record<string, RiskBucketStats> = {
         "0-30": { label: "0-30", total: 0, success: 0, failed: 0, boomRate: 0 },
@@ -265,7 +263,7 @@ export async function fetchVerificationFunnelAnalytics(
     const resolved = resolveDashboardDateRange(dateRange, customFrom, customTo);
 
     const { data, error } = await supabase
-        .from("orders")
+        .from("analytics_order_facts")
         .select("*")
         .eq("user_id", userId)
         .gte("order_date", resolved.from.toISOString())
@@ -276,8 +274,8 @@ export async function fetchVerificationFunnelAnalytics(
         return { steps: [] };
     }
 
-    const orders = (data as Order[]) || [];
-    const codOrders = orders.filter(isCOD);
+    const orders = (data as AnalyticsOrderFact[]) || [];
+    const codOrders = orders.filter(o => o.is_cod);
 
     const created = codOrders.length;
     const confirmation_sent = codOrders.filter(o => o.confirmation_sent_at).length;
@@ -286,7 +284,6 @@ export async function fetchVerificationFunnelAnalytics(
     const paid = codOrders.filter(o => o.paid_at || o.status === ORDER_STATUS.ORDER_PAID || o.status === ORDER_STATUS.COMPLETED).length;
 
     // No response approximation: sent but not confirmed/cancelled/paid yet
-    // This is a simplification.
     const no_response = Math.max(0, confirmation_sent - (customer_confirmed + customer_cancelled));
 
     const steps: VerificationFunnelStep[] = [
@@ -307,15 +304,10 @@ export async function fetchAddressRiskAnalytics(
     customFrom?: string,
     customTo?: string
 ): Promise<AddressRiskAnalytics> {
-    // Note: fetchAddressHistoryForUser currently fetches ALL history. 
-    // Ideally we should filter by date range, but for risk analysis, historical context is often global.
-    // However, the requirement says "respect date range".
-    // We will fetch orders in date range and aggregate manually to respect the filter.
-
     const resolved = resolveDashboardDateRange(dateRange, customFrom, customTo);
 
     const { data, error } = await supabase
-        .from("orders")
+        .from("analytics_order_facts")
         .select("address, status, created_at")
         .eq("user_id", userId)
         .not("address", "is", null)
@@ -327,7 +319,7 @@ export async function fetchAddressRiskAnalytics(
         return { addresses: [] };
     }
 
-    const orders = (data as Order[]) || [];
+    const orders = (data as AnalyticsOrderFact[]) || [];
     const addressMap = new Map<string, AddressOutcomeStats>();
 
     orders.forEach(o => {
@@ -364,7 +356,7 @@ export async function fetchAddressRiskAnalytics(
 
     const addresses = Array.from(addressMap.values())
         .filter(a => a.total_orders > 0)
-        .sort((a, b) => b.boom_orders - a.boom_orders); // Sort by boom orders desc
+        .sort((a, b) => b.boom_orders - a.boom_orders);
 
     return { addresses };
 }
@@ -378,7 +370,7 @@ export async function fetchCustomerAnalytics(
     const resolved = resolveDashboardDateRange(dateRange, customFrom, customTo);
 
     const { data, error } = await supabase
-        .from("orders")
+        .from("analytics_order_facts")
         .select("phone, status, created_at")
         .eq("user_id", userId)
         .not("phone", "is", null)
@@ -390,7 +382,7 @@ export async function fetchCustomerAnalytics(
         return { topBoomCustomers: [], topGoodCustomers: [] };
     }
 
-    const orders = (data as Order[]) || [];
+    const orders = (data as AnalyticsOrderFact[]) || [];
     const customerMap = new Map<string, CustomerAnalyticsRow>();
 
     orders.forEach(o => {
@@ -450,7 +442,7 @@ export async function fetchProductChannelAnalytics(
     const resolved = resolveDashboardDateRange(dateRange, customFrom, customTo);
 
     const { data, error } = await supabase
-        .from("orders")
+        .from("analytics_order_facts")
         .select("product_id, product, status")
         .eq("user_id", userId)
         .gte("order_date", resolved.from.toISOString())
@@ -461,11 +453,10 @@ export async function fetchProductChannelAnalytics(
         return { productStats: [], channelStats: [] };
     }
 
-    const orders = (data as Order[]) || [];
+    const orders = (data as AnalyticsOrderFact[]) || [];
     const productMap = new Map<string, ProductBoomStats>();
 
     orders.forEach(o => {
-        // Use product_id if available, else product name as fallback key
         const key = o.product_id || o.product || "Unknown";
         const name = o.product || "Unknown Product";
 
@@ -491,7 +482,6 @@ export async function fetchProductChannelAnalytics(
         }))
         .sort((a, b) => b.boomRate - a.boomRate);
 
-    // Channel stats - currently no channel field, returning empty
     const channelStats: ChannelBoomStats[] = [];
 
     return { productStats, channelStats };
@@ -506,7 +496,7 @@ export async function fetchOperationalAnalytics(
     const resolved = resolveDashboardDateRange(dateRange, customFrom, customTo);
 
     const { data, error } = await supabase
-        .from("orders")
+        .from("analytics_order_facts")
         .select("*")
         .eq("user_id", userId)
         .gte("order_date", resolved.from.toISOString())
@@ -517,8 +507,8 @@ export async function fetchOperationalAnalytics(
         return { avgTimeToConfirmation: null, avgTimeToPaid: null, pendingConfirmationOver24h: 0, deliveringOverXDays: 0 };
     }
 
-    const orders = (data as Order[]) || [];
-    const codOrders = orders.filter(isCOD);
+    const orders = (data as AnalyticsOrderFact[]) || [];
+    const codOrders = orders.filter(o => o.is_cod);
 
     // Avg Time to Confirmation
     let totalConfirmationTime = 0;

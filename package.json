@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "backup": "git add . && (git diff --staged --quiet || git commit -m 'Auto backup' && git push) || echo '✅ No changes to commit'",
-    "dev": "vite --host"
+    "dev": "vite --host",
+    "build": "tsc && vite build"
   },
   "dependencies": {
     "@pdf-lib/fontkit": "^1.1.1",

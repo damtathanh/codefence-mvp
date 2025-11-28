@@ -206,7 +206,8 @@ export function useOrders() {
         return {
             success: data.success,
             failed: data.failed,
-            errors: data.errors?.map((e: any) => `Order ${e.order_id}: ${e.error}`) || []
+            errors: data.errors?.map((e: any) => `Order ${e.order_id}: ${e.error}`) || [],
+            insertedOrders: data.inserted_orders ?? []
         };
     };
 

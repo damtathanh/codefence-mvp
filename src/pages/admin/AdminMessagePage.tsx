@@ -7,7 +7,7 @@ import ImageModal from "../../components/ImageModal";
 import { Send, Download, File } from "lucide-react";
 import { useAuth } from "../../features/auth";
 import { formatMessageTimestamp, formatMessageTimestampWithName } from "../../utils/formatTimestamp";
-import { uploadFile } from "../../utils/uploadFile";
+import { uploadFile } from "../../utils/fileUpload";
 import { supabase } from "../../lib/supabaseClient";
 import { useToast } from "../../components/ui/Toast";
 import type { Message, UserProfile } from "../../types/supabase";
@@ -61,7 +61,7 @@ export const AdminMessagePage: React.FC = () => {
     isUserScrollingUp,
     80
   );
-  
+
   // Load admin ids & profiles
   useEffect(() => {
     const loadAdmins = async () => {
@@ -87,7 +87,7 @@ export const AdminMessagePage: React.FC = () => {
             } as UserProfile);
             ids.push(a.id);
           });
-          
+
           // Add system-bot to admin profiles map
           map.set(SYSTEM_BOT_ID, {
             id: SYSTEM_BOT_ID,
@@ -100,7 +100,7 @@ export const AdminMessagePage: React.FC = () => {
             created_at: new Date().toISOString(),
           } as UserProfile);
           ids.push(SYSTEM_BOT_ID);
-          
+
           setAdminProfiles(map);
           setAdminIds(ids);
         }
@@ -619,18 +619,16 @@ export const AdminMessagePage: React.FC = () => {
                         );
                       }}
                       className={`w-full text-left p-4 rounded-sm transition-all duration-150 
-                        ${
-                          isSel
-                            ? "bg-[#28315f] border-l-4 border-blue-400 shadow-inner"
-                            : hasUnread
-                              ? "bg-[#1c274a] border-l-4 border-blue-600 shadow-[0_0_12px_rgba(0,0,0,0.25)]"
-                              : "hover:bg-[#1a2038]"
+                        ${isSel
+                          ? "bg-[#28315f] border-l-4 border-blue-400 shadow-inner"
+                          : hasUnread
+                            ? "bg-[#1c274a] border-l-4 border-blue-600 shadow-[0_0_12px_rgba(0,0,0,0.25)]"
+                            : "hover:bg-[#1a2038]"
                         }`}>
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex-1 min-w-0">
-                          <p className={`truncate ${
-                            hasUnread ? "font-bold text-white" : "font-medium text-[#E5E7EB]"
-                          }`}>
+                          <p className={`truncate ${hasUnread ? "font-bold text-white" : "font-medium text-[#E5E7EB]"
+                            }`}>
                             {c.displayName}
                           </p>
                           {c.lastMessage && <p className="text-sm text-[#E5E7EB]/70 truncate mt-1">{lastText}</p>}

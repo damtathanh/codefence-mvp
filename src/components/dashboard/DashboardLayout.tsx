@@ -492,7 +492,7 @@ export const DashboardLayout: React.FC = () => {
       <aside
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
-        className={`fixed top-0 left-0 h-full z-40 transition-[width,background,box-shadow] duration-300 ease-in-out flex flex-col ${
+        className={`fixed top-0 left-0 h-full z-[100] transition-[width,background,box-shadow] duration-300 ease-in-out flex flex-col ${
           // Mobile: slide in/out
           sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
           } ${
@@ -589,7 +589,7 @@ export const DashboardLayout: React.FC = () => {
       {/* Main Content */}
       <div className="flex-1 flex flex-col lg:ml-20 transition-all duration-300 min-h-0">
         {/* Topbar */}
-        <header className="h-16 bg-[var(--bg-sidebar)] border-b border-[var(--border-subtle)] flex items-center justify-between px-6 sticky top-0 z-20">
+        <header className="h-16 bg-[var(--bg-sidebar)] border-b border-[var(--border-subtle)] flex items-center justify-between px-6 sticky top-0 z-100">
           {/* Left side: Mobile Menu Button + Breadcrumb */}
           <div className="flex items-center gap-4">
             <button

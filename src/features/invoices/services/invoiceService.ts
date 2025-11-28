@@ -1,5 +1,5 @@
 // src/features/invoices/invoiceService.ts
-import { supabase } from "../../../lib/supabaseClient";
+import { InvoicesRepository } from "../repositories/invoicesRepository";
 import { INVOICE_STATUS, type InvoiceStatus } from "./invoiceTypes";
 import type { Order, Invoice } from "../../../types/supabase";
 import { logOrderEvent } from "../../orders/services/orderEventsService";
@@ -32,12 +32,7 @@ function generateInvoiceCode(order: Order): string {
 export async function ensurePendingInvoiceForOrder(order: Order) {
   if (!order.user_id) return;
 
-  const { data: existing, error } = await supabase
-    .from("invoices")
-    .select("id, status")
-    .eq("user_id", order.user_id)
-    .eq("order_id", order.id)
-    .maybeSingle();
+  const { data: existing, error } = await InvoicesRepository.getInvoiceByOrderId(order.id, order.user_id);
 
   if (error) {
     console.error("ensurePendingInvoiceForOrder: fetch error", error);
@@ -54,7 +49,7 @@ export async function ensurePendingInvoiceForOrder(order: Order) {
     return;
   }
 
-  const { error: insertError } = await supabase.from("invoices").insert({
+  const { error: insertError } = await InvoicesRepository.insertInvoice({
     user_id: order.user_id,
     order_id: order.id,
     amount: order.amount ?? 0,
@@ -80,12 +75,7 @@ export async function markInvoicePaidForOrder(order: Order) {
 
   const now = new Date().toISOString();
 
-  const { data: existing, error } = await supabase
-    .from("invoices")
-    .select("id, status")
-    .eq("user_id", order.user_id)
-    .eq("order_id", order.id)
-    .maybeSingle();
+  const { data: existing, error } = await InvoicesRepository.getInvoiceByOrderId(order.id, order.user_id);
 
   if (error) {
     console.error("markInvoicePaidForOrder: fetch error", error);
@@ -94,14 +84,11 @@ export async function markInvoicePaidForOrder(order: Order) {
 
   // Nếu invoice đã tồn tại → update sang Paid
   if (existing) {
-    const { error: updateError } = await supabase
-      .from("invoices")
-      .update({
-        status: "Paid" as InvoiceStatus,
-        date: getTodayDateString(),
-        paid_at: now, // <-- cập nhật paid_at
-      })
-      .eq("id", existing.id);
+    const { error: updateError } = await InvoicesRepository.updateInvoice(existing.id, {
+      status: "Paid" as InvoiceStatus,
+      date: getTodayDateString(),
+      paid_at: now, // <-- cập nhật paid_at
+    });
 
     if (updateError) {
       console.error("markInvoicePaidForOrder: update error", updateError);
@@ -123,7 +110,7 @@ export async function markInvoicePaidForOrder(order: Order) {
   }
 
   // Nếu chưa có invoice → tạo mới dạng Paid
-  const { error: insertError } = await supabase.from("invoices").insert({
+  const { error: insertError } = await InvoicesRepository.insertInvoice({
     user_id: order.user_id,
     order_id: order.id,
     amount: order.amount ?? 0,
@@ -160,11 +147,7 @@ export async function deleteInvoicesByOrderIds(
 ) {
   if (!userId || orderIds.length === 0) return;
 
-  const { error } = await supabase
-    .from("invoices")
-    .delete()
-    .eq("user_id", userId)
-    .in("order_id", orderIds);
+  const { error } = await InvoicesRepository.deleteInvoicesByOrderIds(userId, orderIds);
 
   if (error) {
     console.error("deleteInvoicesByOrderIds: delete error", error);
@@ -182,12 +165,7 @@ export async function getInvoiceByOrderId(
 ): Promise<Invoice | null> {
   if (!orderId || !userId) return null;
 
-  const { data, error } = await supabase
-    .from("invoices")
-    .select("*")
-    .eq("user_id", userId)
-    .eq("order_id", orderId)
-    .maybeSingle();
+  const { data, error } = await InvoicesRepository.getInvoiceByOrderId(orderId, userId);
 
   if (error) {
     console.error("getInvoiceByOrderId: fetch error", error);
@@ -212,61 +190,7 @@ export async function fetchInvoicesByUser(
   pageSize: number,
   filters?: InvoiceFilters
 ) {
-  const from = (page - 1) * pageSize;
-  const to = from + pageSize - 1;
-
-  let query = supabase
-    .from("invoices")
-    .select('*', { count: 'exact' })
-    .eq("user_id", userId);
-
-  // Apply filters
-  if (filters) {
-    if (filters.searchQuery) {
-      const term = filters.searchQuery.trim();
-      if (term) {
-        // Invoice search is tricky because we need to join orders for some fields.
-        // But here we are querying 'invoices' table.
-        // We can search invoice_code directly.
-        // Searching by customer_name or order_id (if not in invoice table) requires a join or separate logic.
-        // The current UI does client-side filtering on joined data.
-        // For server-side, we might need to rely on what's in the invoices table or do a join.
-        // The prompt says: "Apply any existing filters/search conditions before .order."
-        // Let's try to support basic invoice_code search here.
-        // If the user wants to search by customer name (which is on orders), we need a join.
-        // Let's add the join to orders to support search.
-
-        // Actually, the prompt says: "Query Supabase: .from('invoices').select('*', { count: 'exact' })"
-        // It doesn't explicitly ask for complex join filtering, but the UI has it.
-        // Let's stick to the prompt's example structure but add the join for search if possible.
-        // Supabase postgrest allows filtering on joined tables.
-
-        // However, to keep it simple and matching the prompt's instruction:
-        // "Apply any existing filters/search conditions before .order."
-
-        // Let's just filter on invoice fields for now to ensure pagination works.
-        // If we need deep search, we'd need to change .select('*') to include orders.
-
-        query = query.or(`invoice_code.ilike.%${term}%`);
-      }
-    }
-
-    if (filters.status) {
-      if (Array.isArray(filters.status) && filters.status.length > 0) {
-        query = query.in('status', filters.status);
-      } else if (typeof filters.status === 'string' && filters.status !== 'all') {
-        query = query.eq('status', filters.status);
-      }
-    }
-
-    if (filters.date) {
-      query = query.eq('date', filters.date);
-    }
-  }
-
-  const { data, error, count } = await query
-    .order("created_at", { ascending: false })
-    .range(from, to);
+  const { data, error, count } = await InvoicesRepository.fetchInvoicesByUser(userId, page, pageSize, filters);
 
   return {
     invoices: data ?? [],
@@ -285,10 +209,7 @@ export async function invalidateInvoicePdfForOrder(orderId: string) {
   if (!orderId) return;
 
   // Find invoices for this order
-  const { data: invoices, error } = await supabase
-    .from('invoices')
-    .select('id')
-    .eq('order_id', orderId);
+  const { data: invoices, error } = await InvoicesRepository.getInvoicesByOrderId(orderId);
 
   if (error) {
     console.error('Failed to load invoices for order to invalidate PDF', error);
@@ -300,12 +221,7 @@ export async function invalidateInvoicePdfForOrder(orderId: string) {
   const invoiceIds = invoices.map((inv) => inv.id);
 
   // Clear pdf_url to force regeneration on next download
-  const { error: updateError } = await supabase
-    .from('invoices')
-    .update({
-      pdf_url: null,
-    })
-    .in('id', invoiceIds);
+  const { error: updateError } = await InvoicesRepository.invalidateInvoicePdfs(invoiceIds);
 
   if (updateError) {
     console.error('Failed to invalidate invoice PDFs for order', orderId, updateError);
@@ -320,16 +236,11 @@ export async function invalidateInvoicePdfForOrder(orderId: string) {
 export async function markInvoiceAsPaid(invoiceId: string) {
   const now = new Date().toISOString();
 
-  const { data, error } = await supabase
-    .from("invoices")
-    .update({
-      status: "Paid" as InvoiceStatus,
-      paid_at: now,
-      date: getTodayDateString(), // Update date to today as well? User prompt said "Update the invoice to status = 'paid' and set paid_at". Usually date is invoice date, but let's keep it simple or follow markInvoicePaidForOrder logic which updates date. Let's update date to be safe/consistent with markInvoicePaidForOrder.
-    })
-    .eq("id", invoiceId)
-    .select("*")
-    .single();
+  const { data, error } = await InvoicesRepository.updateInvoice(invoiceId, {
+    status: "Paid" as InvoiceStatus,
+    paid_at: now,
+    date: getTodayDateString(),
+  });
 
   if (error) {
     console.error("markInvoiceAsPaid: update error", error);
@@ -337,4 +248,56 @@ export async function markInvoiceAsPaid(invoiceId: string) {
   }
 
   return data;
+}
+
+/**
+ * Apply business rules for invoice creation/updates based on order status changes.
+ * This should be called whenever an order is updated.
+ */
+export async function applyInvoiceRules(order: Order) {
+  if (!order || !order.status) return;
+
+  const status = order.status;
+  const riskScore = order.risk_score;
+  const paymentMethod = (order.payment_method || 'COD').toUpperCase(); // Default to COD if null
+  const isCOD = paymentMethod === 'COD';
+
+  // 1. PAID Logic (All payment methods)
+  // If order is in a paid state, ensure invoice is Paid.
+  const paidStatuses = [
+    'ORDER_PAID',
+    'PAID',
+    'CUSTOMER_PAID',
+    // In some flows, DELIVERING/COMPLETED implies paid if paid_at is set, 
+    // but here we strictly check status or paid_at presence?
+    // The requirement says: "Whenever order status transitions to a 'paid' state... or any alias... markInvoicePaidForOrder"
+    // It also says: "Applies to COD orders (after successful QR / COD collection)"
+  ];
+
+  // Also check if paid_at is present, which is a strong indicator of payment
+  const isPaid = paidStatuses.includes(status) || !!order.paid_at;
+
+  if (isPaid) {
+    await markInvoicePaidForOrder(order);
+    return; // If paid, we are done (Paid overrides Pending)
+  }
+
+  // 2. PENDING Logic (COD Only)
+  if (isCOD) {
+    // A. Low-risk COD (Auto-approved)
+    // risk <= 30 AND status is ORDER_APPROVED
+    if (riskScore != null && riskScore <= 30 && status === 'Order Approved') { // Using string value from constant
+      await ensurePendingInvoiceForOrder(order);
+      return;
+    }
+
+    // B. Medium/High-risk COD (Manual approved)
+    // risk > 30 AND status is CUSTOMER_CONFIRMED
+    // Note: If risk is null, we assume it might be high risk or just treat as default flow?
+    // Requirement: "risk_score > 30". If null, it's not <= 30.
+    if ((riskScore == null || riskScore > 30) && status === 'Customer Confirmed') { // Using string value from constant
+      await ensurePendingInvoiceForOrder(order);
+      return;
+    }
+  }
 }

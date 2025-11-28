@@ -7,7 +7,7 @@ import ImageModal from "../../components/ImageModal";
 import { Send, Bot, Download, File as FileIcon } from "lucide-react";
 import { useAuth } from "../../features/auth";
 import { formatMessageTimestamp } from "../../utils/formatTimestamp";
-import { uploadFile } from "../../utils/uploadFile";
+import { uploadFile } from "../../utils/fileUpload";
 import { supabase } from "../../lib/supabaseClient";
 import { useToast } from "../../components/ui/Toast";
 import type { Message, UserProfile } from "../../types/supabase";

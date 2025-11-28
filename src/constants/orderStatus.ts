@@ -10,6 +10,8 @@ export const ORDER_STATUS = {
   DELIVERING: "Delivering",
   COMPLETED: "Completed",
   CUSTOMER_UNREACHABLE: "Customer Unreachable",
+  RETURNED: "Returned",
+  EXCHANGED: "Exchanged",
 } as const;
 
 export type OrderStatus = (typeof ORDER_STATUS)[keyof typeof ORDER_STATUS];

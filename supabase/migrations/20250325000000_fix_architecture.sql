@@ -149,7 +149,7 @@ BEGIN
                 COALESCE(_product_name, ''),
                 (order_item->>'amount')::numeric,
                 _status,
-                _risk_score::text,
+                _risk_score,
                 _risk_level,
                 _payment_method,
                 order_item->>'address_detail',
@@ -198,7 +198,7 @@ AS $$
 BEGIN
     -- 1. Insert Log
     INSERT INTO order_events (order_id, event_type, details)
-    VALUES (p_order_id, 'MANUAL_APPROVED', 'Shop Owner approved the order');
+    VALUES (p_order_id, 'ORDER_APPROVED', 'Shop Owner approved the order (manual)');
 
     -- 2. Update Status
     UPDATE orders
@@ -355,13 +355,13 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS address TEXT;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS product TEXT;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS product_id UUID REFERENCES products(id) ON DELETE SET NULL;
 
--- Ensure status and risk_score are text
+-- Ensure status is text, risk_score is integer
 ALTER TABLE orders ALTER COLUMN status TYPE TEXT;
-ALTER TABLE orders ALTER COLUMN risk_score TYPE TEXT USING risk_score::TEXT;
+ALTER TABLE orders ALTER COLUMN risk_score TYPE INTEGER USING (CASE WHEN risk_score = 'N/A' THEN NULL ELSE risk_score::INTEGER END);
 
 -- Set defaults
 ALTER TABLE orders ALTER COLUMN status SET DEFAULT 'Pending';
-ALTER TABLE orders ALTER COLUMN risk_score SET DEFAULT 'N/A';
+ALTER TABLE orders ALTER COLUMN risk_score SET DEFAULT NULL;
 
 -- Index
 CREATE INDEX IF NOT EXISTS idx_orders_product_id ON orders(product_id);

@@ -51,6 +51,7 @@ interface OrderSidePanelProps {
     onSimulateConfirmed: (order: Order) => void;
     onSimulateCancelled: (order: Order) => void;
     onSimulatePaid: (order: Order) => void;
+    onSendQrPaymentLink: (order: Order) => void;
     onOrderUpdated?: () => void;
 }
 
@@ -72,6 +73,7 @@ export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
     onSimulateConfirmed,
     onSimulateCancelled,
     onSimulatePaid,
+    onSendQrPaymentLink,
     onOrderUpdated,
 }) => {
     const [showRefundModal, setShowRefundModal] = useState(false);
@@ -110,9 +112,19 @@ export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
         if (onOrderUpdated) onOrderUpdated();
     };
 
+    // Low-risk auto-approved check
+    const isLowRiskAutoApproved =
+        order.risk_score != null &&
+        order.risk_score <= 30 &&
+        order.status === ORDER_STATUS.ORDER_APPROVED;
+
+    const hasQrPaymentLinkSent = orderEvents?.some(
+        (e) => (e.event_type || '').toUpperCase() === 'QR_PAYMENT_LINK_SENT'
+    );
+
     return createPortal(
         <>
-            <div className="fixed inset-0 z-50 flex justify-end">
+            <div className="fixed inset-0 z-[50] flex justify-end">
                 {/* Overlay */}
                 <div
                     className="flex-1 bg-black/60 backdrop-blur-sm"
@@ -156,11 +168,15 @@ export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
                                     <>
                                         <p className="text-sm text-yellow-200 mb-1">⚠️ This order needs risk review.</p>
                                         <div className="flex gap-2">
-                                            <Button variant="danger" className="flex-1" onClick={() => onReject(order, "Shop rejected risk")}>
+                                            <Button variant="danger"
+                                                className="flex-1 flex items-center justify-center gap-2 py-3 text-base font-medium"
+                                                onClick={() => onReject(order, "Shop rejected risk")}>
                                                 <Ban size={16} className="mr-2" /> Reject
                                             </Button>
-                                            <Button className="flex-1 bg-blue-600 hover:bg-blue-700" onClick={() => onApprove(order)}>
-                                                <CheckCircle size={16} className="mr-2" /> Approve & Send Zalo
+                                            <Button
+                                                className="flex-1 flex items-center justify-center gap-2 py-3 text-base font-medium bg-blue-600 hover:bg-blue-700"
+                                                onClick={() => onApprove(order)}>
+                                                <CheckCircle size={16} className="mr-2" /> Approve
                                             </Button>
                                         </div>
                                     </>
@@ -197,16 +213,24 @@ export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
                                 )}
 
                                 {/* 4. READY TO SHIP / PAY */}
-                                {(order.status === ORDER_STATUS.CUSTOMER_CONFIRMED || order.status === ORDER_STATUS.ORDER_PAID) && (
+                                {(order.status === ORDER_STATUS.CUSTOMER_CONFIRMED || order.status === ORDER_STATUS.ORDER_PAID || order.status === ORDER_STATUS.ORDER_APPROVED) && (
                                     <div className="space-y-2">
                                         {!hasPaid && (
-                                            <Button variant="outline" size="sm" className="w-full border-purple-500 text-purple-300 hover:bg-purple-500/10" onClick={() => onSimulatePaid(order)}>
-                                                <QrCode size={16} className="mr-2" /> Simulate: Customer Paid (QR)
-                                            </Button>
+                                            <>
+                                                {isLowRiskAutoApproved && !hasQrPaymentLinkSent ? (
+                                                    <Button variant="outline" size="sm" className="w-full flex items-center justify-center gap-2 border-purple-500 text-purple-300 hover:bg-purple-500/10" onClick={() => onSendQrPaymentLink(order)}>
+                                                        <QrCode size={20} className="mr-2" /> Send QR Payment Link
+                                                    </Button>
+                                                ) : (
+                                                    <Button variant="outline" size="sm" className="w-full flex items-center justify-center gap-2 border-purple-500 text-purple-300 hover:bg-purple-500/10" onClick={() => onSimulatePaid(order)}>
+                                                        <QrCode size={20} className="mr-2" /> Simulate: Customer Paid (QR)
+                                                    </Button>
+                                                )}
+                                            </>
                                         )}
 
                                         <Button className="w-full bg-blue-600 hover:bg-blue-700" onClick={() => onMarkDelivered(order)}>
-                                            <Truck size={16} className="mr-2" /> Start Delivery
+                                            <Truck size={20} className="mr-2" /> Start Delivery
                                         </Button>
                                     </div>
                                 )}

@@ -6,7 +6,7 @@ export { DashboardLayout } from './dashboard/DashboardLayout';
 export { Footer } from './Footer';
 export { Header } from './Header';
 export { Hero } from './Hero';
-export { OrderVerificationModal } from './OrderVerificationModal';
+
 export { ScrollToSectionHandler } from './ScrollToSectionHandler';
 export { ScrollToTop } from './ScrollToTop';
 export { Solutions } from './Solutions';
