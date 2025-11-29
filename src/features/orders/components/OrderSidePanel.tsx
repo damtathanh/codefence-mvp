@@ -1,20 +1,8 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-    X,
-    Phone,
-    MapPin,
-    CreditCard,
-    Save,
-    AlertTriangle,
-    ShieldAlert,
-    RefreshCw,
-    RotateCcw,
-    Truck,
-    CheckCircle,
-    Ban,
-    Banknote,
-    QrCode
+    X, Phone, MapPin, CreditCard, Save, AlertTriangle, ShieldAlert,
+    RefreshCw, RotateCcw, Truck, CheckCircle, Ban, Banknote, QrCode
 } from 'lucide-react';
 import { Button } from '../../../components/ui/Button';
 import { Input } from '../../../components/ui/Input';
@@ -32,70 +20,238 @@ interface OrderSidePanelProps {
     onClose: () => void;
     order: Order | null;
     orderEvents: OrderEvent[];
-    addressForm: {
-        address_detail: string;
-        ward: string;
-        district: string;
-        province: string;
-    };
+    addressForm: { address_detail: string; ward: string; district: string; province: string; };
     isAddressModified: boolean;
     onAddressChange: (field: string, value: string) => void;
     onSaveAddress: () => void;
     blacklistedPhones: Set<string>;
-    // Updated handlers
-    onApprove: (order: Order) => void;
-    onReject: (order: Order, reason: string) => void;
-    onMarkDelivered: (order: Order) => void;
-    onMarkCompleted: (order: Order) => void;
-    onMarkMissed?: (order: Order) => void; // Optional if needed
-    onSimulateConfirmed: (order: Order) => void;
-    onSimulateCancelled: (order: Order) => void;
-    onSimulatePaid: (order: Order) => void;
-    onSendQrPaymentLink: (order: Order) => void;
+    // Handlers with onSuccess callback
+    onApprove: (order: Order, onSuccess: () => void) => void;
+    onReject: (order: Order, reason: string, onSuccess: () => void) => void;
+    onMarkDelivered: (order: Order, onSuccess: () => void) => void;
+    onMarkCompleted: (order: Order, onSuccess: () => void) => void;
+    onSimulateConfirmed: (order: Order, onSuccess: () => void) => void;
+    onSimulateCancelled: (order: Order, onSuccess: () => void) => void;
+    onSimulatePaid: (order: Order, onSuccess: () => void) => void;
+    onSendQrPaymentLink: (order: Order, onSuccess: () => void) => void;
     onOrderUpdated?: () => void;
+    // Optional legacy props (can be ignored or removed if not used)
+    onMarkMissed?: (order: Order) => void;
 }
 
 export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
-    isOpen,
-    onClose,
-    order,
-    orderEvents,
-    addressForm,
-    isAddressModified,
-    onAddressChange,
-    onSaveAddress,
-    blacklistedPhones,
-    onApprove,
-    onReject,
-    onMarkDelivered,
-    onMarkCompleted,
-    onMarkMissed,
-    onSimulateConfirmed,
-    onSimulateCancelled,
-    onSimulatePaid,
-    onSendQrPaymentLink,
+    isOpen, onClose, order, orderEvents, addressForm, isAddressModified,
+    onAddressChange, onSaveAddress, blacklistedPhones,
+    onApprove, onReject, onMarkDelivered, onMarkCompleted,
+    onSimulateConfirmed, onSimulateCancelled, onSimulatePaid, onSendQrPaymentLink,
     onOrderUpdated,
 }) => {
     const [showRefundModal, setShowRefundModal] = useState(false);
     const [showReturnModal, setShowReturnModal] = useState(false);
     const [showExchangeModal, setShowExchangeModal] = useState(false);
+    const [isProcessing, setIsProcessing] = useState(false);
 
     if (!isOpen || !order || typeof document === 'undefined') return null;
 
     const isBlacklisted = order.phone && blacklistedPhones.has(order.phone);
     const isCOD = (!order.payment_method || order.payment_method === 'COD');
+    const isPrepaid = !isCOD;
     const hasPaid = !!order.paid_at || order.status === ORDER_STATUS.ORDER_PAID;
 
+    // Check if QR was sent (either by timestamp or event log)
+    const hasQrSent = !!order.qr_sent_at || orderEvents.some(e => e.event_type === 'QR_PAYMENT_LINK_SENT');
+
+    // Helper to wrap async actions and prevent double clicks
+    const wrapAction = async (action: () => void) => {
+        if (isProcessing) return;
+        setIsProcessing(true);
+        try {
+            await action();
+        } finally {
+            // Small delay to prevent flickering
+            setTimeout(() => setIsProcessing(false), 500);
+        }
+    };
+
+    // --- LOGIC HIỂN THỊ NÚT BẤM ---
+    const renderActionButtons = () => {
+        // CASE 1: PREPAID (Đã thanh toán trước)
+        // Status: Order Paid -> Delivering -> Completed
+        if (isPrepaid || order.status === ORDER_STATUS.ORDER_PAID) {
+            // Chưa giao -> Start Delivery
+            if (order.status !== ORDER_STATUS.DELIVERING && order.status !== ORDER_STATUS.COMPLETED) {
+                return (
+                    <Button
+                        className="w-full bg-blue-600 hover:bg-blue-700"
+                        onClick={() => wrapAction(() => onMarkDelivered(order, onClose))}
+                        disabled={isProcessing}
+                    >
+                        <Truck size={20} className="mr-2" /> Start Delivery
+                    </Button>
+                );
+            }
+            // Đang giao -> Completed
+            if (order.status === ORDER_STATUS.DELIVERING) {
+                return (
+                    <Button
+                        className="w-full bg-green-600 hover:bg-green-700"
+                        onClick={() => wrapAction(() => onMarkCompleted(order, onClose))}
+                        disabled={isProcessing}
+                    >
+                        <CheckCircle size={16} className="mr-2" /> Mark Completed
+                    </Button>
+                );
+            }
+            // Completed -> No main actions (Only after-sale actions below)
+            return null;
+        }
+
+        // CASE 2: COD - LOW RISK (Approved automatically)
+        // Status: Order Approved -> (Send QR) -> (Simulate Paid) -> Start Delivery
+        if (isCOD && order.risk_score !== null && order.risk_score <= 30 && order.status === ORDER_STATUS.ORDER_APPROVED) {
+            return (
+                <div className="space-y-3">
+                    {/* QR Logic: Send -> Simulate Paid */}
+                    {!hasQrSent ? (
+                        <Button
+                            variant="outline" className="w-full h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#C4B5FD] hover:bg-[#8B5CF6]/20 transition-all duration-200 active:scale-[0.98]"
+                            onClick={() => wrapAction(() => onSendQrPaymentLink(order, () => { }))} // Keep open
+                            disabled={isProcessing}
+                        >
+                            <QrCode size={20} className="mr-2" /> Send QR Payment Link
+                        </Button>
+                    ) : !hasPaid && (
+                        <Button
+                            variant="outline" className="w-full h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#C4B5FD] hover:bg-[#8B5CF6]/20 transition-all duration-200 active:scale-[0.98]"
+                            onClick={() => wrapAction(() => onSimulatePaid(order, onClose))}
+                            disabled={isProcessing}
+                        >
+                            <Banknote size={20} className="mr-2" /> Simulate QR Paid
+                        </Button>
+                    )}
+
+                    {/* Delivery Logic */}
+                    <Button
+                        className="w-full bg-blue-600 hover:bg-blue-700"
+                        onClick={() => wrapAction(() => onMarkDelivered(order, onClose))}
+                        disabled={isProcessing}
+                    >
+                        <Truck size={20} className="mr-2" /> Start Delivery
+                    </Button>
+                </div>
+            );
+        }
+
+        // CASE 3: COD - HIGH/MEDIUM RISK
+        // A. Pending Review -> Reject / Approve
+        if (order.status === ORDER_STATUS.PENDING_REVIEW || order.status === ORDER_STATUS.VERIFICATION_REQUIRED) {
+            return (
+                <div className="flex gap-2">
+                    <Button
+                        variant="danger" className="flex-1 h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 transition-all duration-200 active:scale-[0.98]"
+                        onClick={() => onReject(order, "Verification Failed", onClose)} // Triggers modal in parent logic
+                        disabled={isProcessing}
+                    >
+                        <Ban size={20} /> Reject
+                    </Button>
+                    <Button
+                        className="flex-1 h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-gradient-to-r from-[#6366F1] to-[#8B5CF6] hover:from-[#5b5eed] hover:to-[#7c53e6] text-white shadow-lg shadow-[#6366F1]/20 transition-all duration-200 active:scale-[0.98]"
+                        onClick={() => wrapAction(() => onApprove(order, onClose))}
+                        disabled={isProcessing}
+                    >
+                        <CheckCircle size={20} /> Approve
+                    </Button>
+                </div>
+            );
+        }
+
+        // B. Confirmation Sent -> Confirm / Cancel
+        if (order.status === ORDER_STATUS.ORDER_CONFIRMATION_SENT) {
+            return (
+                <div className="bg-blue-500/10 p-3 rounded-lg border border-blue-500/30">
+                    <p className="text-xs text-blue-300 font-bold uppercase mb-2 text-center">Customer Response (Zalo)</p>
+                    <div className="flex gap-2">
+                        <Button
+                            size="sm" variant="danger" className="flex-1 h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 transition-all duration-200 active:scale-[0.98]"
+                            onClick={() => onSimulateCancelled(order, onClose)} // Triggers modal
+                            disabled={isProcessing}
+                        >
+                            Customer Cancel
+                        </Button>
+                        <Button
+                            size="sm" className="flex-1 h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-gradient-to-r from-[#6366F1] to-[#8B5CF6] hover:from-[#5b5eed] hover:to-[#7c53e6] text-white shadow-lg shadow-[#6366F1]/20 transition-all duration-200 active:scale-[0.98]"
+                            onClick={() => wrapAction(() => onSimulateConfirmed(order, onClose))}
+                            disabled={isProcessing}
+                        >
+                            Customer Confirm
+                        </Button>
+                    </div>
+                </div>
+            );
+        }
+
+        // C. Customer Confirmed -> Simulate Paid / Delivery
+        if (order.status === ORDER_STATUS.CUSTOMER_CONFIRMED) {
+            return (
+                <div className="space-y-3">
+                    {!hasPaid && (
+                        <Button
+                            variant="outline" className="w-full h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#C4B5FD] hover:bg-[#8B5CF6]/20 transition-all duration-200 active:scale-[0.98]"
+                            onClick={() => wrapAction(() => onSimulatePaid(order, onClose))}
+                            disabled={isProcessing}
+                        >
+                            <Banknote size={20} className="mr-2" /> Simulate QR Paid
+                        </Button>
+                    )}
+                    <Button
+                        className="w-full h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-gradient-to-r from-[#6366F1] to-[#8B5CF6] hover:from-[#5b5eed] hover:to-[#7c53e6] text-white shadow-lg shadow-[#6366F1]/20 transition-all duration-200 active:scale-[0.98]"
+                        onClick={() => wrapAction(() => onMarkDelivered(order, onClose))}
+                        disabled={isProcessing}
+                    >
+                        <Truck size={20} className="mr-2" /> Start Delivery
+                    </Button>
+                </div>
+            );
+        }
+
+        // D. Delivering / Completed -> Late Payment Check (COD only)
+        // If Delivering or Completed, allow payment mark if not paid yet
+        if (order.status === ORDER_STATUS.DELIVERING || order.status === ORDER_STATUS.COMPLETED) {
+            return (
+                <div className="space-y-2">
+                    {!hasPaid && isCOD && (
+                        <Button
+                            variant="outline" size="sm" className="w-full h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#C4B5FD] hover:bg-[#8B5CF6]/20 transition-all duration-200 active:scale-[0.98]"
+                            onClick={() => wrapAction(() => onSimulatePaid(order, onClose))}
+                            disabled={isProcessing}
+                        >
+                            <Banknote size={20} className="mr-2" /> Simulate Payment Received
+                        </Button>
+                    )}
+                    {order.status === ORDER_STATUS.DELIVERING && (
+                        <Button
+                            size="sm" className="w-full h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-gradient-to-r from-[#6366F1] to-[#8B5CF6] hover:from-[#5b5eed] hover:to-[#7c53e6] text-white shadow-lg shadow-[#6366F1]/20 transition-all duration-200 active:scale-[0.98]"
+                            onClick={() => wrapAction(() => onMarkCompleted(order, onClose))}
+                            disabled={isProcessing}
+                        >
+                            <CheckCircle size={20} className="mr-2" /> Mark Completed
+                        </Button>
+                    )}
+                </div>
+            );
+        }
+
+        return null; // Default fallback
+    };
+
+    const handleSuccess = () => {
+        if (onOrderUpdated) onOrderUpdated();
+    };
+
     const getLatestRiskEvent = () => {
-        const riskEvents = orderEvents.filter(
-            (evt) => evt.event_type === 'RISK_EVALUATED',
-        );
+        const riskEvents = orderEvents.filter((evt) => evt.event_type === 'RISK_EVALUATED');
         if (riskEvents.length === 0) {
-            return {
-                score: order.risk_score ?? null,
-                level: order.risk_level ?? null,
-                reasons: [],
-            };
+            return { score: order.risk_score ?? null, level: order.risk_level ?? null, reasons: [] };
         }
         const latest = riskEvents[riskEvents.length - 1];
         const payload = (latest.payload_json || {}) as any;
@@ -108,51 +264,25 @@ export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
 
     const riskAnalysis = getLatestRiskEvent();
 
-    const handleSuccess = () => {
-        if (onOrderUpdated) onOrderUpdated();
-    };
-
-    // Low-risk auto-approved check
-    const isLowRiskAutoApproved =
-        order.risk_score != null &&
-        order.risk_score <= 30 &&
-        order.status === ORDER_STATUS.ORDER_APPROVED;
-
-    const hasQrPaymentLinkSent = orderEvents?.some(
-        (e) => (e.event_type || '').toUpperCase() === 'QR_PAYMENT_LINK_SENT'
-    );
-
     return createPortal(
         <>
             <div className="fixed inset-0 z-[50] flex justify-end">
-                {/* Overlay */}
-                <div
-                    className="flex-1 bg-black/60 backdrop-blur-sm"
-                    onClick={onClose}
-                />
-
-                {/* Side Panel */}
-                <div className="w-[500px] h-full bg-[#131625] border-l border-white/10 shadow-2xl flex flex-col">
+                <div className="flex-1 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+                <div className="w-[500px] h-full bg-[#131625] border-l border-white/10 shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
                     {/* Header */}
                     <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-[#1E223D]/50 flex-shrink-0">
                         <div>
                             <h2 className="text-lg font-semibold text-white">Order Details</h2>
-                            <p className="text-sm text-white/50">
-                                ID: {order.order_id || order.id}
-                            </p>
+                            <p className="text-sm text-white/50">ID: {order.order_id || order.id}</p>
                         </div>
-                        <button
-                            onClick={onClose}
-                            className="p-2 hover:bg-white/10 rounded-lg transition-colors text-white/70 hover:text-white"
-                        >
+                        <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-lg transition-colors text-white/70 hover:text-white">
                             <X size={20} />
                         </button>
                     </div>
 
-                    {/* Content Scrollable */}
+                    {/* Content */}
                     <div className="flex-1 overflow-y-auto px-6 py-6 space-y-8">
-
-                        {/* --- MAIN ACTION AREA --- */}
+                        {/* MAIN ACTIONS */}
                         <div className="space-y-4">
                             <div className="flex items-center justify-between">
                                 <StatusBadge status={order.status} />
@@ -160,133 +290,8 @@ export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
                                     {isCOD ? "COD Order" : "Prepaid Order"}
                                 </div>
                             </div>
-
-                            <div className="p-4 bg-white/5 rounded-xl border border-white/10 flex flex-col gap-3">
-
-                                {/* 1. REVIEW STAGE */}
-                                {(order.status === ORDER_STATUS.PENDING_REVIEW) && (
-                                    <>
-                                        <p className="text-sm text-yellow-200 mb-1">⚠️ This order needs risk review.</p>
-                                        <div className="flex gap-2">
-                                            <Button variant="danger"
-                                                className="flex-1 flex items-center justify-center gap-2 py-3 text-base font-medium"
-                                                onClick={() => onReject(order, "Shop rejected risk")}>
-                                                <Ban size={16} className="mr-2" /> Reject
-                                            </Button>
-                                            <Button
-                                                className="flex-1 flex items-center justify-center gap-2 py-3 text-base font-medium bg-blue-600 hover:bg-blue-700"
-                                                onClick={() => onApprove(order)}>
-                                                <CheckCircle size={16} className="mr-2" /> Approve
-                                            </Button>
-                                        </div>
-                                    </>
-                                )}
-
-                                {/* 2. VERIFICATION REQUIRED STAGE */}
-                                {order.status === ORDER_STATUS.VERIFICATION_REQUIRED && (
-                                    <>
-                                        <p className="text-sm text-red-200 mb-1">🚫 No Zalo / High Risk. Manual check required.</p>
-                                        <div className="flex gap-2">
-                                            <Button variant="danger" className="flex-1" onClick={() => onReject(order, "Verification failed")}>
-                                                Reject
-                                            </Button>
-                                            <Button variant="secondary" className="flex-1" onClick={() => onApprove(order)}>
-                                                Approve (Called)
-                                            </Button>
-                                        </div>
-                                    </>
-                                )}
-
-                                {/* 3. WAITING FOR CUSTOMER (Simulation Zone) */}
-                                {order.status === ORDER_STATUS.ORDER_CONFIRMATION_SENT && (
-                                    <div className="bg-blue-500/10 p-3 rounded-lg border border-blue-500/30">
-                                        <p className="text-xs text-blue-300 font-bold uppercase mb-2">Customer Simulation (Zalo)</p>
-                                        <div className="flex gap-2">
-                                            <Button size="sm" variant="danger" className="flex-1" onClick={() => onSimulateCancelled(order)}>
-                                                Customer Cancels
-                                            </Button>
-                                            <Button size="sm" className="flex-1 bg-green-600 hover:bg-green-700" onClick={() => onSimulateConfirmed(order)}>
-                                                Customer Confirms
-                                            </Button>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* 4. READY TO SHIP / PAY */}
-                                {(order.status === ORDER_STATUS.CUSTOMER_CONFIRMED || order.status === ORDER_STATUS.ORDER_PAID || order.status === ORDER_STATUS.ORDER_APPROVED) && (
-                                    <div className="space-y-2">
-                                        {!hasPaid && (
-                                            <>
-                                                {isLowRiskAutoApproved && !hasQrPaymentLinkSent ? (
-                                                    <Button variant="outline" size="sm" className="w-full flex items-center justify-center gap-2 border-purple-500 text-purple-300 hover:bg-purple-500/10" onClick={() => onSendQrPaymentLink(order)}>
-                                                        <QrCode size={20} className="mr-2" /> Send QR Payment Link
-                                                    </Button>
-                                                ) : (
-                                                    <Button variant="outline" size="sm" className="w-full flex items-center justify-center gap-2 border-purple-500 text-purple-300 hover:bg-purple-500/10" onClick={() => onSimulatePaid(order)}>
-                                                        <QrCode size={20} className="mr-2" /> Simulate: Customer Paid (QR)
-                                                    </Button>
-                                                )}
-                                            </>
-                                        )}
-
-                                        <Button className="w-full bg-blue-600 hover:bg-blue-700" onClick={() => onMarkDelivered(order)}>
-                                            <Truck size={20} className="mr-2" /> Start Delivery
-                                        </Button>
-                                    </div>
-                                )}
-
-                                {/* 5. DELIVERING */}
-                                {order.status === ORDER_STATUS.DELIVERING && (
-                                    <div className="space-y-2">
-                                        {!hasPaid && (
-                                            <Button variant="outline" size="sm" className="w-full" onClick={() => onSimulatePaid(order)}>
-                                                <Banknote size={16} className="mr-2" /> Mark Paid (Collected on Delivery)
-                                            </Button>
-                                        )}
-                                        <Button size="sm" className="w-full bg-green-600 hover:bg-green-700" onClick={() => onMarkCompleted(order)}>
-                                            <CheckCircle size={16} className="mr-2" /> Complete Order
-                                        </Button>
-                                    </div>
-                                )}
-
-                                {/* 6. COMPLETED (Late Payment Collection) */}
-                                {order.status === ORDER_STATUS.COMPLETED && !hasPaid && isCOD && (
-                                    <div className="space-y-2">
-                                        <p className="text-xs text-white/50 text-center">Order delivered but COD payment pending.</p>
-                                        <Button size="sm" className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={() => onSimulatePaid(order)}>
-                                            <Banknote size={16} className="mr-2" /> Confirm COD Received
-                                        </Button>
-                                    </div>
-                                )}
-
-                                {/* AFTER-SALE ACTIONS (Always available for terminal states) */}
-                                {((order.status === ORDER_STATUS.DELIVERING || order.status === ORDER_STATUS.COMPLETED)) && (
-                                    <>
-                                        <div className="w-full h-px bg-white/10 my-2" />
-                                        <div className="flex gap-2">
-                                            <Button
-                                                size="sm"
-                                                variant="secondary"
-                                                onClick={() => {
-                                                    if (hasPaid) setShowRefundModal(true);
-                                                    else setShowReturnModal(true);
-                                                }}
-                                                className="flex-1 gap-1 text-xs"
-                                            >
-                                                <RotateCcw size={14} /> Return
-                                            </Button>
-                                            <Button
-                                                size="sm"
-                                                variant="secondary"
-                                                onClick={() => setShowExchangeModal(true)}
-                                                className="flex-1 gap-1 text-xs"
-                                            >
-                                                <RefreshCw size={14} /> Exchange
-                                            </Button>
-                                        </div>
-                                    </>
-                                )}
-
+                            <div className="p-4 bg-white/5 rounded-xl border border-white/10">
+                                {renderActionButtons()}
                             </div>
                         </div>
 
@@ -441,63 +446,23 @@ export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
                             </div>
                         </div>
 
-                        {/* ORDER DETAILS */}
+                        {/* TIMELINE */}
                         <div className="space-y-4">
-                            <h3 className="text-sm font-medium text-white/70 uppercase tracking-wider">
-                                Order Details
-                            </h3>
-                            <div className="bg-white/5 rounded-xl p-4 space-y-3 border border-white/10">
-                                <div className="flex justify-between text-sm">
-                                    <span className="text-white/50">Product</span>
-                                    <span className="text-[#E5E7EB] font-medium">
-                                        {order.products?.name || order.product || 'Unknown Product'}
-                                    </span>
-                                </div>
-
-                                <div className="flex justify-between text-sm">
-                                    <span className="text-white/50">Amount</span>
-                                    <span className="text-[#E5E7EB] font-medium">
-                                        {order.amount.toLocaleString('vi-VN')} VND
-                                    </span>
-                                </div>
-
-                                <div className="flex justify-between text-sm">
-                                    <span className="text-white/50">Payment Method</span>
-                                    <div className="flex items-center gap-2 text-[#E5E7EB]">
-                                        <CreditCard size={14} />
-                                        <span>{order.payment_method || 'COD'}</span>
-                                    </div>
-                                </div>
-
-                                {(order.refunded_amount || 0) > 0 && (
-                                    <div className="flex justify-between text-sm text-red-400">
-                                        <span>Refunded</span>
-                                        <span>
-                                            -{order.refunded_amount?.toLocaleString('vi-VN')} VND
-                                        </span>
-                                    </div>
-                                )}
-
-                                {(order.customer_shipping_paid || 0) > 0 && (
-                                    <div className="flex justify-between text-sm text-green-400">
-                                        <span>Cust. Shipping Paid</span>
-                                        <span>
-                                            +
-                                            {order.customer_shipping_paid?.toLocaleString('vi-VN')}{' '}
-                                            VND
-                                        </span>
-                                    </div>
-                                )}
+                            <h3 className="text-sm font-medium text-white/70 uppercase tracking-wider">Timeline</h3>
+                            <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+                                <OrderTimeline events={orderEvents} />
                             </div>
                         </div>
 
-                        {/* TIMELINE */}
-                        <div className="space-y-4">
-                            <h3 className="text-sm font-medium text-white/70 uppercase tracking-wider">
-                                Timeline
-                            </h3>
-                            <div className="bg-white/5 rounded-xl p-4 border border-white/10">
-                                <OrderTimeline events={orderEvents} />
+                        {/* AFTER-SALE ACTIONS */}
+                        <div className="pt-4 border-t border-white/10">
+                            <div className="flex gap-2">
+                                <Button size="sm" variant="secondary" onClick={() => { if (hasPaid) setShowRefundModal(true); else setShowReturnModal(true); }} className="flex-1 gap-1 text-xs">
+                                    <RotateCcw size={14} /> Return
+                                </Button>
+                                <Button size="sm" variant="secondary" onClick={() => setShowExchangeModal(true)} className="flex-1 gap-1 text-xs">
+                                    <RefreshCw size={14} /> Exchange
+                                </Button>
                             </div>
                         </div>
                     </div>
@@ -505,27 +470,10 @@ export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
             </div>
 
             {/* MODALS */}
-            <RefundModal
-                isOpen={showRefundModal}
-                onClose={() => setShowRefundModal(false)}
-                order={order}
-                onSuccess={handleSuccess}
-                title={hasPaid ? 'Return & Refund' : 'Refund Order'}
-            />
-            <ReturnModal
-                isOpen={showReturnModal}
-                onClose={() => setShowReturnModal(false)}
-                order={order}
-                onSuccess={handleSuccess}
-            />
-            <ExchangeModal
-                isOpen={showExchangeModal}
-                onClose={() => setShowExchangeModal(false)}
-                order={order}
-                onSuccess={handleSuccess}
-                isPaid={hasPaid}
-            />
+            <RefundModal isOpen={showRefundModal} onClose={() => setShowRefundModal(false)} order={order} onSuccess={handleSuccess} title={hasPaid ? 'Return & Refund' : 'Refund Order'} />
+            <ReturnModal isOpen={showReturnModal} onClose={() => setShowReturnModal(false)} order={order} onSuccess={handleSuccess} />
+            <ExchangeModal isOpen={showExchangeModal} onClose={() => setShowExchangeModal(false)} order={order} onSuccess={handleSuccess} isPaid={hasPaid} />
         </>,
-        document.body,
+        document.body
     );
 };

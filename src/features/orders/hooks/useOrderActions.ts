@@ -2,182 +2,243 @@ import { useCallback } from 'react';
 import { useAuth } from '../../auth';
 import { useToast } from '../../../components/ui/Toast';
 import type { Order } from '../../../types/supabase';
-import { OrderActions } from '../application/orderActions';
+import { zaloGateway } from '../../zalo';
+import { logUserAction } from '../../../utils/logUserAction';
+import { generateChanges } from '../../../utils/generateChanges';
+import { logOrderEvent } from '../services/orderEventsService';
+import { deleteOrders } from '../services/ordersService';
+import { deleteInvoicesByOrderIds, ensurePendingInvoiceForOrder, markInvoicePaidForOrder } from '../../invoices/services/invoiceService';
+import { ORDER_STATUS } from '../../../constants/orderStatus';
 
 export const useOrderActions = (
     updateOrderLocal: (orderId: string, updates: Partial<Order>) => Promise<boolean>,
     refreshOrders: () => Promise<void>
 ) => {
     const { user } = useAuth();
-    const { showSuccess, showError } = useToast();
+    const { showSuccess, showError, showInfo } = useToast();
 
-    // 1. SHOP ACTION: Approve (Send Zalo Confirmation)
-    const handleApprove = useCallback(async (order: Order) => {
+    // 1. SHOP ACTION: Approve (High/Medium Risk -> Confirmation Sent)
+    // Logic: Medium/High Risk approved -> Send Zalo confirmation immediately.
+    const handleApprove = useCallback(async (order: Order, onSuccess?: () => void) => {
         if (!user) return;
         try {
-            await OrderActions.approveOrder(order, user.id);
-            // We still need to update local state to reflect changes immediately if possible, 
-            // but updateOrderLocal is passed in.
-            // OrderActions calls updateOrder service which updates DB.
-            // updateOrderLocal updates UI state.
-            // We should probably call updateOrderLocal with the changes we expect.
-            // Or rely on refreshOrders.
-            // The original code called updateOrderLocal.
-            // Let's keep calling updateOrderLocal for optimistic/immediate feedback if the hook consumer expects it.
-            // However, OrderActions doesn't return the updated order.
-            // But we know what we changed.
+            // Optional: Zalo confirmation trigger
+            await zaloGateway.sendConfirmation(order);
 
-            // Actually, updateOrderLocal in the original code called the service AND updated local state?
-            // Let's check the signature. It returns Promise<boolean>.
-            // Usually passed from OrdersView -> useOrders -> updateOrder (which calls service).
-            // If we move service calls to OrderActions, then updateOrderLocal might be redundant for the DB call part,
-            // but we still need it for local state update.
+            const now = new Date().toISOString();
 
-            // Wait, if `updateOrderLocal` calls the service, and `OrderActions` ALSO calls the service, we have a double call.
-            // The goal is: "Move business logic out of UI hooks/components into these application functions".
-            // So `useOrderActions` should call `OrderActions`.
-            // `OrderActions` calls `ordersService`.
-            // So `updateOrderLocal` should ONLY update local state?
-            // Or `useOrderActions` should NOT use `updateOrderLocal` for DB calls anymore.
+            // 1️⃣ Log the "Order Approved" event (even if status does not stay on APPROVED)
+            await logOrderEvent(order.id, 'ORDER_APPROVED', {}, 'manual_action');
 
-            // But `updateOrderLocal` is passed as an argument.
-            // If the caller (OrdersView) expects `updateOrderLocal` to persist data, then we have a conflict if we also persist in `OrderActions`.
+            // 2️⃣ Update to ORDER_CONFIRMATION_SENT (final status)
+            await updateOrderLocal(order.id, {
+                status: ORDER_STATUS.ORDER_CONFIRMATION_SENT,
+                confirmation_sent_at: now
+            });
 
-            // Let's look at how `updateOrderLocal` is implemented in `OrdersView` or `useOrders`.
-            // Typically `const { updateOrder } = useOrders()`.
-            // `updateOrder` in `useOrders` calls `ordersService.updateOrder` AND updates local state.
+            // 3️⃣ Log the "order confirmation sent" event
+            await logOrderEvent(
+                order.id,
+                'ORDER_CONFIRMATION_SENT',
+                { via: 'zalo' },
+                'system'
+            );
 
-            // If we switch to `OrderActions`, we are bypassing `useOrders.updateOrder`.
-            // So we need to refresh data or manually update local state.
-            // `refreshOrders` is passed in.
+            // 4️⃣ User action log
+            await logUserAction({
+                userId: user.id,
+                action: 'Approve Order',
+                status: 'success',
+                orderId: order.order_id ?? "",
+            });
 
-            // Strategy: Call `OrderActions` (DB update), then `refreshOrders` (or `updateOrderLocal` if it supports optimistic only).
-            // But `updateOrderLocal` likely does DB update.
+            showSuccess('Order approved & confirmation sent.');
+            if (onSuccess) onSuccess();
 
-            // Let's assume for this refactor that we should use `OrderActions` for the logic.
-            // And we might need to trigger a refresh.
-            // The original code used `updateOrderLocal` which likely did both.
-
-            // If I change `handleApprove` to use `OrderActions.approveOrder`, I am doing the DB update there.
-            // I should NOT call `updateOrderLocal` if it also does DB update.
-            // Instead, I should call `refreshOrders()` to get the latest state.
-            // OR, if I want to keep optimistic updates, I need a way to update local state without DB call.
-
-            // Given the constraints "The app should behave identically", removing optimistic updates might be a regression if `refreshOrders` is slow.
-            // However, `updateOrderLocal` was passed in.
-
-            // Let's check `useOrders.ts` (I have it open).
-            // `updateOrder` in `useOrders` calls `ordersService.updateOrder`.
-
-            // So yes, `OrderActions` replaces the need to call `updateOrderLocal` for DB updates.
-            // But we lose the local state update that `useOrders` might be doing (if it manages state).
-            // `useOrders` usually manages `orders` state.
-
-            // If `OrderActions` is the new way, `useOrderActions` should probably take a `onSuccess` callback or similar,
-            // or we just use `refreshOrders`.
-
-            // Let's use `refreshOrders` for correctness.
-            // If the user notices a slowdown, we can optimize later.
-            // But wait, `updateOrderLocal` is passed in.
-            // Maybe we can pass `updateOrderLocal` to `OrderActions`? No, `OrderActions` is pure logic.
-
-            // Let's look at `OrderActions` again. It calls `updateOrder` service.
-            // So `OrderActions` persists.
-
-            // I will replace `updateOrderLocal` calls with `OrderActions` calls, and then `refreshOrders()`.
-            // This ensures data consistency.
-
-            // Exception: `handleProductCorrection` used `updateOrderLocal`.
-
-            await refreshOrders();
-            showSuccess('Order approved. Confirmation sent via Zalo (Simulated).');
         } catch (err) {
             showError('Failed to approve order.');
         }
-    }, [user, refreshOrders, showSuccess, showError]);
+    }, [user, updateOrderLocal, showSuccess, showError]);
 
     // 2. SHOP ACTION: Reject / Verification Required
-    const handleConfirmReject = useCallback(async (order: Order, reason: string, mode: 'VERIFICATION_REQUIRED' | 'ORDER_REJECTED') => {
+    const handleConfirmReject = useCallback(async (order: Order, reason: string, mode: 'VERIFICATION_REQUIRED' | 'ORDER_REJECTED', onSuccess?: () => void) => {
         if (!user) return;
         try {
-            if (mode === 'VERIFICATION_REQUIRED') {
-                await OrderActions.flagVerification(order, reason, user.id);
-                showSuccess('Order flagged for verification.');
-            } else {
-                await OrderActions.rejectOrder(order, reason, user.id);
-                showSuccess('Order rejected.');
-            }
-            await refreshOrders();
+            const nextStatus = mode === 'VERIFICATION_REQUIRED' ? ORDER_STATUS.VERIFICATION_REQUIRED : ORDER_STATUS.ORDER_REJECTED;
+            const updateData: any = { status: nextStatus };
+
+            if (mode === 'VERIFICATION_REQUIRED') updateData.verification_reason = reason;
+            else updateData.reject_reason = reason;
+
+            await updateOrderLocal(order.id, updateData);
+            await logOrderEvent(order.id, mode, { reason }, 'manual_action');
+
+            showSuccess(mode === 'VERIFICATION_REQUIRED' ? 'Order flagged for verification.' : 'Order rejected.');
+            if (onSuccess) onSuccess();
         } catch (err) { showError('Failed to update order.'); }
-    }, [user, refreshOrders, showSuccess, showError]);
+    }, [user, updateOrderLocal, showSuccess, showError]);
 
-    // 3. SIMULATION: Customer Confirms
-    const handleSimulateConfirmed = useCallback(async (order: Order) => {
+    // 3. CUSTOMER CONFIRMED (Create Invoice + Send QR)
+    const handleSimulateConfirmed = useCallback(async (order: Order, onSuccess?: () => void) => {
         if (!user) return;
         try {
-            await OrderActions.simulateConfirmed(order, user.id);
-            await refreshOrders();
-            showSuccess('Simulated: Customer confirmed. Invoice created & QR Code sent.');
+            const now = new Date().toISOString();
+
+            // 1. Create Pending Invoice (Important for COD flow)
+            await ensurePendingInvoiceForOrder({ ...order, status: ORDER_STATUS.CUSTOMER_CONFIRMED });
+
+            // 2. Update Status
+            await updateOrderLocal(order.id, {
+                status: ORDER_STATUS.CUSTOMER_CONFIRMED,
+                customer_confirmed_at: now
+            });
+
+            // 3. Log event
+            await logOrderEvent(order.id, 'CUSTOMER_CONFIRMED', { method: 'simulation' }, 'simulation');
+            await logOrderEvent(order.id, 'QR_SENT', { desc: 'Auto sent after confirmation' }, 'simulation');
+
+            showSuccess('Customer Confirmed. Invoice Created. QR Sent.');
+            if (onSuccess) onSuccess();
         } catch (e) { showError('Simulation failed.'); }
-    }, [user, refreshOrders, showSuccess, showError]);
+    }, [user, updateOrderLocal, showSuccess, showError]);
 
-    // 4. SIMULATION: Customer Cancels
-    const handleSimulateCancelled = useCallback(async (order: Order) => {
+    // 4. CUSTOMER CANCELLED
+    const handleSimulateCancelled = useCallback(async (order: Order, reason: string, onSuccess?: () => void) => {
         if (!user) return;
         try {
-            await OrderActions.simulateCancelled(order, user.id);
-            await refreshOrders();
-            showSuccess('Simulated: Customer cancelled order.');
+            await updateOrderLocal(order.id, {
+                status: ORDER_STATUS.CUSTOMER_CANCELLED,
+                cancelled_at: new Date().toISOString(),
+                cancel_reason: reason || 'Simulated cancellation'
+            });
+            await logOrderEvent(order.id, 'CUSTOMER_CANCELLED', { reason }, 'simulation');
+            showSuccess('Order Cancelled by Customer.');
+            if (onSuccess) onSuccess();
         } catch (e) { showError('Simulation failed.'); }
-    }, [user, refreshOrders, showSuccess, showError]);
+    }, [user, updateOrderLocal, showSuccess, showError]);
 
-    // 5. SIMULATION: Customer Pays
-    const handleSimulatePaid = useCallback(async (order: Order) => {
+    // 5. SIMULATE PAID (QR Scanned / COD Received)
+    const handleSimulatePaid = useCallback(async (order: Order, onSuccess?: () => void) => {
         if (!user) return;
         try {
-            await OrderActions.simulatePaid(order, user.id);
-            await refreshOrders();
-            showSuccess('Payment received! Invoice marked as Paid.');
+            // 1. Update Invoice -> Paid (Always)
+            await markInvoicePaidForOrder(order);
+
+            // 2. Logic: Only update status to ORDER_PAID if NOT currently Delivering or Completed
+            // If delivering/completed, we just record payment but keep logistics status
+            const currentStatus = order.status;
+            let nextStatus = currentStatus;
+
+            if (currentStatus !== ORDER_STATUS.DELIVERING && currentStatus !== ORDER_STATUS.COMPLETED) {
+                nextStatus = ORDER_STATUS.ORDER_PAID;
+            }
+
+            await updateOrderLocal(order.id, {
+                status: nextStatus,
+                paid_at: new Date().toISOString()
+            });
+
+            await logUserAction({
+                userId: user.id,
+                action: 'Mark Paid',
+                status: 'success',
+                orderId: order.order_id ?? "",
+                details: { from: currentStatus, to: nextStatus }
+            });
+
+            showSuccess('Payment Received. Invoice Updated.');
+            if (onSuccess) onSuccess();
         } catch (e) { showError('Payment simulation failed.'); }
-    }, [user, refreshOrders, showSuccess, showError]);
+    }, [user, updateOrderLocal, showSuccess, showError]);
 
-    // 6. FULFILLMENT: Delivering
-    const handleMarkShipped = useCallback(async (order: Order) => {
+    // 6. SEND QR LINK MANUALLY (For Low Risk)
+    const handleSendQrLink = useCallback(async (order: Order, onSuccess?: () => void) => {
         if (!user) return;
         try {
-            await OrderActions.markShipped(order, user.id);
-            await refreshOrders();
+            await logOrderEvent(order.id, 'QR_PAYMENT_LINK_SENT', { manual: true }, 'manual_action');
+            // Optimistic update to trigger UI re-render if needed (e.g. tracking qr_sent_at)
+            await updateOrderLocal(order.id, { qr_sent_at: new Date().toISOString() });
+
+            showSuccess('QR Payment Link Sent.');
+            if (onSuccess) onSuccess();
+        } catch (e) { showError('Failed to send QR link.'); }
+    }, [user, updateOrderLocal, showSuccess, showError]);
+
+    // 7. FULFILLMENT: Delivering
+    const handleMarkShipped = useCallback(async (order: Order, onSuccess?: () => void) => {
+        if (!user) return;
+        try {
+            await updateOrderLocal(order.id, {
+                status: ORDER_STATUS.DELIVERING,
+                shipped_at: new Date().toISOString(),
+            });
+            await logOrderEvent(order.id, 'ORDER_SHIPPED', {}, 'fulfillment');
             showSuccess('Order marked as Delivering.');
+            if (onSuccess) onSuccess();
         } catch (err) { showError('Failed to update status.'); }
-    }, [user, refreshOrders, showSuccess, showError]);
+    }, [user, updateOrderLocal, showSuccess, showError]);
 
-    // 7. FULFILLMENT: Completed
-    const handleMarkCompleted = useCallback(async (order: Order) => {
+    // 8. FULFILLMENT: Completed
+    const handleMarkCompleted = useCallback(async (order: Order, onSuccess?: () => void) => {
         if (!user) return;
         try {
-            await OrderActions.markCompleted(order, user.id);
-            await refreshOrders();
+            await updateOrderLocal(order.id, {
+                status: ORDER_STATUS.COMPLETED,
+                completed_at: new Date().toISOString(),
+            });
+            await logOrderEvent(order.id, 'ORDER_COMPLETED', {}, 'fulfillment');
             showSuccess('Order marked as Completed.');
+            if (onSuccess) onSuccess();
         } catch (err) { showError('Failed to complete order.'); }
-    }, [user, refreshOrders, showSuccess, showError]);
+    }, [user, updateOrderLocal, showSuccess, showError]);
 
-    // 8. PRODUCT CORRECTION
+    // 9. PRODUCT CORRECTION
     const handleProductCorrection = useCallback(async (order: Order, productId: string, productName: string) => {
         if (!user) return;
         try {
-            await OrderActions.updateProduct(order, productId, productName, user.id);
-            await refreshOrders();
+            const previousData = { product: order.product || 'N/A' };
+            const updateData = { product: productName };
+            const changes = generateChanges(previousData, updateData);
+
+            await updateOrderLocal(order.id, { product_id: productId });
+
+            await logUserAction({
+                userId: user.id,
+                action: 'Update Order Product',
+                status: 'success',
+                orderId: order.order_id ?? "",
+                details: Object.keys(changes).length > 0 ? changes : null,
+            });
+
             showSuccess('Product updated successfully!');
         } catch (err) {
             showError('Failed to update product.');
         }
-    }, [user, refreshOrders, showSuccess, showError]);
+    }, [user, updateOrderLocal, showSuccess, showError]);
 
-    // 9. DELETE ORDERS
+    // 10. DELETE ORDERS
     const handleDeleteOrders = useCallback(async (orderIds: string[], ordersToDelete: Order[]) => {
         if (!user || orderIds.length === 0) return;
         try {
-            await OrderActions.deleteOrdersAction(orderIds, ordersToDelete, user.id);
+            const { error: deleteError } = await deleteOrders(user.id, orderIds);
+            if (deleteError) throw deleteError;
+
+            try {
+                await deleteInvoicesByOrderIds(user.id, orderIds);
+            } catch (invoiceError) {
+                console.error("Failed to delete related invoices", invoiceError);
+            }
+
+            const logPromises = ordersToDelete.map(order =>
+                logUserAction({
+                    userId: user.id,
+                    action: 'Delete Order',
+                    status: 'success',
+                    orderId: order.order_id ?? "",
+                })
+            );
+            await Promise.all(logPromises);
+
             await refreshOrders();
             showSuccess(`Successfully deleted ${orderIds.length} order${orderIds.length > 1 ? 's' : ''}!`);
         } catch (err) {
@@ -191,6 +252,7 @@ export const useOrderActions = (
         handleSimulateConfirmed,
         handleSimulateCancelled,
         handleSimulatePaid,
+        handleSendQrLink,
         handleMarkShipped,
         handleMarkCompleted,
         handleProductCorrection,
