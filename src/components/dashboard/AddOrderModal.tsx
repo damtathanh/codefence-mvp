@@ -196,8 +196,8 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
             <button
               onClick={() => setActiveTab("manual")}
               className={`px-4 py-2 text-sm ${activeTab === "manual"
-                  ? "text-[#8B5CF6] border-b-2 border-[#8B5CF6]"
-                  : "text-[#E5E7EB]/70 hover:text-[#E5E7EB]"
+                ? "text-[#8B5CF6] border-b-2 border-[#8B5CF6]"
+                : "text-[#E5E7EB]/70 hover:text-[#E5E7EB]"
                 }`}
             >
               <FileText size={16} className="inline mr-2" />
@@ -206,8 +206,8 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
             <button
               onClick={() => setActiveTab("upload")}
               className={`px-4 py-2 text-sm ${activeTab === "upload"
-                  ? "text-[#8B5CF6] border-b-2 border-[#8B5CF6]"
-                  : "text-[#E5E7EB]/70 hover:text-[#E5E7EB]"
+                ? "text-[#8B5CF6] border-b-2 border-[#8B5CF6]"
+                : "text-[#E5E7EB]/70 hover:text-[#E5E7EB]"
                 }`}
             >
               <Upload size={16} className="inline mr-2" />
@@ -278,14 +278,53 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
                 </div>
               </div>
 
+              {/* 📄 Template Requirements – 2 cột */}
+              <div className="rounded-xl border border-[#1E223D] bg-white/5 p-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
+                  <div>
+                    <h4 className="mb-2 font-semibold text-[#E5E7EB]">
+                      Order Template Format
+                    </h4>
+                    <ul className="list-disc list-inside space-y-1 text-[#E5E7EB]/80">
+                      <li>Order ID</li>
+                      <li>Customer Name</li>
+                      <li>Phone Number</li>
+                      <li>Gender</li>
+                      <li>Birthyear</li>
+                      <li>Address Detail</li>
+                      <li>Ward</li>
+                      <li>District</li>
+                      <li>Province</li>
+                    </ul>
+                  </div>
+
+                  {/* RIGHT: Product template */}
+                  <div>
+                    <h4 className="mb-2 font-semibold text-[#E5E7EB]">
+                      Order Template Format
+                    </h4>
+                    <ul className="list-disc list-inside space-y-1 text-[#E5E7EB]/80">
+                      <li>Product</li>
+                      <li>Amount (VND)</li>
+                      <li>Payment Method</li>
+                      <li>Discount</li>
+                      <li>Shipping Fee</li>
+                      <li>Channel</li>
+                      <li>Source</li>
+                      <li>Order Date</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
               {/* Message */}
               {message && (
                 <div
                   className={`flex items-start gap-3 p-4 rounded-lg text-sm border ${uploadStatus === "error"
-                      ? "bg-red-500/10 border-red-500/20 text-red-200"
-                      : uploadStatus === "success"
-                        ? "bg-green-500/10 border-green-500/20 text-green-200"
-                        : "bg-blue-500/10 border-blue-500/20 text-blue-200"
+                    ? "bg-red-500/10 border-red-500/20 text-red-200"
+                    : uploadStatus === "success"
+                      ? "bg-green-500/10 border-green-500/20 text-green-200"
+                      : "bg-blue-500/10 border-blue-500/20 text-blue-200"
                     }`}
                 >
                   {uploadStatus === "error" && (

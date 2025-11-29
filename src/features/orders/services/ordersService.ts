@@ -19,7 +19,6 @@ export interface InsertOrderPayload {
   order_id: string;
   customer_name: string;
   phone: string;
-  address: string | null;
   product_id: string | null;
   product: string;
   amount: number;
@@ -53,7 +52,6 @@ export interface UpdateOrderPayload {
   completed_at?: string | null;
   verification_reason?: string | null;
   reject_reason?: string | null;
-  address?: string | null;
   address_detail?: string | null;
   ward?: string | null;
   district?: string | null;

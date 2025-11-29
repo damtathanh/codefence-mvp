@@ -6,6 +6,7 @@ import { OrderTable } from './OrderTable';
 import { OrderSidePanel } from './OrderSidePanel';
 import { FilterBar } from '../../../components/ui/FilterBar';
 import { Button } from '../../../components/ui/Button';
+import { Card, CardHeader, CardTitle, CardContent } from '../../../components/ui/Card';
 import { MultiSelectFilter } from '../../../components/filters/MultiSelectFilter';
 import { Plus, Search } from 'lucide-react';
 import { Input } from '../../../components/ui/Input';
@@ -181,7 +182,6 @@ export const OrdersView: React.FC = () => {
                 ward,
                 district,
                 province,
-                address: fullAddress,
             });
             showSuccess('Address updated successfully');
             setIsAddressModified(false);
@@ -712,7 +712,7 @@ export const OrdersView: React.FC = () => {
             </FilterBar>
 
             {/* Table occupies full remaining space */}
-            <div className="flex-1 min-h-0">
+            <Card className="flex-1 flex flex-col min-h-0">
                 <OrderTable
                     orders={orders}
                     filteredOrders={filteredOrders}
@@ -742,8 +742,7 @@ export const OrdersView: React.FC = () => {
                     onDelete={() => handleDeleteAllClick()}
                     loading={loading}
                 />
-            </div>
-
+            </Card>
 
             {/* Side Panel */}
             <OrderSidePanel

@@ -81,6 +81,9 @@ export interface RiskInput {
   amountVnd: number;
   phone: string;
   address?: string | null;
+  addressDetail?: string | null;
+  ward?: string | null;
+  district?: string | null;
   pastOrders: { status: string | null }[];
   productName?: string | null;
   zaloExists?: boolean;

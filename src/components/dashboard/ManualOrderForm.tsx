@@ -138,28 +138,15 @@ export const ManualOrderForm: React.FC<ManualOrderFormProps> = ({
                     order_id: editingOrder.order_id || '',
                     customer_name: editingOrder.customer_name || '',
                     phone: editingOrder.phone || '',
-                    address: editingOrder.address || '',
                     product: previousProduct?.name || editingOrder.product || 'N/A',
                     amount: editingOrder.amount || 0,
                     payment_method: editingOrder.payment_method || 'COD',
                 };
 
-                const fullAddress = [
-                    formData.address_detail,
-                    formData.ward,
-                    formData.district,
-                    formData.province,
-                ]
-                    .filter(Boolean)
-                    .map((s) => s?.trim())
-                    .filter((s) => s && s.length > 0)
-                    .join(', ');
-
                 const updateData = {
                     order_id: formData.order_id?.trim() || '',
                     customer_name: formData.customer_name?.trim() || '',
                     phone: formData.phone?.trim() || '',
-                    address: fullAddress,
                     product: newProduct?.name || 'N/A',
                     amount: numericAmount,
                     payment_method: formData.payment_method || 'COD',
@@ -178,7 +165,6 @@ export const ManualOrderForm: React.FC<ManualOrderFormProps> = ({
                         order_id: formData.order_id?.trim() || '',
                         customer_name: formData.customer_name?.trim() || '',
                         phone: formData.phone?.trim() || '',
-                        address: fullAddress || null,
                         address_detail: formData.address_detail?.trim() || null,
                         ward: formData.ward?.trim() || null,
                         district: formData.district?.trim() || null,
@@ -217,22 +203,10 @@ export const ManualOrderForm: React.FC<ManualOrderFormProps> = ({
                 );
                 const productName = selectedProduct?.name || '';
 
-                const fullAddress = [
-                    formData.address_detail,
-                    formData.ward,
-                    formData.district,
-                    formData.province,
-                ]
-                    .filter(Boolean)
-                    .map((s) => s?.trim())
-                    .filter((s) => s && s.length > 0)
-                    .join(', ');
-
                 const orderData: OrderInputWithProductId = {
                     order_id: formData.order_id || '',
                     customer_name: formData.customer_name || '',
                     phone: formData.phone || '',
-                    address: fullAddress || null,
                     address_detail: formData.address_detail || null,
                     ward: formData.ward || null,
                     district: formData.district || null,
@@ -277,7 +251,6 @@ export const ManualOrderForm: React.FC<ManualOrderFormProps> = ({
                                 paymentMethod: 'COD',
                                 amountVnd: numericAmount,
                                 phone: orderData.phone,
-                                address: orderData.address,
                                 pastOrders: pastOrders || [],
                                 productName: productName,
                             };
@@ -310,7 +283,6 @@ export const ManualOrderForm: React.FC<ManualOrderFormProps> = ({
                         order_id: orderData.order_id,
                         customer_name: orderData.customer_name,
                         phone: orderData.phone,
-                        address: orderData.address,
                         address_detail: orderData.address_detail,
                         ward: orderData.ward,
                         district: orderData.district,

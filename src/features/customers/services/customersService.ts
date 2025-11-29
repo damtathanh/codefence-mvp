@@ -6,7 +6,7 @@ import type { RiskLevel } from "../../../utils/riskEngine";
 
 export interface CustomerStats {
   phone: string;
-  lastName: string | null;
+  fullName: string | null;
   totalOrders: number;
   successCount: number;
   failedCount: number;
@@ -21,14 +21,6 @@ function mapScoreToLevel(score: number | null): RiskLevel {
   if (score <= 30) return "low";
   if (score <= 70) return "medium";
   return "high";
-}
-
-
-
-function extractLastName(fullName: string | null | undefined): string | null {
-  if (!fullName) return null;
-  const parts = fullName.trim().split(/\s+/);
-  return parts.length ? parts[parts.length - 1] : null;
 }
 
 const SUCCESS_STATUSES = new Set<string>([
@@ -112,7 +104,7 @@ export async function fetchCustomerStatsForUser(userId: string) {
     const codRiskScores: number[] = [];
 
     let lastOrderAt: string | null = null;
-    let lastName: string | null = null;
+    let fullName: string | null = null;
 
     // First pass: basic stats and collect COD scores
     for (const order of orders) {
@@ -133,7 +125,7 @@ export async function fetchCustomerStatsForUser(userId: string) {
 
       if (!lastOrderAt || (createdAt && createdAt > lastOrderAt)) {
         lastOrderAt = createdAt;
-        lastName = extractLastName(order.customer_name ?? null);
+        fullName = order.customer_name ?? null;
       }
     }
 
@@ -192,7 +184,7 @@ export async function fetchCustomerStatsForUser(userId: string) {
 
     customers.push({
       phone,
-      lastName,
+      fullName,
       totalOrders,
       successCount,
       failedCount,

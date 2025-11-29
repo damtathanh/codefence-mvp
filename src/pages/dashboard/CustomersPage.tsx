@@ -121,7 +121,7 @@ export const CustomersPage: React.FC = () => {
     if (!term) return stats;
     return stats.filter((c) =>
       c.phone.toLowerCase().includes(term) ||
-      (c.lastName || "").toLowerCase().includes(term)
+      (c.fullName || "").toLowerCase().includes(term)
     );
   }, [stats, search]);
 
@@ -158,10 +158,6 @@ export const CustomersPage: React.FC = () => {
 
       {/* Table */}
       <Card className="flex-1 flex flex-col min-h-0 mt-6">
-        <CardHeader className="!pt-4 !pb-1 !px-6 flex-shrink-0">
-          <CardTitle>Customers</CardTitle>
-        </CardHeader>
-
         <CardContent className="flex-1 min-h-0 overflow-y-auto p-0">
           {loading ? (
             <div className="flex items-center justify-center h-full">
@@ -177,7 +173,7 @@ export const CustomersPage: React.FC = () => {
                 <thead>
                   <tr className="border-b border-[#1E223D]">
                     <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Phone</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Last Name</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Name</th>
                     <th className="px-6 py-3 text-center text-sm font-semibold text-[#E5E7EB]">Total Orders</th>
                     <th className="px-6 py-3 text-center text-sm font-semibold text-[#E5E7EB]">Success</th>
                     <th className="px-6 py-3 text-center text-sm font-semibold text-[#E5E7EB]">Failed</th>
@@ -195,7 +191,7 @@ export const CustomersPage: React.FC = () => {
                       onClick={() => handleRowClick(c)}
                     >
                       <td className="px-6 py-4 text-sm text-[#E5E7EB]">{c.phone}</td>
-                      <td className="px-6 py-4 text-sm text-[#E5E7EB]">{c.lastName || "—"}</td>
+                      <td className="px-6 py-4 text-sm text-[#E5E7EB]">{c.fullName || "—"}</td>
                       <td className="px-6 py-4 text-sm text-center">{c.totalOrders}</td>
                       <td className="px-6 py-4 text-sm text-emerald-400 text-center">{c.successCount}</td>
                       <td className="px-6 py-4 text-sm text-red-400 text-center">{c.failedCount}</td>
