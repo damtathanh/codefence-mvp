@@ -5,7 +5,7 @@ import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { PrimaryActionButton } from '../../components/dashboard/PrimaryActionButton';
 import { FilterBar } from '../../components/ui/FilterBar';
-import { StatusBadge } from '../../components/ui/StatusBadge';
+import { StatusBadge } from '../../components/dashboard/StatusBadge';
 import { MultiSelectFilter } from '../../components/filters/MultiSelectFilter';
 import { Pagination } from '../../features/products/components/Pagination';
 import { ConfirmModal } from '../../components/ui/ConfirmModal';

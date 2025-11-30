@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertTriangle, ChevronDown, Edit, CheckCircle, XCircle, Trash2 } from 'lucide-react';
 import { Button } from '../../../components/ui/Button';
-import { StatusBadge } from '../../../components/ui/StatusBadge';
+import { StatusBadge } from '../../../components/dashboard/StatusBadge';
 import { RiskBadge } from '../../../components/dashboard/RiskBadge';
 import type { Order } from '../../../types/supabase';
 import type { SimpleProduct } from '../../products/services/productsService';

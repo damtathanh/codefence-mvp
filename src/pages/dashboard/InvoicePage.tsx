@@ -4,7 +4,7 @@ import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { FilterBar } from '../../components/ui/FilterBar';
 import { MultiSelectFilter } from '../../components/filters/MultiSelectFilter';
-import { StatusBadge } from '../../components/ui/StatusBadge';
+import { StatusBadge } from '../../components/dashboard/StatusBadge';
 import { Download, Search } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient';
 import { useAuth } from '../../features/auth';

@@ -3,7 +3,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Ca
 import { Input } from '../../components/ui/Input';
 import { FilterBar } from '../../components/ui/FilterBar';
 import { MultiSelectFilter } from '../../components/filters/MultiSelectFilter';
-import { StatusBadge } from '../../components/ui/StatusBadge';
+import { StatusBadge } from '../../components/dashboard/StatusBadge';
 import { useSupabaseTable } from '../../hooks/useSupabaseTable';
 import { useAuth } from '../../features/auth';
 import { formatToGMT7 } from '../../utils/formatTimezone';
