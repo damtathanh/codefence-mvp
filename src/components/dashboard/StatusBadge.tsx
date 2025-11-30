@@ -14,7 +14,7 @@ const shortLabelMap: Record<string, string> = {
   "Delivering": "Delivering",
   "Completed": "Completed",
   "Order Approved": "Approved",
-  "Returned": "Returned",
+  "Returned": "Return ed",
   "Exchanged": "Exchanged"
 };
 

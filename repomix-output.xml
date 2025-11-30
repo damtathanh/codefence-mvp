@@ -17873,208 +17873,6 @@ export const OrderTable: React.FC<OrderTableProps> = ({
 };
 </file>
 
-<file path="src/features/orders/hooks/useOrderActions.ts">
-import { useCallback } from 'react';
-import { useAuth } from '../../auth';
-import { useToast } from '../../../components/ui/Toast';
-import type { Order } from '../../../types/supabase';
-import { OrderActions } from '../application/orderActions';
-
-export const useOrderActions = (
-    updateOrderLocal: (orderId: string, updates: Partial<Order>) => Promise<boolean>,
-    refreshOrders: () => Promise<void>
-) => {
-    const { user } = useAuth();
-    const { showSuccess, showError } = useToast();
-
-    // 1. SHOP ACTION: Approve (Send Zalo Confirmation)
-    const handleApprove = useCallback(async (order: Order) => {
-        if (!user) return;
-        try {
-            await OrderActions.approveOrder(order, user.id);
-            // We still need to update local state to reflect changes immediately if possible, 
-            // but updateOrderLocal is passed in.
-            // OrderActions calls updateOrder service which updates DB.
-            // updateOrderLocal updates UI state.
-            // We should probably call updateOrderLocal with the changes we expect.
-            // Or rely on refreshOrders.
-            // The original code called updateOrderLocal.
-            // Let's keep calling updateOrderLocal for optimistic/immediate feedback if the hook consumer expects it.
-            // However, OrderActions doesn't return the updated order.
-            // But we know what we changed.
-
-            // Actually, updateOrderLocal in the original code called the service AND updated local state?
-            // Let's check the signature. It returns Promise<boolean>.
-            // Usually passed from OrdersView -> useOrders -> updateOrder (which calls service).
-            // If we move service calls to OrderActions, then updateOrderLocal might be redundant for the DB call part,
-            // but we still need it for local state update.
-
-            // Wait, if `updateOrderLocal` calls the service, and `OrderActions` ALSO calls the service, we have a double call.
-            // The goal is: "Move business logic out of UI hooks/components into these application functions".
-            // So `useOrderActions` should call `OrderActions`.
-            // `OrderActions` calls `ordersService`.
-            // So `updateOrderLocal` should ONLY update local state?
-            // Or `useOrderActions` should NOT use `updateOrderLocal` for DB calls anymore.
-
-            // But `updateOrderLocal` is passed as an argument.
-            // If the caller (OrdersView) expects `updateOrderLocal` to persist data, then we have a conflict if we also persist in `OrderActions`.
-
-            // Let's look at how `updateOrderLocal` is implemented in `OrdersView` or `useOrders`.
-            // Typically `const { updateOrder } = useOrders()`.
-            // `updateOrder` in `useOrders` calls `ordersService.updateOrder` AND updates local state.
-
-            // If we switch to `OrderActions`, we are bypassing `useOrders.updateOrder`.
-            // So we need to refresh data or manually update local state.
-            // `refreshOrders` is passed in.
-
-            // Strategy: Call `OrderActions` (DB update), then `refreshOrders` (or `updateOrderLocal` if it supports optimistic only).
-            // But `updateOrderLocal` likely does DB update.
-
-            // Let's assume for this refactor that we should use `OrderActions` for the logic.
-            // And we might need to trigger a refresh.
-            // The original code used `updateOrderLocal` which likely did both.
-
-            // If I change `handleApprove` to use `OrderActions.approveOrder`, I am doing the DB update there.
-            // I should NOT call `updateOrderLocal` if it also does DB update.
-            // Instead, I should call `refreshOrders()` to get the latest state.
-            // OR, if I want to keep optimistic updates, I need a way to update local state without DB call.
-
-            // Given the constraints "The app should behave identically", removing optimistic updates might be a regression if `refreshOrders` is slow.
-            // However, `updateOrderLocal` was passed in.
-
-            // Let's check `useOrders.ts` (I have it open).
-            // `updateOrder` in `useOrders` calls `ordersService.updateOrder`.
-
-            // So yes, `OrderActions` replaces the need to call `updateOrderLocal` for DB updates.
-            // But we lose the local state update that `useOrders` might be doing (if it manages state).
-            // `useOrders` usually manages `orders` state.
-
-            // If `OrderActions` is the new way, `useOrderActions` should probably take a `onSuccess` callback or similar,
-            // or we just use `refreshOrders`.
-
-            // Let's use `refreshOrders` for correctness.
-            // If the user notices a slowdown, we can optimize later.
-            // But wait, `updateOrderLocal` is passed in.
-            // Maybe we can pass `updateOrderLocal` to `OrderActions`? No, `OrderActions` is pure logic.
-
-            // Let's look at `OrderActions` again. It calls `updateOrder` service.
-            // So `OrderActions` persists.
-
-            // I will replace `updateOrderLocal` calls with `OrderActions` calls, and then `refreshOrders()`.
-            // This ensures data consistency.
-
-            // Exception: `handleProductCorrection` used `updateOrderLocal`.
-
-            await refreshOrders();
-            showSuccess('Order approved. Confirmation sent via Zalo (Simulated).');
-        } catch (err) {
-            showError('Failed to approve order.');
-        }
-    }, [user, refreshOrders, showSuccess, showError]);
-
-    // 2. SHOP ACTION: Reject / Verification Required
-    const handleConfirmReject = useCallback(async (order: Order, reason: string, mode: 'VERIFICATION_REQUIRED' | 'ORDER_REJECTED') => {
-        if (!user) return;
-        try {
-            if (mode === 'VERIFICATION_REQUIRED') {
-                await OrderActions.flagVerification(order, reason, user.id);
-                showSuccess('Order flagged for verification.');
-            } else {
-                await OrderActions.rejectOrder(order, reason, user.id);
-                showSuccess('Order rejected.');
-            }
-            await refreshOrders();
-        } catch (err) { showError('Failed to update order.'); }
-    }, [user, refreshOrders, showSuccess, showError]);
-
-    // 3. SIMULATION: Customer Confirms
-    const handleSimulateConfirmed = useCallback(async (order: Order) => {
-        if (!user) return;
-        try {
-            await OrderActions.simulateConfirmed(order, user.id);
-            await refreshOrders();
-            showSuccess('Simulated: Customer confirmed. Invoice created & QR Code sent.');
-        } catch (e) { showError('Simulation failed.'); }
-    }, [user, refreshOrders, showSuccess, showError]);
-
-    // 4. SIMULATION: Customer Cancels
-    const handleSimulateCancelled = useCallback(async (order: Order) => {
-        if (!user) return;
-        try {
-            await OrderActions.simulateCancelled(order, user.id);
-            await refreshOrders();
-            showSuccess('Simulated: Customer cancelled order.');
-        } catch (e) { showError('Simulation failed.'); }
-    }, [user, refreshOrders, showSuccess, showError]);
-
-    // 5. SIMULATION: Customer Pays
-    const handleSimulatePaid = useCallback(async (order: Order) => {
-        if (!user) return;
-        try {
-            await OrderActions.simulatePaid(order, user.id);
-            await refreshOrders();
-            showSuccess('Payment received! Invoice marked as Paid.');
-        } catch (e) { showError('Payment simulation failed.'); }
-    }, [user, refreshOrders, showSuccess, showError]);
-
-    // 6. FULFILLMENT: Delivering
-    const handleMarkShipped = useCallback(async (order: Order) => {
-        if (!user) return;
-        try {
-            await OrderActions.markShipped(order, user.id);
-            await refreshOrders();
-            showSuccess('Order marked as Delivering.');
-        } catch (err) { showError('Failed to update status.'); }
-    }, [user, refreshOrders, showSuccess, showError]);
-
-    // 7. FULFILLMENT: Completed
-    const handleMarkCompleted = useCallback(async (order: Order) => {
-        if (!user) return;
-        try {
-            await OrderActions.markCompleted(order, user.id);
-            await refreshOrders();
-            showSuccess('Order marked as Completed.');
-        } catch (err) { showError('Failed to complete order.'); }
-    }, [user, refreshOrders, showSuccess, showError]);
-
-    // 8. PRODUCT CORRECTION
-    const handleProductCorrection = useCallback(async (order: Order, productId: string, productName: string) => {
-        if (!user) return;
-        try {
-            await OrderActions.updateProduct(order, productId, productName, user.id);
-            await refreshOrders();
-            showSuccess('Product updated successfully!');
-        } catch (err) {
-            showError('Failed to update product.');
-        }
-    }, [user, refreshOrders, showSuccess, showError]);
-
-    // 9. DELETE ORDERS
-    const handleDeleteOrders = useCallback(async (orderIds: string[], ordersToDelete: Order[]) => {
-        if (!user || orderIds.length === 0) return;
-        try {
-            await OrderActions.deleteOrdersAction(orderIds, ordersToDelete, user.id);
-            await refreshOrders();
-            showSuccess(`Successfully deleted ${orderIds.length} order${orderIds.length > 1 ? 's' : ''}!`);
-        } catch (err) {
-            showError('Failed to delete orders.');
-        }
-    }, [user, refreshOrders, showSuccess, showError]);
-
-    return {
-        handleApprove,
-        handleConfirmReject,
-        handleSimulateConfirmed,
-        handleSimulateCancelled,
-        handleSimulatePaid,
-        handleMarkShipped,
-        handleMarkCompleted,
-        handleProductCorrection,
-        handleDeleteOrders
-    };
-};
-</file>
-
 <file path="src/hooks/useUserProfile.tsx">
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../lib/supabaseClient";
@@ -18935,7 +18733,7 @@ const shortLabelMap: Record<string, string> = {
   "Delivering": "Delivering",
   "Completed": "Completed",
   "Order Approved": "Approved",
-  "Returned": "Returned",
+  "Returned": "Return ed",
   "Exchanged": "Exchanged"
 };
 
@@ -20304,6 +20102,270 @@ function buildRevenueDashboard(orders: Order[], aggregation: AggregationMode): R
             ),
         }));
 }
+</file>
+
+<file path="src/features/orders/hooks/useOrderActions.ts">
+import { useCallback } from 'react';
+import { useAuth } from '../../auth';
+import { useToast } from '../../../components/ui/Toast';
+import type { Order } from '../../../types/supabase';
+import { zaloGateway } from '../../zalo';
+import { logUserAction } from '../../../utils/logUserAction';
+import { generateChanges } from '../../../utils/generateChanges';
+import { logOrderEvent } from '../services/orderEventsService';
+import { deleteOrders } from '../services/ordersService';
+import { deleteInvoicesByOrderIds, ensurePendingInvoiceForOrder, markInvoicePaidForOrder } from '../../invoices/services/invoiceService';
+import { ORDER_STATUS } from '../../../constants/orderStatus';
+
+export const useOrderActions = (
+    updateOrderLocal: (orderId: string, updates: Partial<Order>) => Promise<boolean>,
+    refreshOrders: () => Promise<void>
+) => {
+    const { user } = useAuth();
+    const { showSuccess, showError, showInfo } = useToast();
+
+    // 1. SHOP ACTION: Approve (High/Medium Risk -> Confirmation Sent)
+    // Logic: Medium/High Risk approved -> Send Zalo confirmation immediately.
+    const handleApprove = useCallback(async (order: Order, onSuccess?: () => void) => {
+        if (!user) return;
+        try {
+            // Optional: Zalo confirmation trigger
+            await zaloGateway.sendConfirmation(order);
+
+            const now = new Date().toISOString();
+
+            // 1️⃣ Log the "Order Approved" event (even if status does not stay on APPROVED)
+            await logOrderEvent(order.id, 'ORDER_APPROVED', {}, 'manual_action');
+
+            // 2️⃣ Update to ORDER_CONFIRMATION_SENT (final status)
+            await updateOrderLocal(order.id, {
+                status: ORDER_STATUS.ORDER_CONFIRMATION_SENT,
+                confirmation_sent_at: now
+            });
+
+            // 3️⃣ Log the "order confirmation sent" event
+            await logOrderEvent(
+                order.id,
+                'ORDER_CONFIRMATION_SENT',
+                { via: 'zalo' },
+                'system'
+            );
+
+            // 4️⃣ User action log
+            await logUserAction({
+                userId: user.id,
+                action: 'Approve Order',
+                status: 'success',
+                orderId: order.order_id ?? "",
+            });
+
+            showSuccess('Order approved & confirmation sent.');
+            if (onSuccess) onSuccess();
+
+        } catch (err) {
+            showError('Failed to approve order.');
+        }
+    }, [user, updateOrderLocal, showSuccess, showError]);
+
+    // 2. SHOP ACTION: Reject / Verification Required
+    const handleConfirmReject = useCallback(async (order: Order, reason: string, mode: 'VERIFICATION_REQUIRED' | 'ORDER_REJECTED', onSuccess?: () => void) => {
+        if (!user) return;
+        try {
+            const nextStatus = mode === 'VERIFICATION_REQUIRED' ? ORDER_STATUS.VERIFICATION_REQUIRED : ORDER_STATUS.ORDER_REJECTED;
+            const updateData: any = { status: nextStatus };
+
+            if (mode === 'VERIFICATION_REQUIRED') updateData.verification_reason = reason;
+            else updateData.reject_reason = reason;
+
+            await updateOrderLocal(order.id, updateData);
+            await logOrderEvent(order.id, mode, { reason }, 'manual_action');
+
+            showSuccess(mode === 'VERIFICATION_REQUIRED' ? 'Order flagged for verification.' : 'Order rejected.');
+            if (onSuccess) onSuccess();
+        } catch (err) { showError('Failed to update order.'); }
+    }, [user, updateOrderLocal, showSuccess, showError]);
+
+    // 3. CUSTOMER CONFIRMED (Create Invoice + Send QR)
+    const handleSimulateConfirmed = useCallback(async (order: Order, onSuccess?: () => void) => {
+        if (!user) return;
+        try {
+            const now = new Date().toISOString();
+
+            // 1. Create Pending Invoice (Important for COD flow)
+            await ensurePendingInvoiceForOrder({ ...order, status: ORDER_STATUS.CUSTOMER_CONFIRMED });
+
+            // 2. Update Status
+            await updateOrderLocal(order.id, {
+                status: ORDER_STATUS.CUSTOMER_CONFIRMED,
+                customer_confirmed_at: now
+            });
+
+            // 3. Log event
+            await logOrderEvent(order.id, 'CUSTOMER_CONFIRMED', { method: 'simulation' }, 'simulation');
+            await logOrderEvent(order.id, 'QR_SENT', { desc: 'Auto sent after confirmation' }, 'simulation');
+
+            showSuccess('Customer Confirmed. Invoice Created. QR Sent.');
+            if (onSuccess) onSuccess();
+        } catch (e) { showError('Simulation failed.'); }
+    }, [user, updateOrderLocal, showSuccess, showError]);
+
+    // 4. CUSTOMER CANCELLED
+    const handleSimulateCancelled = useCallback(async (order: Order, reason: string, onSuccess?: () => void) => {
+        if (!user) return;
+        try {
+            await updateOrderLocal(order.id, {
+                status: ORDER_STATUS.CUSTOMER_CANCELLED,
+                cancelled_at: new Date().toISOString(),
+                cancel_reason: reason || 'Simulated cancellation'
+            });
+            await logOrderEvent(order.id, 'CUSTOMER_CANCELLED', { reason }, 'simulation');
+            showSuccess('Order Cancelled by Customer.');
+            if (onSuccess) onSuccess();
+        } catch (e) { showError('Simulation failed.'); }
+    }, [user, updateOrderLocal, showSuccess, showError]);
+
+    // 5. SIMULATE PAID (QR Scanned / COD Received)
+    const handleSimulatePaid = useCallback(async (order: Order, onSuccess?: () => void) => {
+        if (!user) return;
+        try {
+            // 1. Update Invoice -> Paid (Always)
+            await markInvoicePaidForOrder(order);
+
+            // 2. Logic: Only update status to ORDER_PAID if NOT currently Delivering or Completed
+            // If delivering/completed, we just record payment but keep logistics status
+            const currentStatus = order.status;
+            let nextStatus = currentStatus;
+
+            if (currentStatus !== ORDER_STATUS.DELIVERING && currentStatus !== ORDER_STATUS.COMPLETED) {
+                nextStatus = ORDER_STATUS.ORDER_PAID;
+            }
+
+            await updateOrderLocal(order.id, {
+                status: nextStatus,
+                paid_at: new Date().toISOString()
+            });
+
+            await logUserAction({
+                userId: user.id,
+                action: 'Mark Paid',
+                status: 'success',
+                orderId: order.order_id ?? "",
+                details: { from: currentStatus, to: nextStatus }
+            });
+
+            showSuccess('Payment Received. Invoice Updated.');
+            if (onSuccess) onSuccess();
+        } catch (e) { showError('Payment simulation failed.'); }
+    }, [user, updateOrderLocal, showSuccess, showError]);
+
+    // 6. SEND QR LINK MANUALLY (For Low Risk)
+    const handleSendQrLink = useCallback(async (order: Order, onSuccess?: () => void) => {
+        if (!user) return;
+        try {
+            await logOrderEvent(order.id, 'QR_PAYMENT_LINK_SENT', { manual: true }, 'manual_action');
+            // Optimistic update to trigger UI re-render if needed (e.g. tracking qr_sent_at)
+            await updateOrderLocal(order.id, { qr_sent_at: new Date().toISOString() });
+
+            showSuccess('QR Payment Link Sent.');
+            if (onSuccess) onSuccess();
+        } catch (e) { showError('Failed to send QR link.'); }
+    }, [user, updateOrderLocal, showSuccess, showError]);
+
+    // 7. FULFILLMENT: Delivering
+    const handleMarkShipped = useCallback(async (order: Order, onSuccess?: () => void) => {
+        if (!user) return;
+        try {
+            await updateOrderLocal(order.id, {
+                status: ORDER_STATUS.DELIVERING,
+                shipped_at: new Date().toISOString(),
+            });
+            await logOrderEvent(order.id, 'ORDER_SHIPPED', {}, 'fulfillment');
+            showSuccess('Order marked as Delivering.');
+            if (onSuccess) onSuccess();
+        } catch (err) { showError('Failed to update status.'); }
+    }, [user, updateOrderLocal, showSuccess, showError]);
+
+    // 8. FULFILLMENT: Completed
+    const handleMarkCompleted = useCallback(async (order: Order, onSuccess?: () => void) => {
+        if (!user) return;
+        try {
+            await updateOrderLocal(order.id, {
+                status: ORDER_STATUS.COMPLETED,
+                completed_at: new Date().toISOString(),
+            });
+            await logOrderEvent(order.id, 'ORDER_COMPLETED', {}, 'fulfillment');
+            showSuccess('Order marked as Completed.');
+            if (onSuccess) onSuccess();
+        } catch (err) { showError('Failed to complete order.'); }
+    }, [user, updateOrderLocal, showSuccess, showError]);
+
+    // 9. PRODUCT CORRECTION
+    const handleProductCorrection = useCallback(async (order: Order, productId: string, productName: string) => {
+        if (!user) return;
+        try {
+            const previousData = { product: order.product || 'N/A' };
+            const updateData = { product: productName };
+            const changes = generateChanges(previousData, updateData);
+
+            await updateOrderLocal(order.id, { product_id: productId });
+
+            await logUserAction({
+                userId: user.id,
+                action: 'Update Order Product',
+                status: 'success',
+                orderId: order.order_id ?? "",
+                details: Object.keys(changes).length > 0 ? changes : null,
+            });
+
+            showSuccess('Product updated successfully!');
+        } catch (err) {
+            showError('Failed to update product.');
+        }
+    }, [user, updateOrderLocal, showSuccess, showError]);
+
+    // 10. DELETE ORDERS
+    const handleDeleteOrders = useCallback(async (orderIds: string[], ordersToDelete: Order[]) => {
+        if (!user || orderIds.length === 0) return;
+        try {
+            const { error: deleteError } = await deleteOrders(user.id, orderIds);
+            if (deleteError) throw deleteError;
+
+            try {
+                await deleteInvoicesByOrderIds(user.id, orderIds);
+            } catch (invoiceError) {
+                console.error("Failed to delete related invoices", invoiceError);
+            }
+
+            const logPromises = ordersToDelete.map(order =>
+                logUserAction({
+                    userId: user.id,
+                    action: 'Delete Order',
+                    status: 'success',
+                    orderId: order.order_id ?? "",
+                })
+            );
+            await Promise.all(logPromises);
+
+            await refreshOrders();
+            showSuccess(`Successfully deleted ${orderIds.length} order${orderIds.length > 1 ? 's' : ''}!`);
+        } catch (err) {
+            showError('Failed to delete orders.');
+        }
+    }, [user, refreshOrders, showSuccess, showError]);
+
+    return {
+        handleApprove,
+        handleConfirmReject,
+        handleSimulateConfirmed,
+        handleSimulateCancelled,
+        handleSimulatePaid,
+        handleSendQrLink,
+        handleMarkShipped,
+        handleMarkCompleted,
+        handleProductCorrection,
+        handleDeleteOrders
+    };
+};
 </file>
 
 <file path="src/features/orders/hooks/useOrdersData.ts">
@@ -22871,540 +22933,6 @@ export async function applyInvoiceRules(order: Order) {
 }
 </file>
 
-<file path="src/features/orders/components/OrderSidePanel.tsx">
-import React, { useState } from 'react';
-import { createPortal } from 'react-dom';
-import {
-    X,
-    Phone,
-    MapPin,
-    CreditCard,
-    Save,
-    AlertTriangle,
-    ShieldAlert,
-    RefreshCw,
-    RotateCcw,
-    Truck,
-    CheckCircle,
-    Ban,
-    Banknote,
-    QrCode
-} from 'lucide-react';
-import { Button } from '../../../components/ui/Button';
-import { Input } from '../../../components/ui/Input';
-import { StatusBadge } from '../../../components/dashboard/StatusBadge';
-import { RiskBadge } from '../../../components/dashboard/RiskBadge';
-import { OrderTimeline } from './OrderTimeline';
-import { ORDER_STATUS } from '../../../constants/orderStatus';
-import type { Order, OrderEvent } from '../../../types/supabase';
-import { RefundModal } from './modals/RefundModal';
-import { ReturnModal } from './modals/ReturnModal';
-import { ExchangeModal } from './modals/ExchangeModal';
-
-interface OrderSidePanelProps {
-    isOpen: boolean;
-    onClose: () => void;
-    order: Order | null;
-    orderEvents: OrderEvent[];
-    addressForm: {
-        address_detail: string;
-        ward: string;
-        district: string;
-        province: string;
-    };
-    isAddressModified: boolean;
-    onAddressChange: (field: string, value: string) => void;
-    onSaveAddress: () => void;
-    blacklistedPhones: Set<string>;
-    // Updated handlers
-    onApprove: (order: Order) => void;
-    onReject: (order: Order, reason: string) => void;
-    onMarkDelivered: (order: Order) => void;
-    onMarkCompleted: (order: Order) => void;
-    onMarkMissed?: (order: Order) => void; // Optional if needed
-    onSimulateConfirmed: (order: Order) => void;
-    onSimulateCancelled: (order: Order) => void;
-    onSimulatePaid: (order: Order) => void;
-    onSendQrPaymentLink: (order: Order) => void;
-    onOrderUpdated?: () => void;
-}
-
-export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
-    isOpen,
-    onClose,
-    order,
-    orderEvents,
-    addressForm,
-    isAddressModified,
-    onAddressChange,
-    onSaveAddress,
-    blacklistedPhones,
-    onApprove,
-    onReject,
-    onMarkDelivered,
-    onMarkCompleted,
-    onMarkMissed,
-    onSimulateConfirmed,
-    onSimulateCancelled,
-    onSimulatePaid,
-    onSendQrPaymentLink,
-    onOrderUpdated,
-}) => {
-    const [showRefundModal, setShowRefundModal] = useState(false);
-    const [showReturnModal, setShowReturnModal] = useState(false);
-    const [showExchangeModal, setShowExchangeModal] = useState(false);
-
-    if (!isOpen || !order || typeof document === 'undefined') return null;
-
-    const isBlacklisted = order.phone && blacklistedPhones.has(order.phone);
-    const isCOD = (!order.payment_method || order.payment_method === 'COD');
-    const hasPaid = !!order.paid_at || order.status === ORDER_STATUS.ORDER_PAID;
-
-    const getLatestRiskEvent = () => {
-        const riskEvents = orderEvents.filter(
-            (evt) => evt.event_type === 'RISK_EVALUATED',
-        );
-        if (riskEvents.length === 0) {
-            return {
-                score: order.risk_score ?? null,
-                level: order.risk_level ?? null,
-                reasons: [],
-            };
-        }
-        const latest = riskEvents[riskEvents.length - 1];
-        const payload = (latest.payload_json || {}) as any;
-        return {
-            score: payload.score ?? order.risk_score ?? null,
-            level: payload.level ?? order.risk_level ?? null,
-            reasons: Array.isArray(payload.reasons) ? payload.reasons : [],
-        };
-    };
-
-    const riskAnalysis = getLatestRiskEvent();
-
-    const handleSuccess = () => {
-        if (onOrderUpdated) onOrderUpdated();
-    };
-
-    // Low-risk auto-approved check
-    const isLowRiskAutoApproved =
-        order.risk_score != null &&
-        order.risk_score <= 30 &&
-        order.status === ORDER_STATUS.ORDER_APPROVED;
-
-    const hasQrPaymentLinkSent = orderEvents?.some(
-        (e) => (e.event_type || '').toUpperCase() === 'QR_PAYMENT_LINK_SENT'
-    );
-
-    return createPortal(
-        <>
-            <div className="fixed inset-0 z-[50] flex justify-end">
-                {/* Overlay */}
-                <div
-                    className="flex-1 bg-black/60 backdrop-blur-sm"
-                    onClick={onClose}
-                />
-
-                {/* Side Panel */}
-                <div className="w-[500px] h-full bg-[#131625] border-l border-white/10 shadow-2xl flex flex-col">
-                    {/* Header */}
-                    <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-[#1E223D]/50 flex-shrink-0">
-                        <div>
-                            <h2 className="text-lg font-semibold text-white">Order Details</h2>
-                            <p className="text-sm text-white/50">
-                                ID: {order.order_id || order.id}
-                            </p>
-                        </div>
-                        <button
-                            onClick={onClose}
-                            className="p-2 hover:bg-white/10 rounded-lg transition-colors text-white/70 hover:text-white"
-                        >
-                            <X size={20} />
-                        </button>
-                    </div>
-
-                    {/* Content Scrollable */}
-                    <div className="flex-1 overflow-y-auto px-6 py-6 space-y-8">
-
-                        {/* --- MAIN ACTION AREA --- */}
-                        <div className="space-y-4">
-                            <div className="flex items-center justify-between">
-                                <StatusBadge status={order.status} />
-                                <div className="text-xs text-white/50 uppercase tracking-wider font-bold">
-                                    {isCOD ? "COD Order" : "Prepaid Order"}
-                                </div>
-                            </div>
-
-                            <div className="p-4 bg-white/5 rounded-xl border border-white/10 flex flex-col gap-3">
-
-                                {/* 1. REVIEW STAGE */}
-                                {(order.status === ORDER_STATUS.PENDING_REVIEW) && (
-                                    <>
-                                        <p className="text-sm text-yellow-200 mb-1">⚠️ This order needs risk review.</p>
-                                        <div className="flex gap-2">
-                                            <Button variant="danger"
-                                                className="flex-1 flex items-center justify-center gap-2 py-3 text-base font-medium"
-                                                onClick={() => onReject(order, "Shop rejected risk")}>
-                                                <Ban size={16} className="mr-2" /> Reject
-                                            </Button>
-                                            <Button
-                                                className="flex-1 flex items-center justify-center gap-2 py-3 text-base font-medium bg-blue-600 hover:bg-blue-700"
-                                                onClick={() => onApprove(order)}>
-                                                <CheckCircle size={16} className="mr-2" /> Approve
-                                            </Button>
-                                        </div>
-                                    </>
-                                )}
-
-                                {/* 2. VERIFICATION REQUIRED STAGE */}
-                                {order.status === ORDER_STATUS.VERIFICATION_REQUIRED && (
-                                    <>
-                                        <p className="text-sm text-red-200 mb-1">🚫 No Zalo / High Risk. Manual check required.</p>
-                                        <div className="flex gap-2">
-                                            <Button variant="danger" className="flex-1" onClick={() => onReject(order, "Verification failed")}>
-                                                Reject
-                                            </Button>
-                                            <Button variant="secondary" className="flex-1" onClick={() => onApprove(order)}>
-                                                Approve (Called)
-                                            </Button>
-                                        </div>
-                                    </>
-                                )}
-
-                                {/* 3. WAITING FOR CUSTOMER (Simulation Zone) */}
-                                {order.status === ORDER_STATUS.ORDER_CONFIRMATION_SENT && (
-                                    <div className="bg-blue-500/10 p-3 rounded-lg border border-blue-500/30">
-                                        <p className="text-xs text-blue-300 font-bold uppercase mb-2">Customer Simulation (Zalo)</p>
-                                        <div className="flex gap-2">
-                                            <Button size="sm" variant="danger" className="flex-1" onClick={() => onSimulateCancelled(order)}>
-                                                Customer Cancels
-                                            </Button>
-                                            <Button size="sm" className="flex-1 bg-green-600 hover:bg-green-700" onClick={() => onSimulateConfirmed(order)}>
-                                                Customer Confirms
-                                            </Button>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* 4. READY TO SHIP / PAY */}
-                                {(order.status === ORDER_STATUS.CUSTOMER_CONFIRMED || order.status === ORDER_STATUS.ORDER_PAID || order.status === ORDER_STATUS.ORDER_APPROVED) && (
-                                    <div className="space-y-2">
-                                        {!hasPaid && (
-                                            <>
-                                                {isLowRiskAutoApproved && !hasQrPaymentLinkSent ? (
-                                                    <Button variant="outline" size="sm" className="w-full flex items-center justify-center gap-2 border-purple-500 text-purple-300 hover:bg-purple-500/10" onClick={() => onSendQrPaymentLink(order)}>
-                                                        <QrCode size={20} className="mr-2" /> Send QR Payment Link
-                                                    </Button>
-                                                ) : (
-                                                    <Button variant="outline" size="sm" className="w-full flex items-center justify-center gap-2 border-purple-500 text-purple-300 hover:bg-purple-500/10" onClick={() => onSimulatePaid(order)}>
-                                                        <QrCode size={20} className="mr-2" /> Simulate: Customer Paid (QR)
-                                                    </Button>
-                                                )}
-                                            </>
-                                        )}
-
-                                        <Button className="w-full bg-blue-600 hover:bg-blue-700" onClick={() => onMarkDelivered(order)}>
-                                            <Truck size={20} className="mr-2" /> Start Delivery
-                                        </Button>
-                                    </div>
-                                )}
-
-                                {/* 5. DELIVERING */}
-                                {order.status === ORDER_STATUS.DELIVERING && (
-                                    <div className="space-y-2">
-                                        {!hasPaid && (
-                                            <Button variant="outline" size="sm" className="w-full" onClick={() => onSimulatePaid(order)}>
-                                                <Banknote size={16} className="mr-2" /> Mark Paid (Collected on Delivery)
-                                            </Button>
-                                        )}
-                                        <Button size="sm" className="w-full bg-green-600 hover:bg-green-700" onClick={() => onMarkCompleted(order)}>
-                                            <CheckCircle size={16} className="mr-2" /> Complete Order
-                                        </Button>
-                                    </div>
-                                )}
-
-                                {/* 6. COMPLETED (Late Payment Collection) */}
-                                {order.status === ORDER_STATUS.COMPLETED && !hasPaid && isCOD && (
-                                    <div className="space-y-2">
-                                        <p className="text-xs text-white/50 text-center">Order delivered but COD payment pending.</p>
-                                        <Button size="sm" className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={() => onSimulatePaid(order)}>
-                                            <Banknote size={16} className="mr-2" /> Confirm COD Received
-                                        </Button>
-                                    </div>
-                                )}
-
-                                {/* AFTER-SALE ACTIONS (Always available for terminal states) */}
-                                {((order.status === ORDER_STATUS.DELIVERING || order.status === ORDER_STATUS.COMPLETED)) && (
-                                    <>
-                                        <div className="w-full h-px bg-white/10 my-2" />
-                                        <div className="flex gap-2">
-                                            <Button
-                                                size="sm"
-                                                variant="secondary"
-                                                onClick={() => {
-                                                    if (hasPaid) setShowRefundModal(true);
-                                                    else setShowReturnModal(true);
-                                                }}
-                                                className="flex-1 gap-1 text-xs"
-                                            >
-                                                <RotateCcw size={14} /> Return
-                                            </Button>
-                                            <Button
-                                                size="sm"
-                                                variant="secondary"
-                                                onClick={() => setShowExchangeModal(true)}
-                                                className="flex-1 gap-1 text-xs"
-                                            >
-                                                <RefreshCw size={14} /> Exchange
-                                            </Button>
-                                        </div>
-                                    </>
-                                )}
-
-                            </div>
-                        </div>
-
-                        {/* CUSTOMER INFO */}
-                        <div className="space-y-4">
-                            <h3 className="text-sm font-medium text-white/70 uppercase tracking-wider">
-                                Customer Information
-                            </h3>
-                            <div className="bg-white/5 rounded-xl p-4 space-y-4 border border-white/10">
-                                <div className="flex items-start gap-3">
-                                    <div className="w-8 h-8 rounded-full bg-[#8B5CF6]/20 flex items-center justify-center text-[#8B5CF6]">
-                                        <span className="font-bold">
-                                            {order.customer_name.charAt(0).toUpperCase()}
-                                        </span>
-                                    </div>
-                                    <div>
-                                        <p className="text-[#E5E7EB] font-medium">
-                                            {order.customer_name}
-                                        </p>
-                                        <div className="flex items-center gap-2 text-sm text-white/50 mt-1">
-                                            <Phone size={14} />
-                                            <span>{order.phone}</span>
-                                            {isBlacklisted && (
-                                                <span className="flex items-center gap-1 text-red-400 bg-red-400/10 px-1.5 py-0.5 rounded text-xs border border-red-400/20">
-                                                    <AlertTriangle size={10} /> Blacklisted
-                                                </span>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="space-y-2">
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-2 text-sm text-white/50">
-                                            <MapPin size={14} />
-                                            <span>Delivery Address</span>
-                                        </div>
-                                        {isAddressModified && (
-                                            <Button
-                                                size="sm"
-                                                onClick={onSaveAddress}
-                                                className="h-7 px-2 text-xs bg-green-600 hover:bg-green-700 text-white border-0"
-                                            >
-                                                <Save size={12} className="mr-1" />
-                                                Save
-                                            </Button>
-                                        )}
-                                    </div>
-
-                                    <div className="grid grid-cols-1 gap-2">
-                                        <Input
-                                            placeholder="House number, street..."
-                                            value={addressForm.address_detail}
-                                            onChange={(e) =>
-                                                onAddressChange('address_detail', e.target.value)
-                                            }
-                                            className="bg-black/20 border-white/10 text-sm"
-                                        />
-                                        <div className="grid grid-cols-3 gap-2">
-                                            <Input
-                                                placeholder="Ward"
-                                                value={addressForm.ward}
-                                                onChange={(e) =>
-                                                    onAddressChange('ward', e.target.value)
-                                                }
-                                                className="bg-black/20 border-white/10 text-sm"
-                                            />
-                                            <Input
-                                                placeholder="District"
-                                                value={addressForm.district}
-                                                onChange={(e) =>
-                                                    onAddressChange('district', e.target.value)
-                                                }
-                                                className="bg-black/20 border-white/10 text-sm"
-                                            />
-                                            <Input
-                                                placeholder="Province"
-                                                value={addressForm.province}
-                                                onChange={(e) =>
-                                                    onAddressChange('province', e.target.value)
-                                                }
-                                                className="bg-black/20 border-white/10 text-sm"
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* RISK ANALYSIS */}
-                        <div className="space-y-4">
-                            <h3 className="text-sm font-medium text-white/70 uppercase tracking-wider">
-                                Risk Analysis
-                            </h3>
-                            <div className="bg-white/5 rounded-xl p-4 space-y-4 border border-white/10">
-                                <div className="flex items-center justify-between">
-                                    <span className="text-sm text-white/70">Risk Score</span>
-                                    <RiskBadge score={riskAnalysis.score} />
-                                </div>
-
-                                {riskAnalysis.reasons.length > 0 && (
-                                    <div className="space-y-2">
-                                        <span className="text-xs text-white/50">
-                                            Risk Factors:
-                                        </span>
-                                        <ul className="space-y-1">
-                                            {riskAnalysis.reasons.map((reason, idx) => {
-                                                if (typeof reason === 'string') {
-                                                    return (
-                                                        <li
-                                                            key={idx}
-                                                            className="text-xs text-red-300 flex items-start gap-2"
-                                                        >
-                                                            <ShieldAlert
-                                                                size={12}
-                                                                className="mt-0.5 flex-shrink-0"
-                                                            />
-                                                            <span>{reason}</span>
-                                                        </li>
-                                                    );
-                                                }
-
-                                                if (reason && typeof reason === 'object') {
-                                                    return (
-                                                        <li
-                                                            key={idx}
-                                                            className="text-xs text-red-300 flex items-start gap-2"
-                                                        >
-                                                            <ShieldAlert
-                                                                size={12}
-                                                                className="mt-0.5 flex-shrink-0"
-                                                            />
-                                                            <div className="flex justify-between w-full">
-                                                                <span>{reason.desc}</span>
-                                                                {typeof reason.score === 'number' && (
-                                                                    <span className="font-semibold text-rose-300">
-                                                                        {reason.score > 0
-                                                                            ? `+${reason.score}`
-                                                                            : reason.score}
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                        </li>
-                                                    );
-                                                }
-
-                                                return null;
-                                            })}
-                                        </ul>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* ORDER DETAILS */}
-                        <div className="space-y-4">
-                            <h3 className="text-sm font-medium text-white/70 uppercase tracking-wider">
-                                Order Details
-                            </h3>
-                            <div className="bg-white/5 rounded-xl p-4 space-y-3 border border-white/10">
-                                <div className="flex justify-between text-sm">
-                                    <span className="text-white/50">Product</span>
-                                    <span className="text-[#E5E7EB] font-medium">
-                                        {order.products?.name || order.product || 'Unknown Product'}
-                                    </span>
-                                </div>
-
-                                <div className="flex justify-between text-sm">
-                                    <span className="text-white/50">Amount</span>
-                                    <span className="text-[#E5E7EB] font-medium">
-                                        {order.amount.toLocaleString('vi-VN')} VND
-                                    </span>
-                                </div>
-
-                                <div className="flex justify-between text-sm">
-                                    <span className="text-white/50">Payment Method</span>
-                                    <div className="flex items-center gap-2 text-[#E5E7EB]">
-                                        <CreditCard size={14} />
-                                        <span>{order.payment_method || 'COD'}</span>
-                                    </div>
-                                </div>
-
-                                {(order.refunded_amount || 0) > 0 && (
-                                    <div className="flex justify-between text-sm text-red-400">
-                                        <span>Refunded</span>
-                                        <span>
-                                            -{order.refunded_amount?.toLocaleString('vi-VN')} VND
-                                        </span>
-                                    </div>
-                                )}
-
-                                {(order.customer_shipping_paid || 0) > 0 && (
-                                    <div className="flex justify-between text-sm text-green-400">
-                                        <span>Cust. Shipping Paid</span>
-                                        <span>
-                                            +
-                                            {order.customer_shipping_paid?.toLocaleString('vi-VN')}{' '}
-                                            VND
-                                        </span>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* TIMELINE */}
-                        <div className="space-y-4">
-                            <h3 className="text-sm font-medium text-white/70 uppercase tracking-wider">
-                                Timeline
-                            </h3>
-                            <div className="bg-white/5 rounded-xl p-4 border border-white/10">
-                                <OrderTimeline events={orderEvents} />
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {/* MODALS */}
-            <RefundModal
-                isOpen={showRefundModal}
-                onClose={() => setShowRefundModal(false)}
-                order={order}
-                onSuccess={handleSuccess}
-                title={hasPaid ? 'Return & Refund' : 'Refund Order'}
-            />
-            <ReturnModal
-                isOpen={showReturnModal}
-                onClose={() => setShowReturnModal(false)}
-                order={order}
-                onSuccess={handleSuccess}
-            />
-            <ExchangeModal
-                isOpen={showExchangeModal}
-                onClose={() => setShowExchangeModal(false)}
-                order={order}
-                onSuccess={handleSuccess}
-                isPaid={hasPaid}
-            />
-        </>,
-        document.body,
-    );
-};
-</file>
-
 <file path="src/features/zalo/mockZaloGateway.ts">
 import type { ZaloGateway } from "./ZaloGateway";
 import type { Order } from "../../types/supabase";
@@ -23839,201 +23367,6 @@ export function useSupabaseTable<T extends { id: string; user_id: string }>(
 }
 </file>
 
-<file path="src/utils/riskEngine.ts">
-// src/utils/riskEngine.ts
-
-import { ORDER_STATUS } from "../constants/orderStatus";
-import type { OrderStatus } from "../constants/orderStatus";
-
-export type RiskLevel = "none" | "low" | "medium" | "high";
-
-export interface RiskFactor {
-  key: string;
-  label: string;
-  score: number;
-}
-
-export interface CustomerHistoryStats {
-  badOrders: number;
-  goodOrders: number;
-}
-
-export interface RiskScoreResult {
-  score: number | null;
-  level: RiskLevel;
-  factors: RiskFactor[];
-}
-
-export interface SimpleOrderInput {
-  payment_method?: string | null;
-  amount?: number | null;
-  phone?: string | null;
-  product?: string | null;
-}
-
-// Helper functions
-const normStr = (v: string | null | undefined) => (v || "").toString().trim();
-
-function normalizeVNPhone(raw: string): string {
-  let s = raw.trim();
-  s = s.replace(/[\s.\-()]/g, "");
-  if (s.startsWith("+84")) {
-    const rest = s.slice(3);
-    if (/^\d{9}$/.test(rest)) {
-      return "0" + rest;
-    }
-  }
-  return s;
-}
-
-function isValidVNPhone(raw: string): boolean {
-  const n = normalizeVNPhone(raw);
-  return /^0\d{9}$/.test(n);
-}
-
-/**
- * Hàm giả lập Check Zalo API (CẢI TIẾN)
- * Rule: Nếu SĐT có 2 số cuối giống nhau (00, 11, 22...99) -> Coi như KHÔNG CÓ ZALO (Sim rác)
- * Giúp bạn dễ test ra case Rủi ro cao hơn.
- */
-export function mockCheckZaloExistence(phone: string): boolean {
-  const clean = phone.replace(/\D/g, "");
-  if (/(00|11|22|33|44|55|66|77|88|99)$/.test(clean)) {
-    return false;
-  }
-  return true;
-}
-
-/**
- * Compute logic cho UI cũ (nếu còn dùng)
- */
-export function computeRiskScoreV1(
-  order: SimpleOrderInput,
-  history?: CustomerHistoryStats
-): RiskScoreResult {
-  // Logic cũ giữ nguyên hoặc map sang logic mới nếu cần
-  // Ở đây tôi giữ simple để tránh lỗi legacy code
-  return { score: 10, level: "low", factors: [] };
-}
-
-// ===== LOGIC MỚI CHO IMPORT FLOW =====
-
-export interface RiskInput {
-  paymentMethod: string | null | undefined;
-  amountVnd: number;
-  phone: string;
-  address?: string | null;
-  addressDetail?: string | null;
-  ward?: string | null;
-  district?: string | null;
-  pastOrders: { status: string | null }[];
-  productName?: string | null;
-  zaloExists?: boolean;
-}
-
-export interface RiskOutput {
-  score: number | null;
-  level: RiskLevel;
-  reasons: (string | { factor: string; score: number; desc: string })[];
-  version?: "v2"; // Version 2
-}
-
-/**
- * evaluateRisk (Logic chấm điểm mới - Granular Scoring)
- */
-export function evaluateRisk(input: RiskInput, blacklistPhones?: Set<string>): RiskOutput {
-  const { paymentMethod, amountVnd, phone, address, pastOrders, zaloExists } = input;
-  const method = (paymentMethod || "").toUpperCase();
-  const productName = (input.productName || "").toLowerCase();
-  const addressDetail = (address || "").trim();
-
-  // 1. Non-COD: Rủi ro bằng 0 (An toàn)
-  if (method && method !== "COD") {
-    return { score: null, level: "none", reasons: [], version: "v2" };
-  }
-
-  let score = 0;
-  const reasons: (string | { factor: string; score: number; desc: string })[] = [];
-
-  // 2. Base COD Risk
-  score += 10;
-  reasons.push("COD Order (+10)");
-
-  // 3. Zalo Check (Quan trọng nhất)
-  if (zaloExists === false) {
-    score += 40;
-    reasons.push({ factor: 'zalo', score: 40, desc: 'Phone not on Zalo / Sim Rác (+40)' });
-  }
-
-  // 4. Amount Risk (Chia nhỏ mức tiền)
-  if (amountVnd >= 1_000_000) {
-    score += 25;
-    reasons.push("High Value > 1M (+25)");
-  } else if (amountVnd >= 500_000) {
-    score += 10;
-    reasons.push("Medium Value > 500k (+10)");
-  }
-
-  // 5. Product Risk (Phân loại sản phẩm)
-  // Keywords rủi ro cao (Điện tử, dễ vỡ, giá trị cao)
-  const highRiskKeywords = ['nồi chiên', 'sạc', 'cáp', 'tai nghe', 'loa', 'bluetooth', 'điện thoại', 'máy tính', 'đồng hồ', 'camera'];
-  // Keywords rủi ro trung bình (Thời trang - hay bị đổi trả do size/màu)
-  const fashionKeywords = ['áo', 'quần', 'giày', 'dép', 'túi', 'balo', 'ví', 'váy', 'đầm', 'sét'];
-
-  if (highRiskKeywords.some(k => productName.includes(k))) {
-    score += 20;
-    reasons.push("High Risk Product (Electronics) (+20)");
-  } else if (fashionKeywords.some(k => productName.includes(k))) {
-    score += 10;
-    reasons.push("Fashion Product (Return Risk) (+10)");
-  }
-
-  // 6. Address Risk (Địa chỉ quá ngắn)
-  if (addressDetail.length > 0 && addressDetail.length < 15) {
-    score += 20;
-    reasons.push("Vague Address (<15 chars) (+20)");
-  }
-
-  // 7. Past History (Lịch sử bom hàng)
-  const failedStatuses: OrderStatus[] = [
-    ORDER_STATUS.CUSTOMER_CANCELLED,
-    ORDER_STATUS.ORDER_REJECTED,
-  ];
-  const failedCount = pastOrders.filter(
-    (o) => o.status && failedStatuses.includes(o.status as OrderStatus)
-  ).length;
-
-  if (failedCount >= 3) {
-    score += 30;
-    reasons.push("Repeated Failures (3+) (+30)");
-  } else if (failedCount >= 1) {
-    score += 10;
-    reasons.push("Previous Failure (+10)");
-  }
-
-  // 8. Blacklist Override (Ưu tiên cao nhất)
-  if (blacklistPhones?.has(phone)) {
-    score = Math.max(score, 85); // Đẩy thẳng lên High Risk
-    reasons.push({
-      factor: "blacklist",
-      score: 0, // Đã set base cao rồi
-      desc: "BLACKLISTED CUSTOMER (FORCE HIGH)"
-    });
-  }
-
-  // Clamp 0–100
-  score = Math.max(0, Math.min(score, 100));
-
-  // Mapping level
-  let level: RiskLevel;
-  if (score <= 30) level = "low";
-  else if (score <= 60) level = "medium"; // Mở rộng range Medium ra một chút
-  else level = "high";
-
-  return { score, level, reasons, version: "v2" };
-}
-</file>
-
 <file path="src/index.css">
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
 
@@ -24389,8 +23722,506 @@ svg.recharts-surface>g>rect:first-child {
 }
 </file>
 
+<file path="src/features/orders/components/OrderSidePanel.tsx">
+import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
+import {
+    X, Phone, MapPin, Save, AlertTriangle, ShieldAlert,
+    RefreshCw, RotateCcw, Truck, CheckCircle, Ban, Banknote, QrCode
+} from 'lucide-react';
+import { Button } from '../../../components/ui/Button';
+import { Input } from '../../../components/ui/Input';
+import { StatusBadge } from '../../../components/dashboard/StatusBadge';
+import { RiskBadge } from '../../../components/dashboard/RiskBadge';
+import { OrderTimeline } from './OrderTimeline';
+import { ORDER_STATUS } from '../../../constants/orderStatus';
+import type { Order, OrderEvent } from '../../../types/supabase';
+import { RefundModal } from './modals/RefundModal';
+import { ReturnModal } from './modals/ReturnModal';
+import { ExchangeModal } from './modals/ExchangeModal';
+
+interface OrderSidePanelProps {
+    isOpen: boolean;
+    onClose: () => void;
+    order: Order | null;
+    orderEvents: OrderEvent[];
+    addressForm: { address_detail: string; ward: string; district: string; province: string; };
+    isAddressModified: boolean;
+    onAddressChange: (field: string, value: string) => void;
+    onSaveAddress: () => void;
+    blacklistedPhones: Set<string>;
+    // Callback props (Handlers) – KHÔNG còn onSuccess
+    onApprove: (order: Order) => void;
+    onReject: (order: Order, reason: string) => void;
+    onMarkDelivered: (order: Order) => void;
+    onMarkCompleted: (order: Order) => void;
+    onSimulateConfirmed: (order: Order) => void;
+    onSimulateCancelled: (order: Order) => void;
+    onSimulatePaid: (order: Order) => void;
+    onSendQrPaymentLink: (order: Order) => void;
+    onOrderUpdated?: () => void;
+    onMarkMissed?: (order: Order) => void;
+}
+
+export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
+    isOpen, onClose, order, orderEvents, addressForm, isAddressModified,
+    onAddressChange, onSaveAddress, blacklistedPhones,
+    onApprove, onReject, onMarkDelivered, onMarkCompleted,
+    onSimulateConfirmed, onSimulateCancelled, onSimulatePaid, onSendQrPaymentLink,
+    onOrderUpdated,
+}) => {
+    const [showRefundModal, setShowRefundModal] = useState(false);
+    const [showReturnModal, setShowReturnModal] = useState(false);
+    const [showExchangeModal, setShowExchangeModal] = useState(false);
+    const [isProcessing, setIsProcessing] = useState(false);
+
+    if (!isOpen || !order || typeof document === 'undefined') return null;
+
+    const isBlacklisted = order.phone && blacklistedPhones.has(order.phone);
+    const isCOD = (!order.payment_method || order.payment_method === 'COD');
+    const isPrepaid = !isCOD;
+    const hasPaid = !!order.paid_at || order.status === ORDER_STATUS.ORDER_PAID;
+    const hasQrSent = !!order.qr_sent_at || orderEvents.some(e => e.event_type === 'QR_PAYMENT_LINK_SENT');
+    const isLowRiskCOD = isCOD && order.risk_score !== null && order.risk_score <= 30;
+
+    const wrapAction = async (action: () => Promise<void> | void) => {
+        if (isProcessing) return;
+        setIsProcessing(true);
+        try {
+            await action();
+        } finally {
+            setTimeout(() => setIsProcessing(false), 500);
+        }
+    };
+
+    const handleSuccess = () => {
+        if (onOrderUpdated) onOrderUpdated();
+    };
+
+    // --- BUTTON LOGIC ---
+    const renderActionButtons = () => {
+        // 1. PREPAID (Thanh toán trước) hoặc ORDER_PAID
+        if (isPrepaid || order.status === ORDER_STATUS.ORDER_PAID) {
+            if (order.status !== ORDER_STATUS.DELIVERING && order.status !== ORDER_STATUS.COMPLETED) {
+                return (
+                    <Button
+                        className="w-full bg-blue-600 hover:bg-blue-700"
+                        onClick={() => wrapAction(() => onMarkDelivered(order))}
+                        disabled={isProcessing}
+                    >
+                        <Truck size={20} className="mr-2" /> Start Delivery
+                    </Button>
+                );
+            }
+            if (order.status === ORDER_STATUS.DELIVERING) {
+                return (
+                    <Button
+                        className="w-full bg-green-600 hover:bg-green-700"
+                        onClick={() => wrapAction(() => onMarkCompleted(order))}
+                        disabled={isProcessing}
+                    >
+                        <CheckCircle size={16} className="mr-2" /> Mark Completed
+                    </Button>
+                );
+            }
+            return null;
+        }
+
+        // 2. COD - LOW RISK (Approved)
+        // 2. COD - LOW RISK (Approved)
+        if (isLowRiskCOD && order.status === ORDER_STATUS.ORDER_APPROVED) {
+            return (
+                <div className="space-y-3">
+                    {/* Chỉ khi CHƯA paid mới hiện Send / Simulate QR */}
+                    {!hasPaid && (
+                        <>
+                            {!hasQrSent ? (
+                                <Button
+                                    variant="outline"
+                                    className="w-full h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#C4B5FD] hover:bg-[#8B5CF6]/20 transition-all active:scale-[0.98]"
+                                    onClick={() => wrapAction(() => onSendQrPaymentLink(order))}
+                                    disabled={isProcessing}
+                                >
+                                    <QrCode size={20} className="mr-2" /> Send QR Payment Link
+                                </Button>
+                            ) : (
+                                <Button
+                                    variant="outline"
+                                    className="w-full h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#C4B5FD] hover:bg-[#8B5CF6]/20 transition-all active:scale-[0.98]"
+                                    onClick={() => wrapAction(() => onSimulatePaid(order))}
+                                    disabled={isProcessing}
+                                >
+                                    <Banknote size={20} className="mr-2" /> Simulate QR Paid
+                                </Button>
+                            )}
+                        </>
+                    )}
+
+                    <Button
+                        className="w-full bg-blue-600 hover:bg-blue-700"
+                        onClick={() => wrapAction(() => onMarkDelivered(order))}
+                        disabled={isProcessing}
+                    >
+                        <Truck size={20} className="mr-2" /> Start Delivery
+                    </Button>
+                </div>
+            );
+        }
+
+        // 3. COD - PENDING / VERIFICATION
+        if (order.status === ORDER_STATUS.PENDING_REVIEW || order.status === ORDER_STATUS.VERIFICATION_REQUIRED) {
+            return (
+                <div className="flex gap-2">
+                    <Button
+                        variant="danger"
+                        className="flex-1 h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 transition-all active:scale-[0.98]"
+                        onClick={() => wrapAction(() => onReject(order, "Verification Failed"))}
+                        disabled={isProcessing}
+                    >
+                        <Ban size={20} /> Reject
+                    </Button>
+                    <Button
+                        className="flex-1 h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-gradient-to-r from-[#6366F1] to-[#8B5CF6] hover:from-[#5b5eed] hover:to-[#7c53e6] text-white shadow-lg shadow-[#6366F1]/20 transition-all active:scale-[0.98]"
+                        onClick={() => wrapAction(() => onApprove(order))}
+                        disabled={isProcessing}
+                    >
+                        <CheckCircle size={20} /> Approve
+                    </Button>
+                </div>
+            );
+        }
+
+        // 4. CONFIRMATION SENT
+        if (order.status === ORDER_STATUS.ORDER_CONFIRMATION_SENT) {
+            return (
+                <div className="bg-blue-500/10 p-3 rounded-lg border border-blue-500/30">
+                    <p className="text-xs text-blue-300 font-bold uppercase mb-2 text-center">
+                        Customer Response (Zalo)
+                    </p>
+                    <div className="flex gap-2">
+                        <Button
+                            size="sm"
+                            variant="danger"
+                            className="flex-1 h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 transition-all active:scale-[0.98]"
+                            onClick={() => wrapAction(() => onSimulateCancelled(order))}
+                            disabled={isProcessing}
+                        >
+                            Customer Cancel
+                        </Button>
+                        <Button
+                            size="sm"
+                            className="flex-1 h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-gradient-to-r from-[#6366F1] to-[#8B5CF6] hover:from-[#5b5eed] hover:to-[#7c53e6] text-white shadow-lg shadow-[#6366F1]/20 transition-all active:scale-[0.98]"
+                            onClick={() => wrapAction(() => onSimulateConfirmed(order))}
+                            disabled={isProcessing}
+                        >
+                            Customer Confirm
+                        </Button>
+                    </div>
+                </div>
+            );
+        }
+
+        // 5. CUSTOMER CONFIRMED
+        if (order.status === ORDER_STATUS.CUSTOMER_CONFIRMED) {
+            const allowSimulatePaid = !hasPaid && (!isLowRiskCOD || hasQrSent);
+
+            return (
+                <div className="space-y-3">
+                    {allowSimulatePaid && (
+                        <Button
+                            variant="outline"
+                            className="w-full h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#C4B5FD] hover:bg-[#8B5CF6]/20 transition-all active:scale-[0.98]"
+                            onClick={() => wrapAction(() => onSimulatePaid(order))}
+                            disabled={isProcessing}
+                        >
+                            <Banknote size={20} className="mr-2" /> Simulate QR Paid
+                        </Button>
+                    )}
+                    <Button
+                        className="w-full h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-gradient-to-r from-[#6366F1] to-[#8B5CF6] hover:from-[#5b5eed] hover:to-[#7c53e6] text-white shadow-lg shadow-[#6366F1]/20 transition-all active:scale-[0.98]"
+                        onClick={() => wrapAction(() => onMarkDelivered(order))}
+                        disabled={isProcessing}
+                    >
+                        <Truck size={20} className="mr-2" /> Start Delivery
+                    </Button>
+                </div>
+            );
+        }
+
+        // 6. DELIVERING / COMPLETED (COD)
+        if (order.status === ORDER_STATUS.DELIVERING || order.status === ORDER_STATUS.COMPLETED) {
+            const allowSimulatePaymentReceived = isCOD && !hasPaid;
+
+            return (
+                <div className="space-y-2">
+                    {allowSimulatePaymentReceived && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#C4B5FD] hover:bg-[#8B5CF6]/20 transition-all active:scale-[0.98]"
+                            onClick={() => wrapAction(() => onSimulatePaid(order))}
+                            disabled={isProcessing}
+                        >
+                            <Banknote size={20} className="mr-2" />
+                            Simulate Payment Received
+                        </Button>
+                    )}
+
+                    {order.status === ORDER_STATUS.DELIVERING && (
+                        <Button
+                            size="sm"
+                            className="w-full h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-gradient-to-r from-[#6366F1] to-[#8B5CF6] hover:from-[#5b5eed] hover:to-[#7c53e6] text-white shadow-lg shadow-[#6366F1]/20 transition-all active:scale-[0.98]"
+                            onClick={() => wrapAction(() => onMarkCompleted(order))}
+                            disabled={isProcessing}
+                        >
+                            <CheckCircle size={20} className="mr-2" /> Mark Completed
+                        </Button>
+                    )}
+                </div>
+            );
+        }
+
+        return null;
+    };
+
+    const riskAnalysis = (() => {
+        const riskEvents = orderEvents.filter((evt) => evt.event_type === 'RISK_EVALUATED');
+        if (riskEvents.length === 0)
+            return { score: order.risk_score ?? null, level: order.risk_level ?? null, reasons: [] };
+        const latest = riskEvents[riskEvents.length - 1];
+        const payload = (latest.payload_json || {}) as any;
+        return {
+            score: payload.score ?? order.risk_score ?? null,
+            level: payload.level ?? order.risk_level ?? null,
+            reasons: Array.isArray(payload.reasons) ? payload.reasons : [],
+        };
+    })();
+
+    return createPortal(
+        <>
+            <div className="fixed inset-0 z-[50] flex justify-end">
+                <div
+                    className="flex-1 bg-black/60 backdrop-blur-sm"
+                    onClick={onClose}
+                />
+                <div className="w-[500px] h-full bg-[#131625] border-l border-white/10 shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
+                    <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-[#1E223D]/50 flex-shrink-0">
+                        <div>
+                            <h2 className="text-lg font-semibold text-white">Order Details</h2>
+                            <p className="text-sm text-white/50">
+                                ID: {order.order_id || order.id}
+                            </p>
+                        </div>
+                        <button
+                            onClick={onClose}
+                            className="p-2 hover:bg-white/10 rounded-lg transition-colors text-white/70 hover:text-white"
+                        >
+                            <X size={20} />
+                        </button>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto px-6 py-6 space-y-8">
+                        <div className="space-y-4">
+                            <div className="flex items-center justify-between">
+                                <StatusBadge status={order.status} />
+                                <div className="text-xs text-white/50 uppercase tracking-wider font-bold">
+                                    {isCOD ? 'COD Order' : 'Prepaid Order'}
+                                </div>
+                            </div>
+                            <div className="p-4 bg-white/5 rounded-xl border border-white/10">
+                                {renderActionButtons()}
+                            </div>
+                        </div>
+
+                        {/* CUSTOMER INFO */}
+                        <div className="space-y-4">
+                            <h3 className="text-sm font-medium text-white/70 uppercase tracking-wider">
+                                Customer Information
+                            </h3>
+                            <div className="bg-white/5 rounded-xl p-4 space-y-4 border border-white/10">
+                                <div className="flex items-start gap-3">
+                                    <div className="w-8 h-8 rounded-full bg-[#8B5CF6]/20 flex items-center justify-center text-[#8B5CF6]">
+                                        <span className="font-bold">
+                                            {order.customer_name.charAt(0).toUpperCase()}
+                                        </span>
+                                    </div>
+                                    <div>
+                                        <p className="text-[#E5E7EB] font-medium">
+                                            {order.customer_name}
+                                        </p>
+                                        <div className="flex items-center gap-2 text-sm text-white/50 mt-1">
+                                            <Phone size={14} /> <span>{order.phone}</span>
+                                            {isBlacklisted && (
+                                                <span className="flex items-center gap-1 text-red-400 bg-red-400/10 px-1.5 py-0.5 rounded text-xs border border-red-400/20">
+                                                    <AlertTriangle size={10} /> Blacklisted
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2 text-sm text-white/50">
+                                            <MapPin size={14} />
+                                            <span>Delivery Address</span>
+                                        </div>
+                                        {isAddressModified && (
+                                            <Button
+                                                size="sm"
+                                                onClick={onSaveAddress}
+                                                className="h-7 px-2 text-xs bg-green-600 hover:bg-green-700 text-white border-0"
+                                            >
+                                                <Save size={12} className="mr-1" /> Save
+                                            </Button>
+                                        )}
+                                    </div>
+                                    <div className="grid grid-cols-1 gap-2">
+                                        <Input
+                                            placeholder="House number, street..."
+                                            value={addressForm.address_detail}
+                                            onChange={(e) =>
+                                                onAddressChange('address_detail', e.target.value)
+                                            }
+                                            className="bg-black/20 border-white/10 text-sm"
+                                        />
+                                        <div className="grid grid-cols-3 gap-2">
+                                            <Input
+                                                placeholder="Ward"
+                                                value={addressForm.ward}
+                                                onChange={(e) =>
+                                                    onAddressChange('ward', e.target.value)
+                                                }
+                                                className="bg-black/20 border-white/10 text-sm"
+                                            />
+                                            <Input
+                                                placeholder="District"
+                                                value={addressForm.district}
+                                                onChange={(e) =>
+                                                    onAddressChange('district', e.target.value)
+                                                }
+                                                className="bg-black/20 border-white/10 text-sm"
+                                            />
+                                            <Input
+                                                placeholder="Province"
+                                                value={addressForm.province}
+                                                onChange={(e) =>
+                                                    onAddressChange('province', e.target.value)
+                                                }
+                                                className="bg-black/20 border-white/10 text-sm"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* RISK ANALYSIS */}
+                        <div className="space-y-4">
+                            <h3 className="text-sm font-medium text-white/70 uppercase tracking-wider">
+                                Risk Analysis
+                            </h3>
+                            <div className="bg-white/5 rounded-xl p-4 space-y-4 border border-white/10">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-sm text-white/70">Risk Score</span>
+                                    <RiskBadge score={riskAnalysis.score} />
+                                </div>
+                                {riskAnalysis.reasons.length > 0 && (
+                                    <div className="space-y-2">
+                                        <span className="text-xs text-white/50">Risk Factors:</span>
+                                        <ul className="space-y-1">
+                                            {riskAnalysis.reasons.map((reason, idx) => (
+                                                <li
+                                                    key={idx}
+                                                    className="text-xs text-red-300 flex items-start gap-2"
+                                                >
+                                                    <ShieldAlert
+                                                        size={12}
+                                                        className="mt-0.5 flex-shrink-0"
+                                                    />
+                                                    {typeof reason === 'string' ? (
+                                                        <span>{reason}</span>
+                                                    ) : (
+                                                        <div className="flex justify-between w-full">
+                                                            <span>{reason.desc}</span>
+                                                            <span className="font-semibold text-rose-300">
+                                                                +{reason.score}
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* TIMELINE */}
+                        <div className="space-y-4">
+                            <h3 className="text-sm font-medium text-white/70 uppercase tracking-wider">
+                                Timeline
+                            </h3>
+                            <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+                                <OrderTimeline events={orderEvents} />
+                            </div>
+                        </div>
+
+                        {/* AFTER-SALE */}
+                        <div className="pt-4 border-t border-white/10">
+                            <div className="flex gap-2">
+                                <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    onClick={() => {
+                                        if (hasPaid) setShowRefundModal(true);
+                                        else setShowReturnModal(true);
+                                    }}
+                                    className="flex-1 gap-1 text-xs"
+                                >
+                                    <RotateCcw size={14} /> Return
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    onClick={() => setShowExchangeModal(true)}
+                                    className="flex-1 gap-1 text-xs"
+                                >
+                                    <RefreshCw size={14} /> Exchange
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <RefundModal
+                isOpen={showRefundModal}
+                onClose={() => setShowRefundModal(false)}
+                order={order}
+                onSuccess={handleSuccess}
+                title={hasPaid ? 'Return & Refund' : 'Refund Order'}
+            />
+            <ReturnModal
+                isOpen={showReturnModal}
+                onClose={() => setShowReturnModal(false)}
+                order={order}
+                onSuccess={handleSuccess}
+            />
+            <ExchangeModal
+                isOpen={showExchangeModal}
+                onClose={() => setShowExchangeModal(false)}
+                order={order}
+                onSuccess={handleSuccess}
+                isPaid={hasPaid}
+            />
+        </>,
+        document.body
+    );
+};
+</file>
+
 <file path="src/features/orders/components/OrdersView.tsx">
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useOrdersData } from '../hooks/useOrdersData';
 import { useOrderActions } from '../hooks/useOrderActions';
 import { useOrderSelection } from '../hooks/useOrderSelection';
@@ -24398,13 +24229,11 @@ import { OrderTable } from './OrderTable';
 import { OrderSidePanel } from './OrderSidePanel';
 import { FilterBar } from '../../../components/ui/FilterBar';
 import { Button } from '../../../components/ui/Button';
-import { Card, CardHeader, CardTitle, CardContent } from '../../../components/ui/Card';
+import { Card } from '../../../components/ui/Card';
 import { MultiSelectFilter } from '../../../components/filters/MultiSelectFilter';
-import { Plus, Search } from 'lucide-react';
-import { Input } from '../../../components/ui/Input';
+import { Plus } from 'lucide-react';
 import { AddOrderModal } from '../../../components/dashboard/AddOrderModal';
 import RejectOrderModal from '../../../components/orders/RejectOrderModal';
-import { ConfirmModal } from '../../../components/ui/ConfirmModal';
 import { CustomerConfirmationModal } from '../../../components/orders/CustomerConfirmationModal';
 import { CancellationReasonModal } from '../../../components/orders/CancellationReasonModal';
 import { useToast } from '../../../components/ui/Toast';
@@ -24414,21 +24243,17 @@ import { useAuth } from '../../auth';
 import {
     simulateCustomerConfirmed,
     simulateCustomerCancelled,
-    simulateCustomerPaid,
-    zaloGateway,
 } from '../../zalo';
 import { logOrderEvent } from '../services/orderEventsService';
 import { ORDER_STATUS } from '../../../constants/orderStatus';
-import { PAYMENT_METHODS } from '../../../constants/paymentMethods';
 import type { Order, OrderEvent } from '../../../types/supabase';
 import { logUserAction } from '../../../utils/logUserAction';
 import { supabase } from '../../../lib/supabaseClient';
 
 export const OrdersView: React.FC = () => {
     const { user } = useAuth();
-    const { showSuccess, showError, showInfo } = useToast();
+    const { showSuccess, showError } = useToast();
 
-    // Use centralized state from useOrdersData
     const {
         orders,
         products,
@@ -24442,7 +24267,6 @@ export const OrdersView: React.FC = () => {
         pageSize,
         statusOptions,
         paymentMethodOptions,
-        // Filters
         searchQuery,
         setSearchQuery,
         statusFilter,
@@ -24455,9 +24279,6 @@ export const OrdersView: React.FC = () => {
         setDateFilter,
     } = useOrdersData();
 
-    // Derived state for selection (filteredOrders is just orders now because filtering is server-side + optimistic local)
-    // Note: useOrderSelection expects 'filteredOrders' to know what to select all from.
-    // Since 'orders' contains the current page's data which matches filters, we use that.
     const filteredOrders = orders;
 
     const {
@@ -24469,52 +24290,47 @@ export const OrdersView: React.FC = () => {
 
     const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
 
-    // Handlers from useOrderActions (ensure they use the new updateOrderLocal)
     const {
         handleApprove,
         handleConfirmReject,
-        handleMarkShipped,
+        handleMarkShipped, // aka Start Delivery
         handleMarkCompleted,
         handleProductCorrection,
         handleDeleteOrders,
+        handleSimulatePaid,
+        handleSendQrLink,
     } = useOrderActions(updateOrderLocal, refreshOrders);
 
-    // UI State
     const [isAddOrderModalOpen, setIsAddOrderModalOpen] = useState(false);
     const [editingOrder, setEditingOrder] = useState<Order | null>(null);
-
-    // Side Panel State
     const [isSidePanelOpen, setIsSidePanelOpen] = useState(false);
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
     const [orderEvents, setOrderEvents] = useState<OrderEvent[]>([]);
     const [blacklistedPhones, setBlacklistedPhones] = useState<Set<string>>(new Set());
-
-    // Address Editing State
     const [addressForm, setAddressForm] = useState({
-        address_detail: '',
-        ward: '',
-        district: '',
-        province: '',
+        address_detail: '', ward: '', district: '', province: '',
     });
     const [isAddressModified, setIsAddressModified] = useState(false);
 
-    // Reject Modal State
     const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
     const [rejectTargetOrder, setRejectTargetOrder] = useState<Order | null>(null);
     const [rejectMode, setRejectMode] = useState<'VERIFICATION_REQUIRED' | 'ORDER_REJECTED'>('VERIFICATION_REQUIRED');
     const [rejectReason, setRejectReason] = useState('');
     const [rejectLoading, setRejectLoading] = useState(false);
 
-    // Delete All Modal State
     const [deleteAllModal, setDeleteAllModal] = useState({ isOpen: false, selectedCount: 0 });
     const [deleteAllLoading, setDeleteAllLoading] = useState(false);
 
-    // New Modal States
     const [isConfirmationModalOpen, setIsConfirmationModalOpen] = useState(false);
     const [isCancellationModalOpen, setIsCancellationModalOpen] = useState(false);
     const [pendingConfirmOrder, setPendingConfirmOrder] = useState<Order | null>(null);
 
-    // Load Blacklist
+    // Helper: close SidePanel
+    const closeSidePanel = () => {
+        setIsSidePanelOpen(false);
+        setSelectedOrder(null);
+    };
+
     useEffect(() => {
         const loadBlacklist = async () => {
             if (!user) return;
@@ -24528,7 +24344,6 @@ export const OrdersView: React.FC = () => {
         loadBlacklist();
     }, [user]);
 
-    // Load Order Events
     const loadOrderEvents = async (orderId: string) => {
         const { data, error } = await fetchOrderEvents(orderId);
         if (!error && data) {
@@ -24536,7 +24351,6 @@ export const OrdersView: React.FC = () => {
         }
     };
 
-    // Handlers
     const handleRowClick = async (order: Order) => {
         setSelectedOrder(order);
         setAddressForm({
@@ -24560,20 +24374,11 @@ export const OrdersView: React.FC = () => {
 
     const handleSaveAddress = async () => {
         if (!selectedOrder || !user) return;
-
         const { address_detail, ward, district, province } = addressForm;
-        const fullAddress = [address_detail, ward, district, province]
-            .filter(Boolean)
-            .map((s) => s.trim())
-            .filter((s) => s.length > 0)
-            .join(', ');
 
         try {
             await updateOrderLocal(selectedOrder.id, {
-                address_detail,
-                ward,
-                district,
-                province,
+                address_detail, ward, district, province,
             });
             showSuccess('Address updated successfully');
             setIsAddressModified(false);
@@ -24582,53 +24387,32 @@ export const OrdersView: React.FC = () => {
         }
     };
 
-    // ========= COD Approve with One-Time Guard =========
-    // ========= COD Approve with One-Time Guard =========
+    // ========= Handlers (đóng SidePanel sau khi action thành công) =========
+
     const handleApproveOrder = async (order: Order) => {
         if (!user) return;
-
         try {
-            // Call the new RPC
             const { error } = await supabase.rpc('approve_medium_risk_order', {
                 p_order_id: order.id
             });
-
             if (error) throw error;
-
             showSuccess('Order approved successfully');
-
-            // Refresh data
-            refreshOrders();
-
-            // Close side panel
-            setIsSidePanelOpen(false);
-            setSelectedOrder(null);
-
+            await refreshOrders();
+            closeSidePanel();
         } catch (error) {
             showError('Failed to approve order');
-            console.error('Error approving order:', error);
         }
     };
 
-    // ========= COD Reject with One-Time Guard =========
-    const handleRejectOrder = async (order: Order) => {
+    const handleRejectOrder = async (order: Order, reason: string) => {
         if (!user) return;
 
-        const canRejectFromStatus =
-            order.status === ORDER_STATUS.PENDING_REVIEW ||
-            order.status === ORDER_STATUS.VERIFICATION_REQUIRED;
-
-        if (!canRejectFromStatus) {
-            showInfo('This order has already been processed.');
-            return;
-        }
-
-        // Different behavior for Verification Required
+        // Nếu đang ở VERIFICATION_REQUIRED => reject trực tiếp
         if (order.status === ORDER_STATUS.VERIFICATION_REQUIRED) {
-            // Direct transition to Order Rejected (no modal)
             try {
                 const success = await updateOrderLocal(order.id, {
                     status: ORDER_STATUS.ORDER_REJECTED,
+                    cancel_reason: reason || 'Rejected during verification',
                 } as Partial<Order>);
 
                 if (!success) {
@@ -24639,9 +24423,7 @@ export const OrdersView: React.FC = () => {
                 await logOrderEvent(
                     order.id,
                     'REJECTED',
-                    {
-                        reason: 'Rejected during verification',
-                    },
+                    { reason: reason || 'Rejected during verification' },
                     'orders_view'
                 );
 
@@ -24649,342 +24431,109 @@ export const OrdersView: React.FC = () => {
 
                 await logUserAction({
                     userId: user.id,
-                    action: 'Reject Order (Verification)',
+                    action: 'Reject Order',
                     status: 'success',
-                    orderId: order.order_id || order.id,
-                    details: {
-                        status_from: order.status,
-                        status_to: ORDER_STATUS.ORDER_REJECTED,
-                    },
+                    orderId: order.order_id || order.id
                 });
 
-                // Close side panel
-                setIsSidePanelOpen(false);
-                setSelectedOrder(null);
+                await refreshOrders();
+                closeSidePanel();
             } catch (error) {
                 showError('Failed to reject order');
-                console.error('Error rejecting order:', error);
             }
         } else {
-            // Pending Review: Open modal for reason
+            // Pending Review -> mở modal hỏi lý do, vẫn đóng SidePanel cho sạch
             setRejectTargetOrder(order);
             setRejectMode('ORDER_REJECTED');
-            setRejectReason('');
+            setRejectReason(reason);
             setIsRejectModalOpen(true);
+            closeSidePanel();
         }
     };
 
-    // ========= Simulate Confirmed =========
     const handleSimulateConfirmedClick = async (order: Order) => {
         if (!user) return;
         try {
-            // simulateCustomerConfirmed already logs CUSTOMER_CONFIRMED and QR_SENT events
             await simulateCustomerConfirmed(order);
-
             setPendingConfirmOrder(order);
             setIsConfirmationModalOpen(true);
-            setIsSidePanelOpen(false);
+            closeSidePanel();
 
             await logUserAction({
                 userId: user.id,
                 action: 'Customer Confirmed Order',
                 status: 'success',
-                orderId: order.order_id || order.id,
-                details: {
-                    status_from: ORDER_STATUS.ORDER_CONFIRMATION_SENT,
-                    status_to: ORDER_STATUS.CUSTOMER_CONFIRMED, // Simulated transition
-                },
+                orderId: order.order_id || order.id
             });
         } catch (error) {
             showError('Failed to simulate confirmation');
-            console.error('Error simulating confirmed:', error);
         }
     };
 
-    const handleConfirmationModalClose = async () => {
-        setIsConfirmationModalOpen(false);
-        if (pendingConfirmOrder) {
-            // No need to refresh, simulateCustomerConfirmed should have updated backend
-            // But we need to update local state. simulateCustomerConfirmed calls updateOrder internally?
-            // Actually simulateCustomerConfirmed calls services directly.
-            // We should probably update local state here manually or rely on realtime (but realtime is disabled for auto-update).
-            // Ideally simulateCustomerConfirmed should be refactored to use updateOrderLocal, but it's imported.
-            // For now, let's just do a quick local update to reflect the change if we know what happened.
-            // Or better: call updateOrderLocal with the expected status change.
-            // Since simulateCustomerConfirmed does complex logic, we might need to refresh OR trust that it worked and just update status.
-
-            // Let's try to just update status locally to avoid full refresh
-            // Only update status if it was a full confirmation simulation, not just sending QR link
-            // For QR link only (low risk), we don't change status.
-            // We can check if status is already CONFIRMED or if we should just clear pending.
-
-            // If the order was low-risk auto-approved, we didn't change status, so no need to update status here.
-            // But if it was a normal confirmation, we might want to ensure UI reflects it.
-
-            // Since we don't easily know which flow triggered this (unless we track it), 
-            // we can rely on the fact that handleSendQrPaymentLinkClick didn't change status.
-            // So if status is still APPROVED, we leave it.
-
-            if (pendingConfirmOrder.status === ORDER_STATUS.ORDER_CONFIRMATION_SENT) {
-                await updateOrderLocal(pendingConfirmOrder.id, { status: ORDER_STATUS.CUSTOMER_CONFIRMED });
-            }
-
-            // Also fetch events to update side panel if open? Side panel is closed above.
-            setPendingConfirmOrder(null);
-        }
-    };
-
-    // ========= Send QR Payment Link (Low Risk) =========
-    const handleSendQrPaymentLinkClick = async (order: Order) => {
-        if (!user) return;
-        try {
-            // 1. Log QR_PAYMENT_LINK_SENT event
-            await logOrderEvent(
-                order.id,
-                'QR_PAYMENT_LINK_SENT',
-                { desc: 'Sent via low-risk flow' },
-                'manual_action'
-            );
-
-            // 2. Open Confirmation Modal (reuse existing one)
-            setPendingConfirmOrder(order);
-            setIsConfirmationModalOpen(true);
-            setIsSidePanelOpen(false);
-
-            showSuccess('QR Payment Link sent successfully');
-        } catch (error) {
-            showError('Failed to send QR Payment Link');
-            console.error('Error sending QR link:', error);
-        }
-    };
-
-    // ========= Simulate Cancelled =========
     const handleSimulateCancelledClick = (order: Order) => {
         if (!user) return;
         setPendingConfirmOrder(order);
         setIsCancellationModalOpen(true);
+        closeSidePanel();
+    };
+
+    const handleSendQrPaymentLinkClick = async (order: Order) => {
+        // Không đóng SidePanel, m muốn vẫn xem được
+        await handleSendQrLink(order);
+        closeSidePanel();
+
+    };
+
+    // Wrappers cho hook actions để dùng trong SidePanel
+    const handleStartDeliveryFromPanel = async (order: Order) => {
+        await handleMarkShipped(order);
+        closeSidePanel();
+    };
+
+    const handleMarkCompletedFromPanel = async (order: Order) => {
+        await handleMarkCompleted(order);
+        closeSidePanel();
+    };
+
+    const handleSimulatePaidFromPanel = async (order: Order) => {
+        await handleSimulatePaid(order);
+        closeSidePanel();
+    };
+
+    // Modal Close Handlers
+    const handleConfirmationModalClose = async () => {
+        setIsConfirmationModalOpen(false);
+        if (pendingConfirmOrder && pendingConfirmOrder.status === ORDER_STATUS.ORDER_CONFIRMATION_SENT) {
+            await updateOrderLocal(pendingConfirmOrder.id, { status: ORDER_STATUS.CUSTOMER_CONFIRMED });
+            await refreshOrders();
+        }
+        setPendingConfirmOrder(null);
     };
 
     const handleCancellationConfirm = async (reason: string) => {
         if (!user || !pendingConfirmOrder) return;
-
         try {
-            // simulateCustomerCancelled already logs CUSTOMER_CANCELLED event
             await simulateCustomerCancelled(pendingConfirmOrder, reason);
-
             showSuccess('Customer cancelled via mock Zalo OA');
             setIsCancellationModalOpen(false);
 
-            // Update local state
             await updateOrderLocal(pendingConfirmOrder.id, {
                 status: ORDER_STATUS.CUSTOMER_CANCELLED,
                 cancel_reason: reason
             });
 
-            setPendingConfirmOrder(null);
-
             await logUserAction({
                 userId: user.id,
                 action: 'Customer Cancelled Order',
                 status: 'success',
-                orderId: pendingConfirmOrder.order_id || pendingConfirmOrder.id,
-                details: {
-                    status_from: pendingConfirmOrder.status,
-                    status_to: ORDER_STATUS.CUSTOMER_CANCELLED,
-                    reason,
-                },
+                orderId: pendingConfirmOrder.order_id || pendingConfirmOrder.id
             });
+
+            await refreshOrders();
+            setPendingConfirmOrder(null);
         } catch (error) {
             showError('Failed to simulate cancellation');
-            console.error('Error simulating cancelled:', error);
         }
-    };
-
-    const handleCancellationModalClose = () => {
-        setIsCancellationModalOpen(false);
-        setPendingConfirmOrder(null);
-    };
-
-    // ========= Simulate Paid =========
-    const handleSimulatePaidClick = async (order: Order) => {
-        if (!user) return;
-        const currentStatus = order.status;
-
-        try {
-            // 1. Always mark invoice as Paid (idempotent) and log payment event
-            await simulateCustomerPaid(order);
-
-            // 2. Log the user action
-            await logUserAction({
-                userId: user.id,
-                action: 'Simulate Paid',
-                status: 'success',
-                orderId: order.order_id || order.id,
-                details: {
-                    payment_status_from: 'unpaid',
-                    payment_status_to: 'paid',
-                    status_from: currentStatus,
-                    status_to:
-                        currentStatus === ORDER_STATUS.DELIVERING || currentStatus === ORDER_STATUS.COMPLETED
-                            ? currentStatus
-                            : ORDER_STATUS.ORDER_PAID,
-                },
-            });
-
-            // 3. Restore status if simulateCustomerPaid changed it but we want to keep it as Delivering/Completed
-            // simulateCustomerPaid updates status to PAID. If it was Delivering/Completed, we want to keep it.
-            // But updateOrderLocal will handle the UI update.
-            // If we want to force it back:
-            if (currentStatus === ORDER_STATUS.DELIVERING || currentStatus === ORDER_STATUS.COMPLETED) {
-                await updateOrderLocal(order.id, { status: currentStatus });
-            } else {
-                await updateOrderLocal(order.id, { status: ORDER_STATUS.ORDER_PAID });
-            }
-
-            showSuccess('Customer paid via mock Zalo OA');
-        } catch (error) {
-            showError('Failed to simulate payment');
-            console.error('Error simulating paid:', error);
-        }
-    };
-
-    // ========= Mark as Delivered =========
-    const handleMarkDelivered = async (order: Order) => {
-        if (!user) return;
-
-        try {
-            // Update local state immediately for instant UI feedback
-            const now = new Date().toISOString();
-            const success = await updateOrderLocal(order.id, {
-                status: ORDER_STATUS.DELIVERING,
-                shipped_at: now,
-            } as Partial<Order>);
-
-            if (!success) {
-                showError('Failed to mark as delivered');
-                return;
-            }
-
-            await logOrderEvent(
-                order.id,
-                'ORDER_MARKED_DELIVERING',
-                {},
-                'orders_view'
-            );
-
-            showSuccess('Order marked as delivering');
-
-            await logUserAction({
-                userId: user.id,
-                action: 'Mark Order as Delivered',
-                status: 'success',
-                orderId: order.order_id || order.id,
-                details: {
-                    status_from: order.status,
-                    status_to: ORDER_STATUS.DELIVERING,
-                },
-            });
-        } catch (error) {
-            showError('Failed to mark as delivered');
-            console.error('Error marking delivered:', error);
-        }
-    };
-
-    // ========= Mark as Completed =========
-    const handleMarkCompletedClick = async (order: Order) => {
-        if (!user) return;
-
-        try {
-            // Update local state immediately for instant UI feedback
-            const now = new Date().toISOString();
-            const success = await updateOrderLocal(order.id, {
-                status: ORDER_STATUS.COMPLETED,
-                completed_at: now,
-            } as Partial<Order>);
-
-            if (!success) {
-                showError('Failed to mark as completed');
-                return;
-            }
-
-            await logOrderEvent(
-                order.id,
-                'ORDER_COMPLETED',
-                {},
-                'orders_view'
-            );
-
-            showSuccess('Order marked as completed');
-            setIsSidePanelOpen(false);
-            setSelectedOrder(null);
-
-            await logUserAction({
-                userId: user.id,
-                action: 'Mark Order as Completed',
-                status: 'success',
-                orderId: order.order_id || order.id,
-                details: {
-                    status_from: order.status,
-                    status_to: ORDER_STATUS.COMPLETED,
-                },
-            });
-        } catch (error) {
-            showError('Failed to mark as completed');
-            console.error('Error marking completed:', error);
-        }
-    };
-
-    // ========= Mark as Missed (Verification Required → Customer Unreachable) =========
-    const handleMarkMissed = async (order: Order) => {
-        if (!user) return;
-
-        if (order.status !== ORDER_STATUS.VERIFICATION_REQUIRED) {
-            showInfo('Only Verification Required orders can be marked as missed');
-            return;
-        }
-
-        try {
-            const success = await updateOrderLocal(order.id, {
-                status: ORDER_STATUS.CUSTOMER_UNREACHABLE,
-            } as Partial<Order>);
-
-            if (!success) {
-                showError('Failed to mark as missed');
-                return;
-            }
-
-            await logOrderEvent(
-                order.id,
-                'CUSTOMER_UNREACHABLE',
-                {
-                    reason: 'Customer did not respond to verification',
-                },
-                'orders_view'
-            );
-
-            showSuccess('Order marked as Customer Unreachable');
-
-            await logUserAction({
-                userId: user.id,
-                action: 'Mark Order as Missed',
-                status: 'success',
-                orderId: order.order_id || order.id,
-                details: {
-                    status_from: order.status,
-                    status_to: ORDER_STATUS.CUSTOMER_UNREACHABLE,
-                },
-            });
-        } catch (error) {
-            showError('Failed to mark as missed');
-            console.error('Error marking missed:', error);
-        }
-    };
-
-    const openRejectModal = (order: Order) => {
-        setRejectTargetOrder(order);
-        setRejectMode('VERIFICATION_REQUIRED');
-        setRejectReason('');
-        setIsRejectModalOpen(true);
     };
 
     const onConfirmReject = async () => {
@@ -24997,39 +24546,11 @@ export const OrdersView: React.FC = () => {
         try {
             await handleConfirmReject(rejectTargetOrder, rejectReason, rejectMode);
             setIsRejectModalOpen(false);
-
-            // Close side panel
-            setIsSidePanelOpen(false);
-            setSelectedOrder(null);
+            closeSidePanel();
+            await refreshOrders();
         } catch (error) {
-            // handled in hook
         } finally {
             setRejectLoading(false);
-        }
-    };
-
-    const handleDeleteAllClick = () => {
-        if (selectedIds.size === 0) return;
-        setDeleteAllModal({
-            isOpen: true,
-            selectedCount: selectedIds.size,
-        });
-    };
-
-    const handleDeleteAllConfirm = async () => {
-        if (selectedIds.size === 0) return;
-        setDeleteAllLoading(true);
-        const idsToDelete = Array.from(selectedIds);
-        const ordersToDelete = orders.filter((o) => idsToDelete.includes(o.id));
-
-        try {
-            await handleDeleteOrders(idsToDelete, ordersToDelete);
-            setDeleteAllModal({ isOpen: false, selectedCount: 0 });
-            clearSelection();
-        } catch (error) {
-            // handled in hook
-        } finally {
-            setDeleteAllLoading(false);
         }
     };
 
@@ -25040,11 +24561,29 @@ export const OrdersView: React.FC = () => {
         setPaymentMethodFilter([]);
     };
 
+    const handleDeleteAllClick = () => {
+        if (selectedIds.size === 0) return;
+        setDeleteAllModal({ isOpen: true, selectedCount: selectedIds.size });
+    };
+
+    const handleDeleteAllConfirm = async () => {
+        if (selectedIds.size === 0) return;
+        setDeleteAllLoading(true);
+        try {
+            const orderIds = Array.from(selectedIds);
+            const ordersToDelete = orders.filter(o => selectedIds.has(o.id));
+
+            await handleDeleteOrders(orderIds, ordersToDelete);
+
+            clearSelection();
+            setDeleteAllModal({ isOpen: false, selectedCount: 0 });
+        } finally {
+            setDeleteAllLoading(false);
+        }
+    };
+
     return (
         <div className="space-y-6 p-6 h-full flex flex-col min-h-0">
-
-            {/* Filters & Actions */}
-            {/* Filters & Actions */}
             <FilterBar
                 searchValue={searchQuery}
                 onSearch={setSearchQuery}
@@ -25059,9 +24598,9 @@ export const OrdersView: React.FC = () => {
                 <MultiSelectFilter
                     label="Risk Levels"
                     options={[
-                        { value: 'low', label: 'Low Risk (0–30)' },
-                        { value: 'medium', label: 'Medium Risk (31–70)' },
-                        { value: 'high', label: 'High Risk (70+)' },
+                        { value: 'low', label: 'Low Risk' },
+                        { value: 'medium', label: 'Medium Risk' },
+                        { value: 'high', label: 'High Risk' },
                     ]}
                     selectedValues={riskScoreFilter}
                     onChange={setRiskScoreFilter}
@@ -25072,38 +24611,29 @@ export const OrdersView: React.FC = () => {
                     selectedValues={paymentMethodFilter}
                     onChange={setPaymentMethodFilter}
                 />
-
-                {/* Date Filter */}
                 <input
                     type="date"
                     value={dateFilter}
                     onChange={(e) => setDateFilter(e.target.value)}
-                    className="h-10 w-auto min-w-[180px] whitespace-nowrap px-3 bg-[var(--bg-input)] border border-[var(--border-subtle)] rounded-lg text-[var(--text-main)]"
+                    className="h-10 px-3 bg-[var(--bg-input)] border border-[var(--border-subtle)] rounded-lg text-[var(--text-main)]"
                 />
-
-                {/* Clear filters */}
                 <button
                     type="button"
                     onClick={handleClearFilters}
-                    className="text-sm text-[var(--text-muted)] whitespace-nowrap hover:text-white transition"
+                    className="text-sm text-[var(--text-muted)] hover:text-white"
                 >
                     Clear filters
                 </button>
-
-                {/* Action Button */}
                 <Button
-                    className="whitespace-nowrap"
                     onClick={() => {
                         setEditingOrder(null);
                         setIsAddOrderModalOpen(true);
                     }}
                 >
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add Order
+                    <Plus className="w-4 h-4 mr-2" /> Add Order
                 </Button>
             </FilterBar>
 
-            {/* Table occupies full remaining space */}
             <Card className="flex-1 flex flex-col min-h-0">
                 <OrderTable
                     orders={orders}
@@ -25120,29 +24650,30 @@ export const OrdersView: React.FC = () => {
                     products={products}
                     onProductCorrection={handleProductCorrection}
                     onApprove={(orderId) => {
-                        const order = orders.find((o) => o.id === orderId);
-                        if (order) handleApproveOrder(order);
+                        const o = orders.find(x => x.id === orderId);
+                        if (o) handleApproveOrder(o);
                     }}
                     onReject={(orderId) => {
-                        const order = orders.find((o) => o.id === orderId);
-                        if (order) openRejectModal(order);
+                        const o = orders.find(x => x.id === orderId);
+                        if (o) {
+                            setRejectTargetOrder(o);
+                            setRejectMode('ORDER_REJECTED');
+                            setRejectReason('');
+                            setIsRejectModalOpen(true);
+                        }
                     }}
                     onEdit={(order) => {
                         setEditingOrder(order);
                         setIsAddOrderModalOpen(true);
                     }}
-                    onDelete={() => handleDeleteAllClick()}
+                    onDelete={handleDeleteAllClick}
                     loading={loading}
                 />
             </Card>
 
-            {/* Side Panel */}
             <OrderSidePanel
                 isOpen={isSidePanelOpen}
-                onClose={() => {
-                    setIsSidePanelOpen(false);
-                    setSelectedOrder(null);
-                }}
+                onClose={closeSidePanel}
                 order={selectedOrder}
                 orderEvents={orderEvents}
                 addressForm={addressForm}
@@ -25150,19 +24681,18 @@ export const OrdersView: React.FC = () => {
                 onAddressChange={handleAddressChange}
                 onSaveAddress={handleSaveAddress}
                 blacklistedPhones={blacklistedPhones}
+                // Handlers dùng cho SidePanel
                 onApprove={handleApproveOrder}
                 onReject={handleRejectOrder}
-                onMarkDelivered={handleMarkDelivered}
-                onMarkCompleted={handleMarkCompletedClick}
-                onMarkMissed={handleMarkMissed}
+                onMarkDelivered={handleStartDeliveryFromPanel}
+                onMarkCompleted={handleMarkCompletedFromPanel}
                 onSimulateConfirmed={handleSimulateConfirmedClick}
                 onSimulateCancelled={handleSimulateCancelledClick}
-                onSimulatePaid={handleSimulatePaidClick}
+                onSimulatePaid={handleSimulatePaidFromPanel}
                 onSendQrPaymentLink={handleSendQrPaymentLinkClick}
                 onOrderUpdated={refreshOrders}
             />
 
-            {/* Add/Edit Order Modal */}
             <AddOrderModal
                 isOpen={isAddOrderModalOpen}
                 onClose={() => {
@@ -25177,7 +24707,6 @@ export const OrdersView: React.FC = () => {
                 editingOrder={editingOrder}
             />
 
-            {/* Reject Modal */}
             <RejectOrderModal
                 isOpen={isRejectModalOpen}
                 mode={rejectMode}
@@ -25189,38 +24718,22 @@ export const OrdersView: React.FC = () => {
                 loading={rejectLoading}
             />
 
-            {/* Delete All Confirmation Modal */}
-            <ConfirmModal
-                isOpen={deleteAllModal.isOpen}
-                onCancel={() => setDeleteAllModal({ ...deleteAllModal, isOpen: false })}
-                onConfirm={handleDeleteAllConfirm}
-                message={`Are you sure you want to delete ${deleteAllModal.selectedCount} selected orders? This action cannot be undone.`}
-                confirmText="Delete"
-                cancelText="Cancel"
-                loading={deleteAllLoading}
-                variant="danger"
-            />
-
-            {/* Customer Confirmation Modal */}
-            {
-                pendingConfirmOrder && (
-                    <>
-                        <CustomerConfirmationModal
-                            isOpen={isConfirmationModalOpen}
-                            onClose={handleConfirmationModalClose}
-                            order={pendingConfirmOrder}
-                        />
-
-                        <CancellationReasonModal
-                            isOpen={isCancellationModalOpen}
-                            onClose={handleCancellationModalClose}
-                            onConfirm={handleCancellationConfirm}
-                            order={pendingConfirmOrder}
-                        />
-                    </>
-                )
-            }
-        </div >
+            {pendingConfirmOrder && (
+                <>
+                    <CustomerConfirmationModal
+                        isOpen={isConfirmationModalOpen}
+                        onClose={handleConfirmationModalClose}
+                        order={pendingConfirmOrder}
+                    />
+                    <CancellationReasonModal
+                        isOpen={isCancellationModalOpen}
+                        onClose={() => setIsCancellationModalOpen(false)}
+                        onConfirm={handleCancellationConfirm}
+                        order={pendingConfirmOrder}
+                    />
+                </>
+            )}
+        </div>
     );
 };
 </file>
@@ -26698,6 +26211,232 @@ export const SettingsPage: React.FC = () => {
     </div>
   );
 };
+</file>
+
+<file path="src/utils/riskEngine.ts">
+import { ORDER_STATUS } from "../constants/orderStatus";
+import type { OrderStatus } from "../constants/orderStatus";
+
+export type RiskLevel = "none" | "low" | "medium" | "high";
+
+export interface RiskFactor {
+  key: string;
+  label: string;
+  score: number;
+}
+
+export interface CustomerHistoryStats {
+  badOrders: number;
+  goodOrders: number;
+}
+
+export interface RiskScoreResult {
+  score: number | null;
+  level: RiskLevel;
+  factors: RiskFactor[];
+}
+
+export interface SimpleOrderInput {
+  payment_method?: string | null;
+  amount?: number | null;
+  phone?: string | null;
+  product?: string | null;
+}
+
+// Helper functions
+const normStr = (v: string | null | undefined) => (v || "").toString().trim();
+
+function normalizeVNPhone(raw: string): string {
+  let s = raw.trim();
+  s = s.replace(/[\s.\-()]/g, "");
+  if (s.startsWith("+84")) {
+    const rest = s.slice(3);
+    if (/^\d{9}$/.test(rest)) {
+      return "0" + rest;
+    }
+  }
+  return s;
+}
+
+function isValidVNPhone(raw: string): boolean {
+  const n = normalizeVNPhone(raw);
+  return /^0\d{9}$/.test(n);
+}
+
+/**
+ * Hàm giả lập Check Zalo API (CẢI TIẾN)
+ */
+export function mockCheckZaloExistence(phone: string): boolean {
+  const clean = phone.replace(/\D/g, "");
+  if (/(00|11|22|33|44|55|66|77|88|99)$/.test(clean)) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Compute logic cho UI cũ (nếu còn dùng)
+ */
+export function computeRiskScoreV1(
+  order: SimpleOrderInput,
+  history?: CustomerHistoryStats
+): RiskScoreResult {
+  return { score: 10, level: "low", factors: [] };
+}
+
+// ===== LOGIC MỚI CHO IMPORT FLOW =====
+
+export interface RiskInput {
+  paymentMethod: string | null | undefined;
+  amountVnd: number;
+  phone: string;
+  address?: string | null;       // Full address string (legacy/fallback)
+  addressDetail?: string | null; // Số nhà, đường
+  ward?: string | null;          // Phường/Xã
+  district?: string | null;      // Quận/Huyện
+  province?: string | null;      // Tỉnh/Thành phố (🔥 Đã thêm field này để fix lỗi)
+  pastOrders: { status: string | null }[];
+  productName?: string | null;
+  zaloExists?: boolean;
+}
+
+export interface RiskOutput {
+  score: number | null;
+  level: RiskLevel;
+  reasons: (string | { factor: string; score: number; desc: string })[];
+  version?: "v2"; // Version 2
+}
+
+/**
+ * evaluateRisk (Logic chấm điểm mới - Granular Scoring)
+ */
+export function evaluateRisk(input: RiskInput, blacklistPhones?: Set<string>): RiskOutput {
+  const { paymentMethod, amountVnd, phone, pastOrders, zaloExists } = input;
+  const method = (paymentMethod || "").toUpperCase();
+  const productName = (input.productName || "").toLowerCase();
+
+  // 1. Non-COD: Rủi ro bằng 0 (An toàn)
+  if (method && method !== "COD") {
+    return { score: null, level: "none", reasons: [], version: "v2" };
+  }
+
+  let score = 0;
+  const reasons: (string | { factor: string; score: number; desc: string })[] = [];
+
+  // 2. Base COD Risk
+  score += 10;
+  reasons.push("COD Order (+10)");
+
+  // 3. Zalo Check
+  // Tạm tắt check Zalo giả lập để tránh báo sai (Sim rác)
+  /*
+  if (zaloExists === false) {
+    score += 40;
+    reasons.push({ factor: 'zalo', score: 40, desc: 'Phone not on Zalo / Sim Rác (+40)' });
+  }
+  */
+
+  // 4. Amount Risk
+  if (amountVnd >= 1_000_000) {
+    score += 25;
+    reasons.push("High Value > 1M (+25)");
+  } else if (amountVnd >= 500_000) {
+    score += 10;
+    reasons.push("Medium Value > 500k (+10)");
+  }
+
+  // 5. Product Risk
+  const highRiskKeywords = ['nồi chiên', 'sạc', 'cáp', 'tai nghe', 'loa', 'bluetooth', 'điện thoại', 'máy tính', 'đồng hồ', 'camera'];
+  const fashionKeywords = ['áo', 'quần', 'giày', 'dép', 'túi', 'balo', 'ví', 'váy', 'đầm', 'sét'];
+
+  if (highRiskKeywords.some(k => productName.includes(k))) {
+    score += 20;
+    reasons.push("High Risk Product (Electronics) (+20)");
+  } else if (fashionKeywords.some(k => productName.includes(k))) {
+    score += 10;
+    reasons.push("Fashion Product (Return Risk) (+10)");
+  }
+
+  // 6. Address Risk (Logic Mới: Structured vs Unstructured)
+  const hasDetail = !!input.addressDetail?.trim();
+  const hasWard = !!input.ward?.trim();
+  const hasDistrict = !!input.district?.trim();
+  const hasProvince = !!input.province?.trim(); // Fix lỗi TS ở đây
+
+  // Kịch bản A: Nhập đủ 4 cấp (An toàn nhất)
+  const isFullStructured = hasDetail && hasWard && hasDistrict && hasProvince;
+
+  // Kịch bản B: Chỉ nhập mỗi Address Detail (Gộp chung)
+  const isOnlyDetail = hasDetail && !hasWard && !hasDistrict && !hasProvince;
+
+  if (isFullStructured) {
+    // OK - Đủ thông tin hành chính
+  }
+  else if (isOnlyDetail) {
+    // Trường hợp gộp: Check kỹ hơn
+    const detailVal = (input.addressDetail || "").toLowerCase().trim();
+
+    // Check 1: Độ dài quá ngắn
+    if (detailVal.length < 15) {
+      score += 25;
+      reasons.push("Vague Address (Details < 15 chars) (+20)");
+    }
+    // Check 2: Dài nhưng thiếu từ khóa hành chính (Quận/Huyện/Tỉnh/TP)
+    else {
+      const adminKeywords = ['p.', 'phường', 'xã', 'q.', 'quận', 'h.', 'huyện', 'tp', 'thành phố', 'tỉnh'];
+      const hasAdminKeyword = adminKeywords.some(k => detailVal.includes(k));
+
+      if (!hasAdminKeyword) {
+        score += 15;
+        reasons.push("Unstructured Address (Missing admin keywords) (+15)");
+      }
+    }
+  }
+  else {
+    // Kịch bản C: Nhập lỡ cỡ (Có cái này thiếu cái kia)
+    // Ví dụ: Có Tỉnh nhưng thiếu Huyện/Xã
+    score += 15;
+    reasons.push("Incomplete Address Structure (+15)");
+  }
+
+  // 7. Past History
+  const failedStatuses: OrderStatus[] = [
+    ORDER_STATUS.CUSTOMER_CANCELLED,
+    ORDER_STATUS.ORDER_REJECTED,
+  ];
+  const failedCount = pastOrders.filter(
+    (o) => o.status && failedStatuses.includes(o.status as OrderStatus)
+  ).length;
+
+  if (failedCount >= 3) {
+    score += 30;
+    reasons.push("Repeated Failures (3+) (+30)");
+  } else if (failedCount >= 1) {
+    score += 10;
+    reasons.push("Previous Failure (+10)");
+  }
+
+  // 8. Blacklist Override
+  if (blacklistPhones?.has(phone)) {
+    score = Math.max(score, 85);
+    reasons.push({
+      factor: "blacklist",
+      score: 0,
+      desc: "BLACKLISTED CUSTOMER (FORCE HIGH)"
+    });
+  }
+
+  // Clamp 0–100
+  score = Math.max(0, Math.min(score, 100));
+
+  // Mapping level
+  let level: RiskLevel;
+  if (score <= 30) level = "low";
+  else if (score <= 70) level = "medium";
+  else level = "high";
+
+  return { score, level, reasons, version: "v2" };
+}
 </file>
 
 <file path="src/utils/smartColumnMapper.ts">
