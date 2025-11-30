@@ -5,7 +5,7 @@ import { logUserAction } from "../../../utils/logUserAction";
 import { generateChanges } from "../../../utils/generateChanges";
 import { logOrderEvent } from "../services/orderEventsService";
 import { deleteOrders, updateOrder } from "../services/ordersService";
-import { ensurePendingInvoiceForOrder, markInvoicePaidForOrder } from "../../invoices/services/invoiceService";
+import { ensurePendingInvoiceForOrder } from "../../invoices/services/invoiceService";
 import { LedgerService } from "../../ledger/services/ledgerService";
 
 export const OrderActions = {
@@ -69,26 +69,28 @@ export const OrderActions = {
     },
 
     async simulatePaid(order: Order, userId: string) {
-        // Update Invoice -> Paid. 
-        // Also updates Order -> Paid_at. 
-        // If Order is Delivering/Completed, status remains. If not, status -> ORDER_PAID.
-        await markInvoicePaidForOrder(order);
-
-        // Optimistic UI Update
+        // Xác định status sau khi đã thu tiền
+        // Nếu đang Delivering/Completed thì giữ nguyên,
+        // ngược lại set ORDER_PAID
         let nextStatus = order.status;
-        if (order.status !== ORDER_STATUS.DELIVERING && order.status !== ORDER_STATUS.COMPLETED) {
+        if (
+            order.status !== ORDER_STATUS.DELIVERING &&
+            order.status !== ORDER_STATUS.COMPLETED
+        ) {
             nextStatus = ORDER_STATUS.ORDER_PAID;
         }
 
+        // Cập nhật Order: status + paid_at
         await updateOrder(order.id, userId, {
             status: nextStatus,
-            paid_at: new Date().toISOString()
+            paid_at: new Date().toISOString(),
         });
 
-        // P2: Record Payment in Ledger
-        // We assume the payment amount is the full order amount for now.
+        // Ghi nhận Payment vào Ledger (vẫn giữ behavior cũ)
         if (order.amount) {
-            await LedgerService.recordPayment(userId, order.id, order.amount, { method: 'simulation' });
+            await LedgerService.recordPayment(userId, order.id, order.amount, {
+                method: "simulation", // Simulate QR Paid / Payment Received
+            });
         }
     },
 

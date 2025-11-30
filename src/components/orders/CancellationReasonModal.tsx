@@ -11,11 +11,12 @@ interface CancellationReasonModalProps {
 }
 
 const REASON_OPTIONS = [
-    { value: 'Không nghe máy', label: 'Tôi không nghe máy' },
+    { value: 'Đổi shop', label: 'Tôi muốn đổi mua ở shop khác' },
     { value: 'Đổi ý', label: 'Tôi không muốn mua nữa' },
+    { value: 'Giá cao', label: 'Tôi thấy giá cao' },
     { value: 'Sai địa chỉ', label: 'Tôi đặt nhầm địa chỉ / thông tin nhận hàng' },
     { value: 'Sai thông tin sản phẩm', label: 'Tôi đặt lộn sản phẩm' },
-    { value: 'Khác', label: 'Lý do khác (ghi lại đúng lời khách)' },
+    { value: 'Khác', label: 'Lý do khác' },
 ];
 
 export const CancellationReasonModal: React.FC<CancellationReasonModalProps> = ({

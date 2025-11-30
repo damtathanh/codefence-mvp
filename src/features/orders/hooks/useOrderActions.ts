@@ -15,7 +15,7 @@ export const useOrderActions = (
     refreshOrders: () => Promise<void>
 ) => {
     const { user } = useAuth();
-    const { showSuccess, showError, showInfo } = useToast();
+    const { showSuccess, showError } = useToast();
 
     // 1. SHOP ACTION: Approve (High/Medium Risk -> Confirmation Sent)
     // Logic: Medium/High Risk approved -> Send Zalo confirmation immediately.
@@ -61,22 +61,58 @@ export const useOrderActions = (
     }, [user, updateOrderLocal, showSuccess, showError]);
 
     // 2. SHOP ACTION: Reject / Verification Required
-    const handleConfirmReject = useCallback(async (order: Order, reason: string, mode: 'VERIFICATION_REQUIRED' | 'ORDER_REJECTED', onSuccess?: () => void) => {
-        if (!user) return;
-        try {
-            const nextStatus = mode === 'VERIFICATION_REQUIRED' ? ORDER_STATUS.VERIFICATION_REQUIRED : ORDER_STATUS.ORDER_REJECTED;
-            const updateData: any = { status: nextStatus };
+    const handleConfirmReject = useCallback(
+        async (
+            order: Order,
+            reason: string,
+            mode: "VERIFICATION_REQUIRED" | "ORDER_REJECTED",
+            onSuccess?: () => void
+        ) => {
+            if (!user) return;
 
-            if (mode === 'VERIFICATION_REQUIRED') updateData.verification_reason = reason;
-            else updateData.reject_reason = reason;
+            try {
+                // Lý do lấy 100% từ modal
+                const finalReason = (reason || "").trim();
+                if (!finalReason) {
+                    // Phòng hờ nếu ai đó gọi hàm này mà quên truyền reason
+                    showError("Reason is required.");
+                    return;
+                }
 
-            await updateOrderLocal(order.id, updateData);
-            await logOrderEvent(order.id, mode, { reason }, 'manual_action');
+                const nextStatus =
+                    mode === "VERIFICATION_REQUIRED"
+                        ? ORDER_STATUS.VERIFICATION_REQUIRED
+                        : ORDER_STATUS.ORDER_REJECTED;
 
-            showSuccess(mode === 'VERIFICATION_REQUIRED' ? 'Order flagged for verification.' : 'Order rejected.');
-            if (onSuccess) onSuccess();
-        } catch (err) { showError('Failed to update order.'); }
-    }, [user, updateOrderLocal, showSuccess, showError]);
+                const updateData: any = { status: nextStatus };
+
+                if (mode === "VERIFICATION_REQUIRED") {
+                    updateData.verification_reason = finalReason;
+                } else {
+                    updateData.reject_reason = finalReason;
+                }
+
+                await updateOrderLocal(order.id, updateData);
+                await logOrderEvent(
+                    order.id,
+                    mode,
+                    { reason: finalReason },
+                    "manual_action"
+                );
+
+                showSuccess(
+                    mode === "VERIFICATION_REQUIRED"
+                        ? "Order flagged for verification."
+                        : "Order rejected."
+                );
+
+                if (onSuccess) onSuccess();
+            } catch (err) {
+                showError("Failed to update order.");
+            }
+        },
+        [user, updateOrderLocal, showSuccess, showError]
+    );
 
     // 3. CUSTOMER CONFIRMED (Create Invoice + Send QR)
     const handleSimulateConfirmed = useCallback(async (order: Order, onSuccess?: () => void) => {

@@ -1,4 +1,4 @@
-// src/features/invoices/invoiceService.ts
+import { ORDER_STATUS } from "../../../constants/orderStatus";
 import { InvoicesRepository } from "../repositories/invoicesRepository";
 import { INVOICE_STATUS, type InvoiceStatus } from "./invoiceTypes";
 import type { Order, Invoice } from "../../../types/supabase";
@@ -75,46 +75,57 @@ export async function markInvoicePaidForOrder(order: Order) {
 
   const now = new Date().toISOString();
 
-  const { data: existing, error } = await InvoicesRepository.getInvoiceByOrderId(order.id, order.user_id);
+  const { data: existing, error } =
+    await InvoicesRepository.getInvoiceByOrderId(order.id, order.user_id);
 
   if (error) {
     console.error("markInvoicePaidForOrder: fetch error", error);
-    throw error; // đừng nuốt lỗi
+    throw error;
   }
 
-  // Nếu invoice đã tồn tại → update sang Paid
+  // ĐÃ CÓ INVOICE
   if (existing) {
-    const { error: updateError } = await InvoicesRepository.updateInvoice(existing.id, {
-      status: "Paid" as InvoiceStatus,
-      date: getTodayDateString(),
-      paid_at: now, // <-- cập nhật paid_at
-    });
+    // ❗ Nếu đã Paid rồi thì thôi, không update, không log thêm event PAID
+    if (
+      existing.status === INVOICE_STATUS.PAID ||
+      existing.status === "Paid"
+    ) {
+      return existing;
+    }
+
+    const { error: updateError } =
+      await InvoicesRepository.updateInvoice(existing.id, {
+        status: INVOICE_STATUS.PAID,
+        paid_at: now,
+        // giữ nguyên date cũ nếu có, nếu không thì gán hôm nay
+        date: existing.date ?? getTodayDateString(),
+      });
 
     if (updateError) {
       console.error("markInvoicePaidForOrder: update error", updateError);
-      throw updateError; // để biết là nó fail
+      throw updateError;
     }
 
-    // Centralized Event Logging: Insert PAID event
+    // Log đúng 1 lần sự kiện PAID
     await logOrderEvent(
       order.id,
-      'PAID',
+      "PAID",
       {
         amount: order.amount,
         paid_at: now,
       },
-      'invoice_service'
+      "invoice_service"
     );
 
-    return;
+    return existing;
   }
 
-  // Nếu chưa có invoice → tạo mới dạng Paid
+  // CHƯA CÓ INVOICE -> tạo mới invoice Paid
   const { error: insertError } = await InvoicesRepository.insertInvoice({
     user_id: order.user_id,
     order_id: order.id,
     amount: order.amount ?? 0,
-    status: "Paid" as InvoiceStatus,
+    status: INVOICE_STATUS.PAID,
     date: getTodayDateString(),
     paid_at: now,
     invoice_code: generateInvoiceCode(order),
@@ -125,15 +136,14 @@ export async function markInvoicePaidForOrder(order: Order) {
     throw insertError;
   }
 
-  // Centralized Event Logging: Insert PAID event
   await logOrderEvent(
     order.id,
-    'PAID',
+    "PAID",
     {
       amount: order.amount,
       paid_at: now,
     },
-    'invoice_service'
+    "invoice_service"
   );
 }
 
@@ -259,45 +269,47 @@ export async function applyInvoiceRules(order: Order) {
 
   const status = order.status;
   const riskScore = order.risk_score;
-  const paymentMethod = (order.payment_method || 'COD').toUpperCase(); // Default to COD if null
-  const isCOD = paymentMethod === 'COD';
+  const paymentMethod = (order.payment_method || "COD").toUpperCase(); // Default COD
+  const isCOD = paymentMethod === "COD";
 
-  // 1. PAID Logic (All payment methods)
-  // If order is in a paid state, ensure invoice is Paid.
+  // 1. PAID logic (mọi payment method)
+  // => Chỉ khi status là 1 trong các trạng thái "đã thanh toán" RÕ RÀNG
+  //    (Simulate Paid, QR callback, non-COD prepaid...)
   const paidStatuses = [
-    'ORDER_PAID',
-    'PAID',
-    'CUSTOMER_PAID',
-    // In some flows, DELIVERING/COMPLETED implies paid if paid_at is set, 
-    // but here we strictly check status or paid_at presence?
-    // The requirement says: "Whenever order status transitions to a 'paid' state... or any alias... markInvoicePaidForOrder"
-    // It also says: "Applies to COD orders (after successful QR / COD collection)"
+    ORDER_STATUS.ORDER_PAID, // dùng hằng số
+    "PAID",                  // phòng sau này có status kiểu PAID
+    "CUSTOMER_PAID",
   ];
 
-  // Also check if paid_at is present, which is a strong indicator of payment
-  const isPaid = paidStatuses.includes(status) || !!order.paid_at;
-
-  if (isPaid) {
+  if (paidStatuses.includes(status)) {
+    // Order đã ở trạng thái đã thanh toán -> đảm bảo Invoice = Paid
     await markInvoicePaidForOrder(order);
-    return; // If paid, we are done (Paid overrides Pending)
+    return; // Paid override mọi trạng thái Pending
   }
 
-  // 2. PENDING Logic (COD Only)
+  // 2. PENDING logic (COD ONLY)
   if (isCOD) {
-    // A. Low-risk COD (Auto-approved)
-    // risk <= 30 AND status is ORDER_APPROVED
-    if (riskScore != null && riskScore <= 30 && status === 'Order Approved') { // Using string value from constant
+    // A. COD Low Risk: auto approve -> tạo Pending khi Order Approved
+    if (
+      riskScore != null &&
+      riskScore <= 30 &&
+      status === ORDER_STATUS.ORDER_APPROVED
+    ) {
       await ensurePendingInvoiceForOrder(order);
       return;
     }
 
-    // B. Medium/High-risk COD (Manual approved)
-    // risk > 30 AND status is CUSTOMER_CONFIRMED
-    // Note: If risk is null, we assume it might be high risk or just treat as default flow?
-    // Requirement: "risk_score > 30". If null, it's not <= 30.
-    if ((riskScore == null || riskScore > 30) && status === 'Customer Confirmed') { // Using string value from constant
+    // B. COD Medium/High Risk: chỉ sau khi Customer Confirmed mới tạo Pending
+    //    (risk_score > 30 hoặc null)
+    if (
+      (riskScore == null || riskScore > 30) &&
+      status === ORDER_STATUS.CUSTOMER_CONFIRMED
+    ) {
       await ensurePendingInvoiceForOrder(order);
       return;
     }
   }
+
+  // Các trạng thái khác (Start Delivery, Completed, Return, Exchange...)
+  // => KHÔNG tạo/đụng gì tới Invoice ở đây.
 }

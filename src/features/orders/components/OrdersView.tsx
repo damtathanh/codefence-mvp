@@ -184,48 +184,13 @@ export const OrdersView: React.FC = () => {
     const handleRejectOrder = async (order: Order, reason: string) => {
         if (!user) return;
 
-        // Nếu đang ở VERIFICATION_REQUIRED => reject trực tiếp
-        if (order.status === ORDER_STATUS.VERIFICATION_REQUIRED) {
-            try {
-                const success = await updateOrderLocal(order.id, {
-                    status: ORDER_STATUS.ORDER_REJECTED,
-                    cancel_reason: reason || 'Rejected during verification',
-                } as Partial<Order>);
-
-                if (!success) {
-                    showError('Failed to reject order');
-                    return;
-                }
-
-                await logOrderEvent(
-                    order.id,
-                    'REJECTED',
-                    { reason: reason || 'Rejected during verification' },
-                    'orders_view'
-                );
-
-                showSuccess('Order rejected');
-
-                await logUserAction({
-                    userId: user.id,
-                    action: 'Reject Order',
-                    status: 'success',
-                    orderId: order.order_id || order.id
-                });
-
-                await refreshOrders();
-                closeSidePanel();
-            } catch (error) {
-                showError('Failed to reject order');
-            }
-        } else {
-            // Pending Review -> mở modal hỏi lý do, vẫn đóng SidePanel cho sạch
-            setRejectTargetOrder(order);
-            setRejectMode('ORDER_REJECTED');
-            setRejectReason(reason);
-            setIsRejectModalOpen(true);
-            closeSidePanel();
-        }
+        // Luôn mở Reject Modal (kể cả khi đang VERIFICATION_REQUIRED)
+        // để user có thể chọn lại Verification Required / Reject Order và nhập lý do.
+        setRejectTargetOrder(order);
+        setRejectMode('ORDER_REJECTED'); // default, trong modal user vẫn có thể đổi sang Verification Required
+        setRejectReason(reason || '');
+        setIsRejectModalOpen(true);
+        closeSidePanel();
     };
 
     const handleSimulateConfirmedClick = async (order: Order) => {
