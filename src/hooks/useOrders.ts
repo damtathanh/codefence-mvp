@@ -45,6 +45,17 @@ function normalizeGender(value?: string): 'male' | 'female' | null {
     return null;
 }
 
+function mockCheckZaloByPhone(phone: string): boolean {
+    // Giả lập rule: nếu 3 số cuối TRÙNG NHAU => KHÔNG có Zalo
+    // vd: ***111, ***222, ***999 => false
+    if (!phone || phone.length < 3) return true; // mặc định là có Zalo
+
+    const last3 = phone.slice(-3);
+    const allSame = last3.split('').every(ch => ch === last3[0]);
+
+    return !allSame; // 3 số cuối trùng nhau => false, ngược lại true
+}
+
 function parseOrderDate(input: any): string | null {
     if (!input) return null;
     if (typeof input === "number") {
@@ -122,6 +133,8 @@ export function useOrders() {
                         const cleanPhone = normalizePhone(obj.phone);
                         if (!cleanPhone) errors.push("Invalid Phone Number");
 
+                        const zaloExists = mockCheckZaloByPhone(cleanPhone);
+
                         // amount
                         let amount = 0;
                         if (obj.amount) {
@@ -162,7 +175,7 @@ export function useOrders() {
                             amountVnd: amount,
                             paymentMethod: obj.payment_method || "COD",
                             pastOrders: [],
-                            zaloExists: false
+                            zaloExists: zaloExists
                         };
                         const risk = evaluateRisk(riskInput);
 
@@ -186,7 +199,7 @@ export function useOrders() {
                             channel: obj.channel || null,
                             source: obj.source || null,
                             order_date: parseOrderDate(obj.order_date),
-                            zalo_exists: false,
+                            zalo_exists: zaloExists,
                             risk_score: risk.score,
                             address: null // Explicitly null
                         });

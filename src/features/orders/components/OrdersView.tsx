@@ -17,15 +17,8 @@ import { useToast } from '../../../components/ui/Toast';
 import { fetchOrderEvents } from '../services/orderEventsService';
 import { fetchCustomerBlacklist } from '../../customers/services/customersService';
 import { useAuth } from '../../auth';
-import {
-    simulateCustomerConfirmed,
-    simulateCustomerCancelled,
-} from '../../zalo';
-import { logOrderEvent } from '../services/orderEventsService';
-import { ORDER_STATUS } from '../../../constants/orderStatus';
 import type { Order, OrderEvent } from '../../../types/supabase';
-import { logUserAction } from '../../../utils/logUserAction';
-import { supabase } from '../../../lib/supabaseClient';
+import { ORDER_STATUS } from '../../../constants/orderStatus';
 
 export const OrdersView: React.FC = () => {
     const { user } = useAuth();
@@ -76,6 +69,8 @@ export const OrdersView: React.FC = () => {
         handleDeleteOrders,
         handleSimulatePaid,
         handleSendQrLink,
+        handleSimulateConfirmed,
+        handleSimulateCancelled,
     } = useOrderActions(updateOrderLocal, refreshOrders);
 
     const [isAddOrderModalOpen, setIsAddOrderModalOpen] = useState(false);
@@ -169,26 +164,10 @@ export const OrdersView: React.FC = () => {
     const handleApproveOrder = async (order: Order) => {
         if (!user) return;
         try {
-            const previousStatus = order.status; // <-- DEFINE HERE
+            // dùng hook mới – sẽ set status = ORDER_APPROVED + log history
+            await handleApprove(order);
 
-            const { error } = await supabase.rpc('approve_medium_risk_order', {
-                p_order_id: order.id,
-            });
-            if (error) throw error;
-
-            // Log history after RPC success
-            await logUserAction({
-                userId: user.id,
-                action: 'Approve Order',
-                status: 'success',
-                orderId: order.order_id ?? "",
-                details: {
-                    status_from: previousStatus,
-                    status_to: ORDER_STATUS.ORDER_CONFIRMATION_SENT,
-                },
-            });
-
-            showSuccess('Order approved successfully');
+            // reload current page + đóng side panel
             await refreshOrders();
             closeSidePanel();
         } catch (error) {
@@ -210,10 +189,21 @@ export const OrdersView: React.FC = () => {
 
     const handleSimulateConfirmedClick = async (order: Order) => {
         if (!user) return;
+
         try {
-            await simulateCustomerConfirmed(order);
-            setPendingConfirmOrder(order);
+            // FE hook sẽ:
+            //  - tạo Pending Invoice
+            //  - đổi status -> CUSTOMER_CONFIRMED
+            //  - log CUSTOMER_CONFIRMED + QR_SENT
+            await handleSimulateConfirmed(order);
+
+            // mở QR modal sau khi khách đã confirm
+            setPendingConfirmOrder({
+                ...order,
+                status: ORDER_STATUS.CUSTOMER_CONFIRMED,
+            });
             setIsConfirmationModalOpen(true);
+
             closeSidePanel();
         } catch (error) {
             showError('Failed to simulate confirmation');
@@ -228,10 +218,37 @@ export const OrdersView: React.FC = () => {
     };
 
     const handleSendQrPaymentLinkClick = async (order: Order) => {
-        // Không đóng SidePanel, m muốn vẫn xem được
-        await handleSendQrLink(order);
-        closeSidePanel();
+        try {
+            // Xác định risk
+            const riskLevel = (order as any).risk_level as 'low' | 'medium' | 'high' | undefined;
+            const riskScore = (order as any).risk_score as number | undefined;
 
+            const effectiveRiskLevel =
+                riskLevel ||
+                (riskScore !== undefined
+                    ? riskScore <= 40
+                        ? 'low'
+                        : riskScore <= 70
+                            ? 'medium'
+                            : 'high'
+                    : 'medium');
+
+            // 1️⃣ Gửi confirm (và QR nếu low) + update status
+            await handleSendQrLink(order);
+
+            // 2️⃣ Low risk → mở luôn QR modal
+            if (effectiveRiskLevel === 'low') {
+                setPendingConfirmOrder({
+                    ...order,
+                    status: ORDER_STATUS.ORDER_CONFIRMATION_SENT,
+                });
+                setIsConfirmationModalOpen(true);
+            }
+
+            closeSidePanel();
+        } catch (error) {
+            showError('Failed to send QR payment link');
+        }
     };
 
     // Wrappers cho hook actions để dùng trong SidePanel
@@ -253,27 +270,22 @@ export const OrdersView: React.FC = () => {
     // Modal Close Handlers
     const handleConfirmationModalClose = async () => {
         setIsConfirmationModalOpen(false);
-        if (pendingConfirmOrder && pendingConfirmOrder.status === ORDER_STATUS.ORDER_CONFIRMATION_SENT) {
-            await updateOrderLocal(pendingConfirmOrder.id, { status: ORDER_STATUS.CUSTOMER_CONFIRMED });
-            await refreshOrders();
-        }
         setPendingConfirmOrder(null);
+        await refreshOrders(); // chỉ reload status từ DB
     };
 
     const handleCancellationConfirm = async (reason: string) => {
         if (!user || !pendingConfirmOrder) return;
         try {
-            await simulateCustomerCancelled(pendingConfirmOrder, reason);
-            showSuccess('Customer cancelled via mock Zalo OA');
+            // 1️⃣ Hook đã update status + log + showSuccess
+            await handleSimulateCancelled(pendingConfirmOrder, reason);
+
+            // 2️⃣ Đóng modal + reset state
             setIsCancellationModalOpen(false);
-
-            await updateOrderLocal(pendingConfirmOrder.id, {
-                status: ORDER_STATUS.CUSTOMER_CANCELLED,
-                cancel_reason: reason
-            });
-
-            await refreshOrders();
             setPendingConfirmOrder(null);
+
+            // 3️⃣ Reload để thấy status mới
+            await refreshOrders();
         } catch (error) {
             showError('Failed to simulate cancellation');
         }

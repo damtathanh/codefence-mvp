@@ -17,7 +17,9 @@ interface HistoryWithFormatted extends History {
   time?: string;
 }
 
-const getStatusLabel = (status: string) => {
+const getStatusLabel = (status?: string) => {
+  if (!status) return '';
+
   switch (status) {
     case ORDER_STATUS.PENDING_REVIEW:
       return 'Pending Review';
@@ -25,8 +27,10 @@ const getStatusLabel = (status: string) => {
       return 'Verification Required';
     case ORDER_STATUS.ORDER_REJECTED:
       return 'Order Rejected';
-    case ORDER_STATUS.ORDER_CONFIRMATION_SENT:
+    case ORDER_STATUS.ORDER_APPROVED:
       return 'Order Approved';
+    case ORDER_STATUS.ORDER_CONFIRMATION_SENT:
+      return 'Order Confirmation Sent';
     case ORDER_STATUS.CUSTOMER_CONFIRMED:
       return 'Customer Confirmed';
     case ORDER_STATUS.CUSTOMER_CANCELLED:
@@ -38,8 +42,12 @@ const getStatusLabel = (status: string) => {
     case ORDER_STATUS.COMPLETED:
       return 'Completed';
     default:
-      // fallback: vẫn dùng lifecycle hoặc trả raw
-      return mapStatusToLifecycle(status) || status;
+      // fallback: tự format "ORDER_WHATEVER" → "Order Whatever"
+      return status
+        .toLowerCase()
+        .split('_')
+        .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+        .join(' ');
   }
 };
 
@@ -193,7 +201,7 @@ export const HistoryPage: React.FC = () => {
                           <td className="px-6 py-4 text-sm text-[#E5E7EB] align-middle">
                             {log.details && Object.keys(log.details).length > 0 ? (
                               <div className="space-y-1">
-                                {/* Lifecycle Status Display */}
+                                {/* Status lifecycle đẹp */}
                                 {log.details.status_from && log.details.status_to && (
                                   <div className="text-sm font-medium text-purple-300 mb-1">
                                     Status: {getStatusLabel(log.details.status_from as string)} →{' '}
@@ -201,12 +209,15 @@ export const HistoryPage: React.FC = () => {
                                   </div>
                                 )}
 
-                                {Object.entries(log.details).map(([key, value]) => (
-                                  <div key={key} className="text-xs">
-                                    <span className="font-medium text-[#E5E7EB]/90">{key}:</span>{' '}
-                                    <span className="text-[#E5E7EB]/70">{value}</span>
-                                  </div>
-                                ))}
+                                {/* Các field khác, bỏ status_from / status_to để khỏi bị lặp */}
+                                {Object.entries(log.details)
+                                  .filter(([key]) => key !== 'status_from' && key !== 'status_to')
+                                  .map(([key, value]) => (
+                                    <div key={key} className="text-xs">
+                                      <span className="font-medium text-[#E5E7EB]/90">{key}:</span>{' '}
+                                      <span className="text-[#E5E7EB]/70">{String(value)}</span>
+                                    </div>
+                                  ))}
                               </div>
                             ) : (
                               <span className="text-[#E5E7EB]/50 text-xs">—</span>

@@ -103,7 +103,6 @@ export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
         }
 
         // 2. COD - LOW RISK (Approved)
-        // 2. COD - LOW RISK (Approved)
         if (isLowRiskCOD && order.status === ORDER_STATUS.ORDER_APPROVED) {
             return (
                 <div className="space-y-3">
@@ -117,7 +116,7 @@ export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
                                     onClick={() => wrapAction(() => onSendQrPaymentLink(order))}
                                     disabled={isProcessing}
                                 >
-                                    <QrCode size={20} className="mr-2" /> Send QR Payment Link
+                                    <QrCode size={20} className="mr-2" /> Confirmation Sending Link
                                 </Button>
                             ) : (
                                 <Button
@@ -139,6 +138,37 @@ export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
                     >
                         <Truck size={20} className="mr-2" /> Start Delivery
                     </Button>
+                </div>
+            );
+        }
+
+        // 2b. COD - MEDIUM/HIGH RISK (Approved – no Start Delivery)
+        if (!isLowRiskCOD && isCOD && order.status === ORDER_STATUS.ORDER_APPROVED) {
+            return (
+                <div className="space-y-3">
+                    {!hasPaid && (
+                        <>
+                            {!hasQrSent ? (
+                                <Button
+                                    variant="outline"
+                                    className="w-full h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#C4B5FD] hover:bg-[#8B5CF6]/20 transition-all active:scale-[0.98]"
+                                    onClick={() => wrapAction(() => onSendQrPaymentLink(order))}
+                                    disabled={isProcessing}
+                                >
+                                    <QrCode size={20} className="mr-2" /> Confirmation Sending Link
+                                </Button>
+                            ) : (
+                                <Button
+                                    variant="outline"
+                                    className="w-full h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#C4B5FD] hover:bg-[#8B5CF6]/20 transition-all active:scale-[0.98]"
+                                    onClick={() => wrapAction(() => onSimulatePaid(order))}
+                                    disabled={isProcessing}
+                                >
+                                    <Banknote size={20} className="mr-2" /> Simulate QR Paid
+                                </Button>
+                            )}
+                        </>
+                    )}
                 </div>
             );
         }

@@ -17,48 +17,39 @@ export const useOrderActions = (
     const { user } = useAuth();
     const { showSuccess, showError } = useToast();
 
-    // 1. SHOP ACTION: Approve (High/Medium Risk -> Confirmation Sent)
-    // Logic: Medium/High Risk approved -> Send Zalo confirmation immediately.
+    // 1. SHOP ACTION: Approve (High/Medium Risk -> ONLY "Order Approved")
     const handleApprove = useCallback(async (order: Order, onSuccess?: () => void) => {
         if (!user) return;
         try {
-            // Optional: Zalo confirmation trigger
-            await zaloGateway.sendConfirmation(order);
-
+            const previousStatus = order.status;
             const now = new Date().toISOString();
 
-            // 1️⃣ Log the "Order Approved" event (even if status does not stay on APPROVED)
+            // ❌ Không gửi QR ở đây nữa
+            // await zaloGateway.sendConfirmation(order);
+
+            // 1️⃣ Log event "ORDER_APPROVED"
             await logOrderEvent(order.id, 'ORDER_APPROVED', {}, 'manual_action');
 
-            // 2️⃣ Update to ORDER_CONFIRMATION_SENT (final status)
+            // 2️⃣ Cập nhật status -> ORDER_APPROVED
             await updateOrderLocal(order.id, {
-                status: ORDER_STATUS.ORDER_CONFIRMATION_SENT,
-                confirmation_sent_at: now
+                status: ORDER_STATUS.ORDER_APPROVED,
+                approved_at: now as any, // nếu DB chưa có cột approved_at thì xoá dòng này
             });
 
-            // 3️⃣ Log the "order confirmation sent" event
-            await logOrderEvent(
-                order.id,
-                'ORDER_CONFIRMATION_SENT',
-                { via: 'zalo' },
-                'system'
-            );
-
-            // 4️⃣ User action log
+            // 3️⃣ History log
             await logUserAction({
                 userId: user.id,
                 action: 'Approve Order',
                 status: 'success',
                 orderId: order.order_id ?? "",
                 details: {
-                    status_from: order.status,
-                    status_to: ORDER_STATUS.ORDER_CONFIRMATION_SENT,
+                    status_from: previousStatus,
+                    status_to: ORDER_STATUS.ORDER_APPROVED,
                 },
             });
 
-            showSuccess('Order approved & confirmation sent.');
+            showSuccess('Order approved.');
             if (onSuccess) onSuccess();
-
         } catch (err) {
             showError('Failed to approve order.');
         }
@@ -235,27 +226,70 @@ export const useOrderActions = (
         } catch (e) { showError('Payment simulation failed.'); }
     }, [user, updateOrderLocal, showSuccess, showError]);
 
-    // 6. SEND QR LINK MANUALLY (For Low Risk)
+    // 6. SEND QR LINK (Low risk + Medium/High after Approved) -> Confirmation Sent
     const handleSendQrLink = useCallback(async (order: Order, onSuccess?: () => void) => {
         if (!user) return;
         try {
-            await logOrderEvent(order.id, 'QR_PAYMENT_LINK_SENT', { manual: true }, 'manual_action');
-            // Optimistic update to trigger UI re-render if needed (e.g. tracking qr_sent_at)
-            await updateOrderLocal(order.id, { qr_sent_at: new Date().toISOString() });
+            const previousStatus = order.status;
+            const now = new Date().toISOString();
 
+            // Xác định risk level từ order
+            const riskLevel = (order as any).risk_level as 'low' | 'medium' | 'high' | undefined;
+            const riskScore = (order as any).risk_score as number | undefined;
+
+            const effectiveRiskLevel =
+                riskLevel ||
+                (riskScore !== undefined
+                    ? riskScore <= 40
+                        ? 'low'
+                        : riskScore <= 70
+                            ? 'medium'
+                            : 'high'
+                    : 'medium');
+
+            // Gửi tin nhắn qua mock Zalo (không quan trọng là có QR hay không, chỉ để log)
+            await zaloGateway.sendConfirmation(order);
+
+            // 2️⃣ Nếu LOW RISK → gửi luôn QR + log QR_PAYMENT_LINK_SENT
+            if (effectiveRiskLevel === 'low') {
+                await logOrderEvent(
+                    order.id,
+                    'QR_PAYMENT_LINK_SENT',
+                    { manual: true, risk_level: effectiveRiskLevel },
+                    'manual_action'
+                );
+            }
+
+            // 3️⃣ Cập nhật status -> ORDER_CONFIRMATION_SENT
+            await updateOrderLocal(order.id, {
+                status: ORDER_STATUS.ORDER_CONFIRMATION_SENT,
+                qr_sent_at: effectiveRiskLevel === 'low' ? (now as any) : undefined,
+                confirmation_sent_at: now as any,
+            } as any); // nếu Order type chưa có các cột này thì cast as any cho nhanh
+
+            // 4️⃣ History log
             await logUserAction({
                 userId: user.id,
                 action: 'Send QR Payment Link',
                 status: 'success',
                 orderId: order.order_id ?? "",
                 details: {
+                    status_from: previousStatus,
+                    status_to: ORDER_STATUS.ORDER_CONFIRMATION_SENT,
+                    risk_level: effectiveRiskLevel,
                     source: 'OrdersPage',
                 },
             });
 
-            showSuccess('QR Payment Link Sent.');
+            showSuccess(
+                effectiveRiskLevel === 'low'
+                    ? 'QR Payment Link sent to customer.'
+                    : 'Order confirmation sent via Zalo.'
+            );
             if (onSuccess) onSuccess();
-        } catch (e) { showError('Failed to send QR link.'); }
+        } catch (e) {
+            showError('Failed to send QR link.');
+        }
     }, [user, updateOrderLocal, showSuccess, showError]);
 
     // 7. FULFILLMENT: Delivering

@@ -47,6 +47,7 @@ export interface Order {
     category: string;
   } | null;
   // Timeline/payment fields
+  approved_at: string | null;
   payment_method?: string | null;
   confirmation_sent_at?: string | null;
   customer_confirmed_at?: string | null;
