@@ -109,7 +109,7 @@ export async function markInvoicePaidForOrder(order: Order) {
     // Log đúng 1 lần sự kiện PAID
     await logOrderEvent(
       order.id,
-      "PAID",
+      "ORDER_PAID",
       {
         amount: order.amount,
         paid_at: now,
@@ -136,9 +136,10 @@ export async function markInvoicePaidForOrder(order: Order) {
     throw insertError;
   }
 
+  // Đồng bộ: luôn log ORDER_PAID, không dùng PAID nữa
   await logOrderEvent(
     order.id,
-    "PAID",
+    "ORDER_PAID",
     {
       amount: order.amount,
       paid_at: now,
@@ -247,7 +248,7 @@ export async function markInvoiceAsPaid(invoiceId: string) {
   const now = new Date().toISOString();
 
   const { data, error } = await InvoicesRepository.updateInvoice(invoiceId, {
-    status: "Paid" as InvoiceStatus,
+    status: INVOICE_STATUS.PAID,
     paid_at: now,
     date: getTodayDateString(),
   });
@@ -276,12 +277,10 @@ export async function applyInvoiceRules(order: Order) {
   // => Chỉ khi status là 1 trong các trạng thái "đã thanh toán" RÕ RÀNG
   //    (Simulate Paid, QR callback, non-COD prepaid...)
   const paidStatuses = [
-    ORDER_STATUS.ORDER_PAID, // dùng hằng số
-    "PAID",                  // phòng sau này có status kiểu PAID
-    "CUSTOMER_PAID",
+    ORDER_STATUS.ORDER_PAID,
   ];
 
-  if (paidStatuses.includes(status)) {
+  if (status === ORDER_STATUS.ORDER_PAID) {
     // Order đã ở trạng thái đã thanh toán -> đảm bảo Invoice = Paid
     await markInvoicePaidForOrder(order);
     return; // Paid override mọi trạng thái Pending

@@ -15,18 +15,12 @@ interface OrderTimelineProps {
 
 // Những alias cần gom lại (cùng ý nghĩa nhưng khác tên)
 const EVENT_ALIASES: Record<string, string> = {
-    // MANUAL_APPROVED trong SQL -> xem như ORDER_APPROVED
-    MANUAL_APPROVED: 'ORDER_APPROVED',
 
     // Lower level event name -> tên chuẩn
     ORDER_CONFIRMATION_SENT: 'CONFIRMATION_SENT',
 
     // Các tên QR khác nhau -> QR_PAYMENT_LINK_SENT
     QR_SENT: 'QR_PAYMENT_LINK_SENT',
-
-    // Các trạng thái "đã trả tiền" khác nhau -> CUSTOMER_PAID
-    PAID_CONFIRMED: 'CUSTOMER_PAID',
-    PAID: 'CUSTOMER_PAID',
 };
 
 export const OrderTimeline: React.FC<OrderTimelineProps> = ({ events }) => {
@@ -73,7 +67,7 @@ export const OrderTimeline: React.FC<OrderTimelineProps> = ({ events }) => {
                     color: 'bg-purple-500/10 border-purple-500/20 text-purple-400',
                 };
 
-            case 'CUSTOMER_PAID':
+            case 'ORDER_PAID':
                 return {
                     title: 'Customer paid',
                     subtitle: '',

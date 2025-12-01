@@ -85,7 +85,7 @@ export async function logOrderEvent(
 export async function logOrderPaidEvent(orderId: string) {
   return logOrderEvent(
     orderId,
-    "PAID_CONFIRMED",
+    "ORDER_PAID",
     { source: "manual_invoice_mark_paid" },
     "invoice_page"
   );

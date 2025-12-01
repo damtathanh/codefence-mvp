@@ -267,7 +267,6 @@ src/
     logUserAction.ts
     messageScroll.ts
     multiSelectUtils.ts
-    orderImport.tsx
     orderStatusHelpers.ts
     phoneUtils.ts
     productColumnMapper.ts
@@ -3336,7 +3335,8 @@ export const InvoicesRepository = {
 
         let query = supabase
             .from("invoices")
-            .select('*', { count: 'exact' })
+            // ❗ KHÔNG JOIN GÌ HẾT, CHỈ LẤY THẲNG BẢNG INVOICES
+            .select("*", { count: "exact" })
             .eq("user_id", userId);
 
         if (filters) {
@@ -3349,14 +3349,14 @@ export const InvoicesRepository = {
 
             if (filters.status) {
                 if (Array.isArray(filters.status) && filters.status.length > 0) {
-                    query = query.in('status', filters.status);
-                } else if (typeof filters.status === 'string' && filters.status !== 'all') {
-                    query = query.eq('status', filters.status);
+                    query = query.in("status", filters.status);
+                } else if (typeof filters.status === "string" && filters.status !== "all") {
+                    query = query.eq("status", filters.status);
                 }
             }
 
             if (filters.date) {
-                query = query.eq('date', filters.date);
+                query = query.eq("date", filters.date);
             }
         }
 
@@ -3415,18 +3415,18 @@ export const InvoicesRepository = {
 
     async invalidateInvoicePdfs(invoiceIds: string[]) {
         return supabase
-            .from('invoices')
+            .from("invoices")
             .update({
                 pdf_url: null,
             })
-            .in('id', invoiceIds);
+            .in("id", invoiceIds);
     },
 
     async getInvoicesByOrderId(orderId: string) {
         return supabase
-            .from('invoices')
-            .select('id')
-            .eq('order_id', orderId);
+            .from("invoices")
+            .select("id")
+            .eq("order_id", orderId);
     }
 };
 </file>
@@ -11717,7 +11717,7 @@ $$;
 CREATE OR REPLACE FUNCTION approve_medium_risk_order(p_order_id uuid)
 RETURNS void
 LANGUAGE plpgsql
-SECURITY DEFINER
+SECURITY DEFINER   
 AS $$
 BEGIN
     -- 1. Insert Log
@@ -15520,18 +15520,12 @@ interface OrderTimelineProps {
 
 // Những alias cần gom lại (cùng ý nghĩa nhưng khác tên)
 const EVENT_ALIASES: Record<string, string> = {
-    // MANUAL_APPROVED trong SQL -> xem như ORDER_APPROVED
-    MANUAL_APPROVED: 'ORDER_APPROVED',
 
     // Lower level event name -> tên chuẩn
     ORDER_CONFIRMATION_SENT: 'CONFIRMATION_SENT',
 
     // Các tên QR khác nhau -> QR_PAYMENT_LINK_SENT
     QR_SENT: 'QR_PAYMENT_LINK_SENT',
-
-    // Các trạng thái "đã trả tiền" khác nhau -> CUSTOMER_PAID
-    PAID_CONFIRMED: 'CUSTOMER_PAID',
-    PAID: 'CUSTOMER_PAID',
 };
 
 export const OrderTimeline: React.FC<OrderTimelineProps> = ({ events }) => {
@@ -15578,7 +15572,7 @@ export const OrderTimeline: React.FC<OrderTimelineProps> = ({ events }) => {
                     color: 'bg-purple-500/10 border-purple-500/20 text-purple-400',
                 };
 
-            case 'CUSTOMER_PAID':
+            case 'ORDER_PAID':
                 return {
                     title: 'Customer paid',
                     subtitle: '',
@@ -15823,7 +15817,7 @@ export async function logOrderEvent(
 export async function logOrderPaidEvent(orderId: string) {
   return logOrderEvent(
     orderId,
-    "PAID_CONFIRMED",
+    "ORDER_PAID",
     { source: "manual_invoice_mark_paid" },
     "invoice_page"
   );
@@ -16275,198 +16269,6 @@ export function useRole() {
   }, [user]);
 
   return { role, loading, error };
-}
-</file>
-
-<file path="src/utils/orderImport.tsx">
-// src/utils/orderImport.tsx
-import React from 'react';
-import type { OrderInput } from '../hooks/useOrders';
-import type { SupabaseClient } from '@supabase/supabase-js';
-import type { ReactNode } from 'react';
-import { Circle } from 'lucide-react';
-import { chunkArray } from './chunk';
-
-export interface DuplicateCheckResult {
-    hasDuplicates: boolean;
-    messageJsx?: ReactNode;
-}
-
-/**
- * Check for duplicate order IDs within a batch of incoming orders (file or corrected orders)
- * and against existing orders in Supabase for a given user.
- * Behaviour matches the AddOrderModal logic exactly.
- */
-export async function checkDuplicateOrderIds(
-    orders: OrderInput[],
-    userId: string,
-    supabase: SupabaseClient
-): Promise<DuplicateCheckResult> {
-    // A. Check for duplicates within the file
-    const fileOrderIds = orders.map((o, idx) => ({
-        orderId: o.order_id,
-        rowIndex: idx + 1,
-    }));
-    const fileDuplicateMap = new Map<string, number[]>();
-
-    fileOrderIds.forEach(({ orderId, rowIndex }) => {
-        if (orderId) {
-            if (!fileDuplicateMap.has(orderId)) {
-                fileDuplicateMap.set(orderId, []);
-            }
-            fileDuplicateMap.get(orderId)!.push(rowIndex);
-        }
-    });
-
-    const fileDuplicates: Array<{ orderId: string; rows: number[] }> = [];
-    fileDuplicateMap.forEach((rows, orderId) => {
-        if (rows.length > 1) {
-            fileDuplicates.push({ orderId, rows });
-        }
-    });
-
-    // B. Check for duplicates in existing orders
-    const orderIdsToCheck = orders.map((o) => o.order_id).filter(Boolean);
-    let existingOrderIds: string[] = [];
-
-    if (orderIdsToCheck.length > 0 && userId) {
-        const chunks = chunkArray(orderIdsToCheck);
-
-        for (const chunk of chunks) {
-            const { data: existingOrders, error: fetchError } = await supabase
-                .from('orders')
-                .select('order_id')
-                .eq('user_id', userId)
-                .in('order_id', chunk);
-
-            if (fetchError) {
-                console.error('[import] Failed to fetch existing orders for chunk', fetchError);
-                // Throwing to prevent importing duplicates if check fails
-                throw fetchError;
-            }
-
-            if (existingOrders) {
-                const ids = existingOrders
-                    .map((o) => o.order_id)
-                    .filter(Boolean) as string[];
-                existingOrderIds.push(...ids);
-            }
-        }
-    }
-
-    // If any duplicates found, build the warning message
-    if (fileDuplicates.length > 0 || existingOrderIds.length > 0) {
-        const duplicateMessage = (
-            <div className="space-y-3">
-                {/* Top section - warning yellow */}
-                <div>
-                    <p className="font-semibold text-yellow-300">
-                        We couldn't import this file.
-                    </p>
-                    <p className="text-yellow-300/90 mt-1">
-                        Please fix the following issues:
-                    </p>
-                </div>
-
-                {/* Duplicate Order IDs in file - critical (red inside yellow toast) */}
-                {fileDuplicates.length > 0 && (
-                    <div className="mt-4 bg-red-500/10 border border-red-500/20 rounded-md p-3">
-                        <p className="font-bold text-red-400 mb-2">
-                            Duplicate Order IDs in your file:
-                        </p>
-                        <ul className="space-y-1.5">
-                            {fileDuplicates.map((dup, idx) => (
-                                <li
-                                    key={idx}
-                                    className="flex items-start gap-2 text-sm text-red-300"
-                                >
-                                    <Circle className="w-3 h-3 fill-red-400 text-red-400 mt-1 flex-shrink-0" />
-                                    <span>
-                                        {dup.orderId} (found in rows {dup.rows.join(', ')})
-                                    </span>
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
-                )}
-
-                {/* Order IDs that already exist in DB - critical (red inside yellow toast) */}
-                {existingOrderIds.length > 0 && (
-                    <div className={fileDuplicates.length > 0 ? 'mt-3' : 'mt-4'}>
-                        <div className="bg-red-500/10 border border-red-500/20 rounded-md p-3">
-                            <p className="font-bold text-red-400 mb-2">
-                                Order IDs that already exist in your account:
-                            </p>
-                            <ul className="space-y-1.5">
-                                {existingOrderIds.map((orderId, idx) => (
-                                    <li
-                                        key={idx}
-                                        className="flex items-start gap-2 text-sm text-red-300"
-                                    >
-                                        <Circle className="w-3 h-3 fill-red-400 text-red-400 mt-1 flex-shrink-0" />
-                                        <span>{orderId}</span>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                    </div>
-                )}
-
-                {/* Footer message - normal text */}
-                <p className="text-white/80 text-sm mt-3">
-                    Order ID must be unique. Please update the values in your spreadsheet
-                    and upload again.
-                </p>
-            </div>
-        );
-
-        return { hasDuplicates: true, messageJsx: duplicateMessage };
-    }
-
-    return { hasDuplicates: false };
-}
-
-/**
- * Insert orders and log each success with logUserAction, keeping the same behaviour
- * as current AddOrderModal code.
- */
-export async function insertOrdersWithLogging(
-    orders: OrderInput[],
-    userId: string,
-    insertOrders: (orders: OrderInput[]) => Promise<{
-        success: number;
-        failed: number;
-        errors: string[];
-    }>,
-    logUserAction: (params: {
-        userId: string;
-        action: string;
-        status: 'success' | 'failed';
-        orderId?: string;
-    }) => Promise<void>
-): Promise<{
-    success: number;
-    failed: number;
-    errors: string[];
-}> {
-    // Gọi hàm insertOrders thực tế
-    const result = await insertOrders(orders);
-
-    // Nếu có userId thì log 1 event tổng cho cả lần import
-    if (userId) {
-        const status: 'success' | 'failed' =
-            result.failed === 0 && result.success > 0 ? 'success' : 'failed';
-
-        await logUserAction({
-            userId,
-            action: 'Bulk Create Orders',
-            status,
-            // Nếu sau này muốn gửi thêm details thì sửa signature logUserAction
-            // và nhét result vào details
-        });
-    }
-
-    return result;
 }
 </file>
 
@@ -17371,509 +17173,6 @@ export async function fetchCustomerOrdersForUser(userId: string, phone: string) 
     error,
   };
 }
-</file>
-
-<file path="src/features/orders/components/OrderTable.tsx">
-import React, { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { AlertTriangle, ChevronDown, Edit, CheckCircle, XCircle, Trash2 } from 'lucide-react';
-import { Button } from '../../../components/ui/Button';
-import { StatusBadge } from '../../../components/dashboard/StatusBadge';
-import { RiskBadge } from '../../../components/dashboard/RiskBadge';
-import type { Order } from '../../../types/supabase';
-import type { SimpleProduct } from '../../products/services/productsService';
-
-
-interface OrderTableProps {
-    orders: Order[]; // paginated orders for current page
-    filteredOrders: Order[]; // all filtered orders for pagination info
-    totalCount: number; // Real total count from server
-    currentPage: number;
-    pageSize: number;
-    totalPages: number;
-    selectedIds: Set<string>;
-    onSelectAll: () => void;
-    onToggleSelect: (id: string) => void;
-    onPageChange: (page: number) => void;
-    onRowClick: (order: Order) => void;
-    products: SimpleProduct[];
-    onProductCorrection: (order: Order, productId: string, productName: string) => void;
-    onApprove: (orderId: string) => void;
-    onReject: (orderId: string) => void;
-    onEdit: (order: Order) => void;
-    onDelete?: (orderIds: string[]) => void;
-    loading: boolean;
-}
-
-export const OrderTable: React.FC<OrderTableProps> = ({
-    orders,
-    filteredOrders,
-    totalCount,
-    currentPage,
-    pageSize,
-    totalPages,
-    selectedIds,
-    onSelectAll,
-    onToggleSelect,
-    onPageChange,
-    onRowClick,
-    products,
-    onProductCorrection,
-    onApprove,
-    onReject,
-    onEdit,
-    onDelete,
-    loading,
-}) => {
-    const [productCorrections, setProductCorrections] = useState<Map<string, string>>(new Map());
-    const [openActionDropdown, setOpenActionDropdown] = useState<string | null>(null);
-    const [dropdownPosition, setDropdownPosition] = useState({ x: 0, y: 0, placement: 'bottom' as 'bottom' | 'top' });
-
-    const isInvalidProduct = (order: Order): boolean => {
-        // Nếu đã có product_id thì coi như hợp lệ
-        if (order.product_id) return false;
-
-        // Lấy tên product đang có trên order
-        const rawName = (order.products?.name || order.product || '')
-            .trim()
-            .toLowerCase();
-
-        if (!rawName) return true;
-
-        // Nếu tên này trùng với bất kỳ product nào trong ProductsPage thì cũng coi là hợp lệ
-        const hasMatch = products.some((p) =>
-            p.name.trim().toLowerCase() === rawName,
-        );
-
-        // Chỉ báo Invalid khi KHÔNG tìm thấy match
-        return !hasMatch;
-    };
-
-    const getProductName = (order: Order): string => {
-        if (order.products?.name) return order.products.name;
-        if (order.product) return order.product;
-        return 'Unknown Product';
-    };
-
-    const toggleActionDropdown = (orderId: string, event?: React.MouseEvent<HTMLButtonElement>) => {
-        if (openActionDropdown === orderId) {
-            setOpenActionDropdown(null);
-        } else {
-            if (event) {
-                const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-                const dropdownWidth = 192;
-                const dropdownHeight = 144;
-                const padding = 8;
-
-                const spaceBelow = window.innerHeight - rect.bottom;
-                const placement = spaceBelow < dropdownHeight + padding ? 'top' : 'bottom';
-
-                const x = rect.right - dropdownWidth;
-                const y =
-                    placement === 'bottom' ? rect.bottom + padding : rect.top - dropdownHeight - padding;
-
-                setDropdownPosition({
-                    x: Math.max(8, Math.min(x, window.innerWidth - dropdownWidth - 8)),
-                    y: Math.max(8, Math.min(y, window.innerHeight - dropdownHeight - 8)),
-                    placement,
-                });
-            }
-            setOpenActionDropdown(orderId);
-        }
-    };
-
-    // Close dropdown on scroll
-    useEffect(() => {
-        const handleScroll = () => setOpenActionDropdown(null);
-        window.addEventListener('scroll', handleScroll, true);
-        return () => window.removeEventListener('scroll', handleScroll, true);
-    }, []);
-
-    // Close dropdown on click outside
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            const target = event.target as HTMLElement;
-            const isOutsideButton = !target.closest('.action-dropdown-container');
-            const isOutsideDropdown = !target.closest('[data-dropdown-menu]');
-            if (isOutsideButton && isOutsideDropdown) {
-                setOpenActionDropdown(null);
-            }
-        };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, [openActionDropdown]);
-
-    return (
-        <>
-            <div className="flex-1 flex flex-col min-h-0 bg-[var(--bg-card)] backdrop-blur-sm rounded-lg border border-[var(--border-subtle)] shadow-lg relative z-0">
-                <div className="px-6 pt-4 pb-1 flex-shrink-0">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                            <button
-                                onClick={onSelectAll}
-                                disabled={loading}
-                                className="text-sm text-[var(--text-muted)] hover:text-[var(--text-main)] transition"
-                            >
-                                {selectedIds.size === orders.length && orders.length > 0
-                                    ? 'Deselect All'
-                                    : 'Select All'}
-                            </button>
-                            {selectedIds.size > 0 && (
-                                <span className="text-sm text-[var(--text-muted)]">
-                                    {selectedIds.size} selected
-                                </span>
-                            )}
-                        </div>
-                        {selectedIds.size > 0 && onDelete && (
-                            <button
-                                onClick={() => onDelete(Array.from(selectedIds))}
-                                className="px-4 py-2 text-sm font-semibold rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-400 hover:text-red-300 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-red-500/50 focus:ring-offset-2 focus:ring-offset-[#0B0F28] flex items-center gap-2"
-                            >
-                                <Trash2 size={16} />
-                                Delete All
-                            </button>
-                        )}
-                    </div>
-                </div>
-                <div className="flex-1 min-h-0 overflow-y-auto p-0">
-                    <div className="w-full max-w-full overflow-x-auto scrollbar-thin scrollbar-thumb-[#1E223D] scrollbar-track-transparent">
-                        <table className="w-full border-separate border-spacing-0" style={{ tableLayout: 'fixed', minWidth: '100%' }}>
-                            <colgroup>
-                                <col style={{ width: '30px' }} />
-                                <col style={{ width: '100px' }} />
-                                <col style={{ width: '120px' }} />
-                                <col style={{ width: '135px' }} />
-                                <col style={{ width: '150px' }} />
-                                <col style={{ width: '150px' }} />
-                                <col style={{ width: '120px' }} />
-                                <col style={{ width: '120px' }} />
-                                <col style={{ width: '70px' }} />
-                                <col style={{ width: '110px' }} />
-                                <col style={{ width: '130px' }} />
-                            </colgroup>
-                            <thead>
-                                <tr className="border-b border-[#1E223D]">
-                                    <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">
-                                        <input
-                                            type="checkbox"
-                                            checked={
-                                                orders.length > 0 &&
-                                                orders.every((order) => selectedIds.has(order.id))
-                                            }
-                                            onChange={onSelectAll}
-                                            disabled={loading}
-                                            className="w-4 h-4 rounded border-white/20 bg-white/5 text-[#8B5CF6] focus:ring-[#8B5CF6] focus:ring-offset-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                                        />
-                                    </th>
-                                    <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Order ID</th>
-                                    <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Customer</th>
-                                    <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Phone</th>
-                                    <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Address</th>
-                                    <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Product</th>
-                                    <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Amount (VND)</th>
-                                    <th className="px-6 py-3 text-center text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Payment</th>
-                                    <th className="px-6 py-3 text-center text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Risk</th>
-                                    <th className="px-6 py-3 text-center text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Status</th>
-                                    <th className="px-6 py-3 text-center text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Actions</th>
-                                </tr>
-                            </thead>
-
-                            <tbody>
-                                {orders.map((order) => {
-                                    // 1. Build parts from specific fields
-                                    const parts = [
-                                        order.address_detail,
-                                        order.ward,
-                                        order.district,
-                                        order.province,
-                                    ];
-
-                                    // 2. Filter out empty/null/undefined/whitespace-only strings
-                                    const validParts = parts
-                                        .filter((p): p is string => typeof p === 'string' && p.trim().length > 0)
-                                        .map(p => p.trim());
-
-                                    // 3. Construct full address or use fallback
-                                    let fullAddress = '';
-                                    if (validParts.length > 0) {
-                                        fullAddress = validParts.join(', ');
-                                    } else {
-                                        // Fallback to order.address if no specific parts are available
-                                        fullAddress = order.address || '-';
-                                    }
-
-                                    return (
-                                        <tr
-                                            key={order.id}
-                                            className="border-b border-[#1E223D] hover:bg-white/5 transition-colors cursor-pointer"
-                                            onClick={() => onRowClick(order)}
-                                        >
-                                            {/* Checkbox */}
-                                            <td
-                                                className="px-6 py-4"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                }}
-                                            >
-                                                <input
-                                                    type="checkbox"
-                                                    checked={selectedIds.has(order.id)}
-                                                    onChange={() => onToggleSelect(order.id)}
-                                                    className="w-4 h-4 rounded border-white/20 bg-white/5 text-[#8B5CF6] focus:ring-[#8B5CF6] focus:ring-offset-0 cursor-pointer"
-                                                />
-                                            </td>
-
-                                            {/* Order ID */}
-                                            <td className="px-6 py-4 text-sm text-[#E5E7EB] font-medium text-center">
-                                                <div className="truncate" title={order.order_id || order.id}>
-                                                    {order.order_id || order.id}
-                                                </div>
-                                            </td>
-
-                                            {/* Customer */}
-                                            <td className="px-6 py-4 text-sm text-[#E5E7EB]">
-                                                <div className="break-words line-clamp-2" title={order.customer_name}>
-                                                    {order.customer_name}
-                                                </div>
-                                            </td>
-
-                                            {/* Phone */}
-                                            <td className="px-6 py-4 text-sm text-[#E5E7EB] text-center">
-                                                <div className="truncate">
-                                                    {order.phone || '-'}
-                                                </div>
-                                            </td>
-
-                                            {/* Address - Allow wrapping */}
-                                            <td className="px-6 py-4 text-sm text-[#E5E7EB]">
-                                                <div className="break-words line-clamp-2" title={fullAddress}>
-                                                    {fullAddress}
-                                                </div>
-                                            </td>
-
-                                            {/* Product */}
-                                            <td
-                                                className="px-6 py-4 text-sm text-[#E5E7EB] align-top"
-                                                onClick={(e) => e.stopPropagation()}
-                                            >
-                                                {isInvalidProduct(order) ? (
-                                                    <div className="space-y-2 min-w-0">
-                                                        <div className="flex items-center gap-2 min-w-0">
-                                                            <span
-                                                                className="inline-flex items-center gap-1 px-2 py-1 rounded bg-red-900/40 border border-red-600 text-red-300 text-xs break-words"
-                                                                title={getProductName(order)}
-                                                            >
-                                                                <AlertTriangle size={12} className="flex-shrink-0" />
-                                                                <span className="break-words">{getProductName(order)}</span>
-                                                            </span>
-                                                        </div>
-                                                        <div className="relative">
-                                                            <select
-                                                                value={productCorrections.get(order.id) || ''}
-                                                                onChange={(e) => {
-                                                                    if (e.target.value) {
-                                                                        const productId = e.target.value;
-                                                                        const product = products.find((p) => p.id === productId);
-                                                                        const productName = product?.name || 'Unknown';
-
-                                                                        setProductCorrections((prev) => {
-                                                                            const next = new Map(prev);
-                                                                            next.set(order.id, productId);
-                                                                            return next;
-                                                                        });
-                                                                        onProductCorrection(order, productId, productName);
-                                                                    }
-                                                                }}
-                                                                className="w-full pr-10 px-2 py-1.5 text-xs bg-white/5 backdrop-blur-xl border border-white/10 rounded-lg text-[#E5E7EB] appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6] focus:border-[#8B5CF6]/50"
-                                                            >
-                                                                <option value="">Select product</option>
-                                                                {products.map((product) => (
-                                                                    <option key={product.id} value={product.id}>
-                                                                        {product.name}
-                                                                    </option>
-                                                                ))}
-                                                            </select>
-                                                            <svg
-                                                                className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70"
-                                                                aria-hidden="true"
-                                                                xmlns="http://www.w3.org/2000/svg"
-                                                                fill="none"
-                                                                viewBox="0 0 24 24"
-                                                                stroke="currentColor"
-                                                            >
-                                                                <path
-                                                                    strokeLinecap="round"
-                                                                    strokeLinejoin="round"
-                                                                    strokeWidth="2"
-                                                                    d="M19 9l-7 7-7-7"
-                                                                />
-                                                            </svg>
-                                                        </div>
-                                                        <p className="text-xs text-red-400">
-                                                            Invalid product. Please select from the list.
-                                                        </p>
-                                                    </div>
-                                                ) : (
-                                                    <div
-                                                        className="text-sm text-[#E5E7EB] break-words"
-                                                        title={getProductName(order)}
-                                                    >
-                                                        {getProductName(order)}
-                                                    </div>
-                                                )}
-                                            </td>
-
-                                            {/* Amount */}
-                                            <td className="px-6 py-4 text-sm text-[#E5E7EB] text-center">
-                                                <div className="truncate">
-                                                    {order.amount.toLocaleString('vi-VN')}
-                                                </div>
-                                            </td>
-
-                                            {/* Payment Method */}
-                                            <td className="px-6 py-4 text-sm text-[#E5E7EB] text-center">
-                                                <div className="truncate" title={order.payment_method || 'COD'}>
-                                                    {order.payment_method || 'COD'}
-                                                </div>
-                                            </td>
-
-                                            {/* Risk Score */}
-                                            <td className="px-6 py-4 text-sm text-center">
-                                                <div className="flex justify-center">
-                                                    <RiskBadge score={order.risk_score} />
-                                                </div>
-                                            </td>
-
-                                            {/* Status */}
-                                            <td className="px-6 py-4 text-sm">
-                                                <StatusBadge status={order.status} />
-                                            </td>
-
-                                            {/* Actions */}
-                                            <td
-                                                className="px-6 py-4 text-sm text-right"
-                                                onClick={(e) => e.stopPropagation()}
-                                            >
-                                                <div className="relative action-dropdown-container inline-flex justify-end">
-                                                    <Button
-                                                        onClick={(e) => toggleActionDropdown(order.id, e)}
-                                                        size="sm"
-                                                        className="!px-3 !py-1.5 !text-xs"
-                                                    >
-                                                        <span>Action</span>
-                                                        <ChevronDown
-                                                            size={14}
-                                                            className={`ml-1.5 transition-transform duration-200 ${openActionDropdown === order.id ? 'rotate-180' : ''
-                                                                }`}
-                                                        />
-                                                    </Button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    )
-                                })}
-                            </tbody>
-                        </table>
-                    </div>
-
-                    {/* Pagination Controls */}
-                    <div className="mt-4 flex items-center justify-between text-xs text-white/60 px-4 pb-4">
-                        <div>
-                            Showing{" "}
-                            {totalCount === 0
-                                ? 0
-                                : (currentPage - 1) * pageSize + 1}{" "}
-                            –{" "}
-                            {Math.min(currentPage * pageSize, totalCount)}{" "}
-                            of {totalCount} orders
-                        </div>
-
-                        <div className="flex items-center gap-1">
-                            <button
-                                className="px-2 py-1 rounded-lg border border-white/10 disabled:opacity-40 hover:bg-white/5 transition-colors"
-                                disabled={currentPage === 1}
-                                onClick={() => onPageChange(Math.max(1, currentPage - 1))}
-                            >
-                                Prev
-                            </button>
-
-                            {Array.from({ length: totalPages }, (_, i) => i + 1)
-                                .slice(
-                                    Math.max(0, currentPage - 3),
-                                    Math.min(totalPages, currentPage + 2)
-                                )
-                                .map((page) => (
-                                    <button
-                                        key={page}
-                                        className={`px-2 py-1 rounded-lg border border-white/10 hover:bg-white/5 transition-colors ${page === currentPage ? "bg-[#4C1D95] border-[#7C3AED] text-white" : ""
-                                            }`}
-                                        onClick={() => onPageChange(page)}
-                                    >
-                                        {page}
-                                    </button>
-                                ))}
-
-                            <button
-                                className="px-2 py-1 rounded-lg border border-white/10 disabled:opacity-40 hover:bg-white/5 transition-colors"
-                                disabled={currentPage === totalPages}
-                                onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
-                            >
-                                Next
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {openActionDropdown &&
-                createPortal(
-                    <div
-                        data-dropdown-menu
-                        className="fixed z-[9999] w-48 bg-[#1E223D] border border-white/10 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100"
-                        style={{
-                            left: dropdownPosition.x,
-                            top: dropdownPosition.y,
-                        }}
-                    >
-                        <div className="p-1">
-                            <button
-                                onClick={() => {
-                                    setOpenActionDropdown(null);
-                                    onApprove(openActionDropdown);
-                                }}
-                                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[#E5E7EB] hover:bg-white/5 rounded-lg transition-colors text-left"
-                            >
-                                <CheckCircle size={14} className="text-green-400" />
-                                Approve
-                            </button>
-                            <button
-                                onClick={() => {
-                                    setOpenActionDropdown(null);
-                                    onReject(openActionDropdown);
-                                }}
-                                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[#E5E7EB] hover:bg-white/5 rounded-lg transition-colors text-left"
-                            >
-                                <XCircle size={14} className="text-red-400" />
-                                Reject
-                            </button>
-                            <button
-                                onClick={() => {
-                                    const order = orders.find((o) => o.id === openActionDropdown);
-                                    setOpenActionDropdown(null);
-                                    if (order) onEdit(order);
-                                }}
-                                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[#E5E7EB] hover:bg-white/5 rounded-lg transition-colors text-left"
-                            >
-                                <Edit size={14} className="text-blue-400" />
-                                Edit Order
-                            </button>
-                        </div>
-                    </div>,
-                    document.body,
-                )}
-        </>
-    );
-};
 </file>
 
 <file path="src/hooks/useUserProfile.tsx">
@@ -20062,6 +19361,509 @@ function buildRevenueDashboard(orders: Order[], aggregation: AggregationMode): R
             ),
         }));
 }
+</file>
+
+<file path="src/features/orders/components/OrderTable.tsx">
+import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { AlertTriangle, ChevronDown, Edit, CheckCircle, XCircle, Trash2 } from 'lucide-react';
+import { Button } from '../../../components/ui/Button';
+import { StatusBadge } from '../../../components/dashboard/StatusBadge';
+import { RiskBadge } from '../../../components/dashboard/RiskBadge';
+import type { Order } from '../../../types/supabase';
+import type { SimpleProduct } from '../../products/services/productsService';
+
+
+interface OrderTableProps {
+    orders: Order[]; // paginated orders for current page
+    filteredOrders: Order[]; // all filtered orders for pagination info
+    totalCount: number; // Real total count from server
+    currentPage: number;
+    pageSize: number;
+    totalPages: number;
+    selectedIds: Set<string>;
+    onSelectAll: () => void;
+    onToggleSelect: (id: string) => void;
+    onPageChange: (page: number) => void;
+    onRowClick: (order: Order) => void;
+    products: SimpleProduct[];
+    onProductCorrection: (order: Order, productId: string, productName: string) => void;
+    onApprove: (orderId: string) => void;
+    onReject: (orderId: string) => void;
+    onEdit: (order: Order) => void;
+    onDelete?: (orderIds: string[]) => void;
+    loading: boolean;
+}
+
+export const OrderTable: React.FC<OrderTableProps> = ({
+    orders,
+    filteredOrders,
+    totalCount,
+    currentPage,
+    pageSize,
+    totalPages,
+    selectedIds,
+    onSelectAll,
+    onToggleSelect,
+    onPageChange,
+    onRowClick,
+    products,
+    onProductCorrection,
+    onApprove,
+    onReject,
+    onEdit,
+    onDelete,
+    loading,
+}) => {
+    const [productCorrections, setProductCorrections] = useState<Map<string, string>>(new Map());
+    const [openActionDropdown, setOpenActionDropdown] = useState<string | null>(null);
+    const [dropdownPosition, setDropdownPosition] = useState({ x: 0, y: 0, placement: 'bottom' as 'bottom' | 'top' });
+
+    const isInvalidProduct = (order: Order): boolean => {
+        // Nếu đã có product_id thì coi như hợp lệ
+        if (order.product_id) return false;
+
+        // Lấy tên product đang có trên order
+        const rawName = (order.products?.name || order.product || '')
+            .trim()
+            .toLowerCase();
+
+        if (!rawName) return true;
+
+        // Nếu tên này trùng với bất kỳ product nào trong ProductsPage thì cũng coi là hợp lệ
+        const hasMatch = products.some((p) =>
+            p.name.trim().toLowerCase() === rawName,
+        );
+
+        // Chỉ báo Invalid khi KHÔNG tìm thấy match
+        return !hasMatch;
+    };
+
+    const getProductName = (order: Order): string => {
+        if (order.products?.name) return order.products.name;
+        if (order.product) return order.product;
+        return 'Unknown Product';
+    };
+
+    const toggleActionDropdown = (orderId: string, event?: React.MouseEvent<HTMLButtonElement>) => {
+        if (openActionDropdown === orderId) {
+            setOpenActionDropdown(null);
+        } else {
+            if (event) {
+                const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+                const dropdownWidth = 192;
+                const dropdownHeight = 144;
+                const padding = 8;
+
+                const spaceBelow = window.innerHeight - rect.bottom;
+                const placement = spaceBelow < dropdownHeight + padding ? 'top' : 'bottom';
+
+                const x = rect.right - dropdownWidth;
+                const y =
+                    placement === 'bottom' ? rect.bottom + padding : rect.top - dropdownHeight - padding;
+
+                setDropdownPosition({
+                    x: Math.max(8, Math.min(x, window.innerWidth - dropdownWidth - 8)),
+                    y: Math.max(8, Math.min(y, window.innerHeight - dropdownHeight - 8)),
+                    placement,
+                });
+            }
+            setOpenActionDropdown(orderId);
+        }
+    };
+
+    // Close dropdown on scroll
+    useEffect(() => {
+        const handleScroll = () => setOpenActionDropdown(null);
+        window.addEventListener('scroll', handleScroll, true);
+        return () => window.removeEventListener('scroll', handleScroll, true);
+    }, []);
+
+    // Close dropdown on click outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            const target = event.target as HTMLElement;
+            const isOutsideButton = !target.closest('.action-dropdown-container');
+            const isOutsideDropdown = !target.closest('[data-dropdown-menu]');
+            if (isOutsideButton && isOutsideDropdown) {
+                setOpenActionDropdown(null);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [openActionDropdown]);
+
+    return (
+        <>
+            <div className="flex-1 flex flex-col min-h-0 bg-[var(--bg-card)] backdrop-blur-sm rounded-lg border border-[var(--border-subtle)] shadow-lg relative z-0">
+                <div className="px-6 pt-4 pb-1 flex-shrink-0">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                            <button
+                                onClick={onSelectAll}
+                                disabled={loading}
+                                className="text-sm text-[var(--text-muted)] hover:text-[var(--text-main)] transition"
+                            >
+                                {selectedIds.size === orders.length && orders.length > 0
+                                    ? 'Deselect All'
+                                    : 'Select All'}
+                            </button>
+                            {selectedIds.size > 0 && (
+                                <span className="text-sm text-[var(--text-muted)]">
+                                    {selectedIds.size} selected
+                                </span>
+                            )}
+                        </div>
+                        {selectedIds.size > 0 && onDelete && (
+                            <button
+                                onClick={() => onDelete(Array.from(selectedIds))}
+                                className="px-4 py-2 text-sm font-semibold rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-400 hover:text-red-300 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-red-500/50 focus:ring-offset-2 focus:ring-offset-[#0B0F28] flex items-center gap-2"
+                            >
+                                <Trash2 size={16} />
+                                Delete All
+                            </button>
+                        )}
+                    </div>
+                </div>
+                <div className="flex-1 min-h-0 overflow-y-auto p-0">
+                    <div className="w-full max-w-full overflow-x-auto scrollbar-thin scrollbar-thumb-[#1E223D] scrollbar-track-transparent">
+                        <table className="w-full border-separate border-spacing-0" style={{ tableLayout: 'fixed', minWidth: '100%' }}>
+                            <colgroup>
+                                <col style={{ width: '30px' }} />
+                                <col style={{ width: '100px' }} />
+                                <col style={{ width: '120px' }} />
+                                <col style={{ width: '135px' }} />
+                                <col style={{ width: '150px' }} />
+                                <col style={{ width: '150px' }} />
+                                <col style={{ width: '120px' }} />
+                                <col style={{ width: '120px' }} />
+                                <col style={{ width: '70px' }} />
+                                <col style={{ width: '110px' }} />
+                                <col style={{ width: '130px' }} />
+                            </colgroup>
+                            <thead>
+                                <tr className="border-b border-[#1E223D]">
+                                    <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">
+                                        <input
+                                            type="checkbox"
+                                            checked={
+                                                orders.length > 0 &&
+                                                orders.every((order) => selectedIds.has(order.id))
+                                            }
+                                            onChange={onSelectAll}
+                                            disabled={loading}
+                                            className="w-4 h-4 rounded border-white/20 bg-white/5 text-[#8B5CF6] focus:ring-[#8B5CF6] focus:ring-offset-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                        />
+                                    </th>
+                                    <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Order ID</th>
+                                    <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Customer</th>
+                                    <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Phone</th>
+                                    <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Address</th>
+                                    <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Product</th>
+                                    <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Amount (VND)</th>
+                                    <th className="px-6 py-3 text-center text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Payment</th>
+                                    <th className="px-6 py-3 text-center text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Risk</th>
+                                    <th className="px-6 py-3 text-center text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Status</th>
+                                    <th className="px-6 py-3 text-center text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Actions</th>
+                                </tr>
+                            </thead>
+
+                            <tbody>
+                                {orders.map((order) => {
+                                    // 1. Build parts from specific fields
+                                    const parts = [
+                                        order.address_detail,
+                                        order.ward,
+                                        order.district,
+                                        order.province,
+                                    ];
+
+                                    // 2. Filter out empty/null/undefined/whitespace-only strings
+                                    const validParts = parts
+                                        .filter((p): p is string => typeof p === 'string' && p.trim().length > 0)
+                                        .map(p => p.trim());
+
+                                    // 3. Construct full address or use fallback
+                                    let fullAddress = '';
+                                    if (validParts.length > 0) {
+                                        fullAddress = validParts.join(', ');
+                                    } else {
+                                        // Fallback to order.address if no specific parts are available
+                                        fullAddress = order.address || '-';
+                                    }
+
+                                    return (
+                                        <tr
+                                            key={order.id}
+                                            className="border-b border-[#1E223D] hover:bg-white/5 transition-colors cursor-pointer"
+                                            onClick={() => onRowClick(order)}
+                                        >
+                                            {/* Checkbox */}
+                                            <td
+                                                className="px-6 py-4"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                }}
+                                            >
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedIds.has(order.id)}
+                                                    onChange={() => onToggleSelect(order.id)}
+                                                    className="w-4 h-4 rounded border-white/20 bg-white/5 text-[#8B5CF6] focus:ring-[#8B5CF6] focus:ring-offset-0 cursor-pointer"
+                                                />
+                                            </td>
+
+                                            {/* Order ID */}
+                                            <td className="px-6 py-4 text-sm text-[#E5E7EB] font-medium text-center">
+                                                <div className="truncate" title={order.order_id || order.id}>
+                                                    {order.order_id || order.id}
+                                                </div>
+                                            </td>
+
+                                            {/* Customer */}
+                                            <td className="px-6 py-4 text-sm text-[#E5E7EB]">
+                                                <div className="break-words line-clamp-2" title={order.customer_name}>
+                                                    {order.customer_name}
+                                                </div>
+                                            </td>
+
+                                            {/* Phone */}
+                                            <td className="px-6 py-4 text-sm text-[#E5E7EB] text-center">
+                                                <div className="truncate">
+                                                    {order.phone || '-'}
+                                                </div>
+                                            </td>
+
+                                            {/* Address - Allow wrapping */}
+                                            <td className="px-6 py-4 text-sm text-[#E5E7EB]">
+                                                <div className="break-words line-clamp-2" title={fullAddress}>
+                                                    {fullAddress}
+                                                </div>
+                                            </td>
+
+                                            {/* Product */}
+                                            <td
+                                                className="px-6 py-4 text-sm text-[#E5E7EB] align-top"
+                                                onClick={(e) => e.stopPropagation()}
+                                            >
+                                                {isInvalidProduct(order) ? (
+                                                    <div className="space-y-2 min-w-0">
+                                                        <div className="flex items-center gap-2 min-w-0">
+                                                            <span
+                                                                className="inline-flex items-center gap-1 px-2 py-1 rounded bg-red-900/40 border border-red-600 text-red-300 text-xs break-words"
+                                                                title={getProductName(order)}
+                                                            >
+                                                                <AlertTriangle size={12} className="flex-shrink-0" />
+                                                                <span className="break-words">{getProductName(order)}</span>
+                                                            </span>
+                                                        </div>
+                                                        <div className="relative">
+                                                            <select
+                                                                value={productCorrections.get(order.id) || ''}
+                                                                onChange={(e) => {
+                                                                    if (e.target.value) {
+                                                                        const productId = e.target.value;
+                                                                        const product = products.find((p) => p.id === productId);
+                                                                        const productName = product?.name || 'Unknown';
+
+                                                                        setProductCorrections((prev) => {
+                                                                            const next = new Map(prev);
+                                                                            next.set(order.id, productId);
+                                                                            return next;
+                                                                        });
+                                                                        onProductCorrection(order, productId, productName);
+                                                                    }
+                                                                }}
+                                                                className="w-full pr-10 px-2 py-1.5 text-xs bg-white/5 backdrop-blur-xl border border-white/10 rounded-lg text-[#E5E7EB] appearance-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6] focus:border-[#8B5CF6]/50"
+                                                            >
+                                                                <option value="">Select product</option>
+                                                                {products.map((product) => (
+                                                                    <option key={product.id} value={product.id}>
+                                                                        {product.name}
+                                                                    </option>
+                                                                ))}
+                                                            </select>
+                                                            <svg
+                                                                className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#E5E7EB]/70"
+                                                                aria-hidden="true"
+                                                                xmlns="http://www.w3.org/2000/svg"
+                                                                fill="none"
+                                                                viewBox="0 0 24 24"
+                                                                stroke="currentColor"
+                                                            >
+                                                                <path
+                                                                    strokeLinecap="round"
+                                                                    strokeLinejoin="round"
+                                                                    strokeWidth="2"
+                                                                    d="M19 9l-7 7-7-7"
+                                                                />
+                                                            </svg>
+                                                        </div>
+                                                        <p className="text-xs text-red-400">
+                                                            Invalid product. Please select from the list.
+                                                        </p>
+                                                    </div>
+                                                ) : (
+                                                    <div
+                                                        className="text-sm text-[#E5E7EB] break-words"
+                                                        title={getProductName(order)}
+                                                    >
+                                                        {getProductName(order)}
+                                                    </div>
+                                                )}
+                                            </td>
+
+                                            {/* Amount */}
+                                            <td className="px-6 py-4 text-sm text-[#E5E7EB] text-center">
+                                                <div className="truncate">
+                                                    {order.amount.toLocaleString('vi-VN')}
+                                                </div>
+                                            </td>
+
+                                            {/* Payment Method */}
+                                            <td className="px-6 py-4 text-sm text-[#E5E7EB] text-center">
+                                                <div className="truncate" title={order.payment_method || 'COD'}>
+                                                    {order.payment_method || 'COD'}
+                                                </div>
+                                            </td>
+
+                                            {/* Risk Score */}
+                                            <td className="px-6 py-4 text-sm text-center">
+                                                <div className="flex justify-center">
+                                                    <RiskBadge score={order.risk_score} />
+                                                </div>
+                                            </td>
+
+                                            {/* Status */}
+                                            <td className="px-6 py-4 text-sm">
+                                                <StatusBadge status={order.status} />
+                                            </td>
+
+                                            {/* Actions */}
+                                            <td
+                                                className="px-6 py-4 text-sm text-right"
+                                                onClick={(e) => e.stopPropagation()}
+                                            >
+                                                <div className="relative action-dropdown-container inline-flex justify-end">
+                                                    <Button
+                                                        onClick={(e) => toggleActionDropdown(order.id, e)}
+                                                        size="sm"
+                                                        className="!px-3 !py-1.5 !text-xs"
+                                                    >
+                                                        <span>Action</span>
+                                                        <ChevronDown
+                                                            size={14}
+                                                            className={`ml-1.5 transition-transform duration-200 ${openActionDropdown === order.id ? 'rotate-180' : ''
+                                                                }`}
+                                                        />
+                                                    </Button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    )
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {/* Pagination Controls */}
+                    <div className="mt-4 flex items-center justify-between text-xs text-white/60 px-4 pb-4">
+                        <div>
+                            Showing{" "}
+                            {totalCount === 0
+                                ? 0
+                                : (currentPage - 1) * pageSize + 1}{" "}
+                            –{" "}
+                            {Math.min(currentPage * pageSize, totalCount)}{" "}
+                            of {totalCount} orders
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                            <button
+                                className="px-2 py-1 rounded-lg border border-white/10 disabled:opacity-40 hover:bg-white/5 transition-colors"
+                                disabled={currentPage === 1}
+                                onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+                            >
+                                Prev
+                            </button>
+
+                            {Array.from({ length: totalPages }, (_, i) => i + 1)
+                                .slice(
+                                    Math.max(0, currentPage - 3),
+                                    Math.min(totalPages, currentPage + 2)
+                                )
+                                .map((page) => (
+                                    <button
+                                        key={page}
+                                        className={`px-2 py-1 rounded-lg border border-white/10 hover:bg-white/5 transition-colors ${page === currentPage ? "bg-[#4C1D95] border-[#7C3AED] text-white" : ""
+                                            }`}
+                                        onClick={() => onPageChange(page)}
+                                    >
+                                        {page}
+                                    </button>
+                                ))}
+
+                            <button
+                                className="px-2 py-1 rounded-lg border border-white/10 disabled:opacity-40 hover:bg-white/5 transition-colors"
+                                disabled={currentPage === totalPages}
+                                onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+                            >
+                                Next
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {openActionDropdown &&
+                createPortal(
+                    <div
+                        data-dropdown-menu
+                        className="fixed z-[9999] w-48 bg-[#1E223D] border border-white/10 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100"
+                        style={{
+                            left: dropdownPosition.x,
+                            top: dropdownPosition.y,
+                        }}
+                    >
+                        <div className="p-1">
+                            <button
+                                onClick={() => {
+                                    setOpenActionDropdown(null);
+                                    onApprove(openActionDropdown);
+                                }}
+                                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[#E5E7EB] hover:bg-white/5 rounded-lg transition-colors text-left"
+                            >
+                                <CheckCircle size={14} className="text-green-400" />
+                                Approve
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setOpenActionDropdown(null);
+                                    onReject(openActionDropdown);
+                                }}
+                                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[#E5E7EB] hover:bg-white/5 rounded-lg transition-colors text-left"
+                            >
+                                <XCircle size={14} className="text-red-400" />
+                                Reject
+                            </button>
+                            <button
+                                onClick={() => {
+                                    const order = orders.find((o) => o.id === openActionDropdown);
+                                    setOpenActionDropdown(null);
+                                    if (order) onEdit(order);
+                                }}
+                                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[#E5E7EB] hover:bg-white/5 rounded-lg transition-colors text-left"
+                            >
+                                <Edit size={14} className="text-blue-400" />
+                                Edit Order
+                            </button>
+                        </div>
+                    </div>,
+                    document.body,
+                )}
+        </>
+    );
+};
 </file>
 
 <file path="src/features/orders/hooks/useOrdersData.ts">
@@ -23567,7 +23369,7 @@ export async function markInvoicePaidForOrder(order: Order) {
     // Log đúng 1 lần sự kiện PAID
     await logOrderEvent(
       order.id,
-      "PAID",
+      "ORDER_PAID",
       {
         amount: order.amount,
         paid_at: now,
@@ -23594,9 +23396,10 @@ export async function markInvoicePaidForOrder(order: Order) {
     throw insertError;
   }
 
+  // Đồng bộ: luôn log ORDER_PAID, không dùng PAID nữa
   await logOrderEvent(
     order.id,
-    "PAID",
+    "ORDER_PAID",
     {
       amount: order.amount,
       paid_at: now,
@@ -23705,7 +23508,7 @@ export async function markInvoiceAsPaid(invoiceId: string) {
   const now = new Date().toISOString();
 
   const { data, error } = await InvoicesRepository.updateInvoice(invoiceId, {
-    status: "Paid" as InvoiceStatus,
+    status: INVOICE_STATUS.PAID,
     paid_at: now,
     date: getTodayDateString(),
   });
@@ -23734,12 +23537,10 @@ export async function applyInvoiceRules(order: Order) {
   // => Chỉ khi status là 1 trong các trạng thái "đã thanh toán" RÕ RÀNG
   //    (Simulate Paid, QR callback, non-COD prepaid...)
   const paidStatuses = [
-    ORDER_STATUS.ORDER_PAID, // dùng hằng số
-    "PAID",                  // phòng sau này có status kiểu PAID
-    "CUSTOMER_PAID",
+    ORDER_STATUS.ORDER_PAID,
   ];
 
-  if (paidStatuses.includes(status)) {
+  if (status === ORDER_STATUS.ORDER_PAID) {
     // Order đã ở trạng thái đã thanh toán -> đảm bảo Invoice = Paid
     await markInvoicePaidForOrder(order);
     return; // Paid override mọi trạng thái Pending
@@ -24562,219 +24363,6 @@ export const AdminMessagePage: React.FC = () => {
 };
 
 export default AdminMessagePage;
-</file>
-
-<file path="src/pages/dashboard/HistoryPage.tsx">
-import React, { useState } from 'react';
-import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
-import { Input } from '../../components/ui/Input';
-import { FilterBar } from '../../components/ui/FilterBar';
-import { MultiSelectFilter } from '../../components/filters/MultiSelectFilter';
-import { StatusBadge } from '../../components/dashboard/StatusBadge';
-import { useSupabaseTable } from '../../hooks/useSupabaseTable';
-import { useAuth } from '../../features/auth';
-import { formatToGMT7 } from '../../utils/formatTimezone';
-import type { History } from '../../types/supabase';
-import { mapStatusToLifecycle } from '../../utils/orderStatusHelpers';
-
-interface HistoryWithFormatted extends History {
-  date?: string;
-  displayDate?: string;
-  time?: string;
-}
-
-export const HistoryPage: React.FC = () => {
-  const { user } = useAuth();
-  const {
-    data: logs,
-    loading,
-    error,
-  } = useSupabaseTable<History>({ tableName: 'history', enableRealtime: true });
-  const [dateFilter, setDateFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string[]>([]);
-  const [eventTypeFilter, setEventTypeFilter] = useState<string[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
-
-  const clearAllFilters = () => {
-    setDateFilter('');
-    setStatusFilter([]);
-    setEventTypeFilter([]);
-    setSearchQuery('');
-  };
-
-  // Format history logs with date/time and filter by current user
-  const formattedLogs: HistoryWithFormatted[] = logs
-    .filter(log => user && log.user_id === user.id) // Only show current user's actions
-    .map(log => {
-      const { date, displayDate, time } = formatToGMT7(log.created_at);
-      return {
-        ...log,
-        date, // YYYY-MM-DD for filter
-        displayDate, // DD/MM/YYYY for display
-        time,
-      };
-    });
-
-  // Get unique event types for filter
-  const eventTypeOptions = Array.from(new Set(formattedLogs.map(log => log.action))).map(action => ({
-    value: action,
-    label: action
-  }));
-
-  const filteredLogs = formattedLogs.filter(log => {
-    const matchesDate = !dateFilter || log.date === dateFilter;
-    const matchesStatus = statusFilter.length === 0 || statusFilter.includes(log.status);
-    const matchesEventType = eventTypeFilter.length === 0 || eventTypeFilter.includes(log.action);
-
-    const searchLower = searchQuery.toLowerCase();
-    const matchesSearch = !searchQuery ||
-      (log.order_id && log.order_id.toLowerCase().includes(searchLower)) ||
-      (log.action && log.action.toLowerCase().includes(searchLower)) ||
-      (log.details && JSON.stringify(log.details).toLowerCase().includes(searchLower));
-
-    return matchesDate && matchesStatus && matchesEventType && matchesSearch;
-  });
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'success':
-        return { variant: 'success' as const, label: 'Success' };
-      case 'failed':
-        return { variant: 'danger' as const, label: 'Failed' };
-      default:
-        return { variant: 'warning' as const, label: status };
-    }
-  };
-
-  return (
-    <div className="space-y-6 p-6 h-full flex flex-col min-h-0">
-      {/* Filters */}
-      {/* Filters */}
-      <FilterBar
-        searchValue={searchQuery}
-        onSearch={setSearchQuery}
-        searchPlaceholder="Search by Order ID / Product / Phone / Name..."
-      >
-        <MultiSelectFilter
-          label="Status"
-          options={[
-            { value: 'success', label: 'Success' },
-            { value: 'failed', label: 'Failed' },
-          ]}
-          selectedValues={statusFilter}
-          onChange={setStatusFilter}
-        />
-        <MultiSelectFilter
-          label="Event Type"
-          options={eventTypeOptions}
-          selectedValues={eventTypeFilter}
-          onChange={setEventTypeFilter}
-        />
-
-        {/* Date Filter */}
-        <input
-          type="date"
-          value={dateFilter}
-          onChange={(e) => setDateFilter(e.target.value)}
-          className="h-10 w-auto min-w-[180px] whitespace-nowrap px-3 bg-[var(--bg-input)] border border-[var(--border-subtle)] rounded-lg text-[var(--text-main)]"
-        />
-
-        {/* Clear filters */}
-        <button
-          type="button"
-          onClick={clearAllFilters}
-          className="text-sm text-[var(--text-muted)] whitespace-nowrap hover:text-white transition"
-        >
-          Clear filters
-        </button>
-      </FilterBar>
-
-      {/* History Logs */}
-      <Card className="flex-1 flex flex-col min-h-0 relative z-0">
-        <CardHeader className="!pt-4 !pb-3 !px-6 flex-shrink-0">
-          <CardTitle>History Logs</CardTitle>
-        </CardHeader>
-        <CardContent className="flex-1 min-h-0 overflow-y-auto p-0">
-          <div className="w-full max-w-full overflow-x-auto scrollbar-thin scrollbar-thumb-[#1E223D] scrollbar-track-transparent">
-            {error ? (
-              <div className="p-12 text-center">
-                <p className="text-red-400 mb-4">Error: {error}</p>
-              </div>
-            ) : loading && logs.length === 0 ? (
-              <div className="p-12 text-center text-[#E5E7EB]/70">
-                Loading history...
-              </div>
-            ) : (
-              <>
-                <table className="min-w-[1000px] w-full border-separate border-spacing-0">
-                  <thead>
-                    <tr className="border-b border-[#1E223D]">
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Date & Time</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Action</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Order/Product ID</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Changes</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredLogs.map((log) => {
-                      return (
-                        <tr key={log.id} className="border-b border-[#1E223D] hover:bg-white/5 transition">
-                          <td className="px-6 py-4 text-sm text-[#E5E7EB] whitespace-nowrap">
-                            <div>{log.displayDate}</div>
-                            <div className="text-xs text-[#E5E7EB]/70 mt-1">{log.time} (GMT+7)</div>
-                          </td>
-                          <td className="px-6 py-4 text-sm text-[#E5E7EB] whitespace-nowrap">{log.action}</td>
-                          <td className="px-6 py-4 text-sm text-[#E5E7EB] font-medium align-middle">
-                            <span className="block truncate whitespace-nowrap max-w-[200px]" title={log.order_id || 'N/A'}>
-                              {log.order_id || 'N/A'}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-sm text-[#E5E7EB] align-middle">
-                            {log.details && Object.keys(log.details).length > 0 ? (
-                              <div className="space-y-1">
-                                {/* Lifecycle Status Display */}
-                                {log.details.status_from && log.details.status_to && (
-                                  <div className="text-sm font-medium text-purple-300 mb-1">
-                                    Status: {mapStatusToLifecycle(log.details.status_from)} →{' '}
-                                    {mapStatusToLifecycle(log.details.status_to)}
-                                  </div>
-                                )}
-
-                                {Object.entries(log.details).map(([key, value]) => (
-                                  <div key={key} className="text-xs">
-                                    <span className="font-medium text-[#E5E7EB]/90">{key}:</span>{' '}
-                                    <span className="text-[#E5E7EB]/70">{value}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <span className="text-[#E5E7EB]/50 text-xs">—</span>
-                            )}
-                          </td>
-                          <td className="px-6 py-4 align-middle">
-                            <StatusBadge status={log.status} />
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-                {filteredLogs.length === 0 && !loading && (
-                  <div className="p-12 text-center text-[var(--text-muted)]">
-                    {logs.length === 0
-                      ? 'No history records found.'
-                      : 'No records match your filters.'}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-};
 </file>
 
 <file path="src/pages/dashboard/SettingsPage.tsx">
@@ -26595,6 +26183,219 @@ export async function fetchOrderFilterOptions(userId: string): Promise<OrderFilt
 }
 </file>
 
+<file path="src/pages/dashboard/HistoryPage.tsx">
+import React, { useState } from 'react';
+import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
+import { Input } from '../../components/ui/Input';
+import { FilterBar } from '../../components/ui/FilterBar';
+import { MultiSelectFilter } from '../../components/filters/MultiSelectFilter';
+import { StatusBadge } from '../../components/dashboard/StatusBadge';
+import { useSupabaseTable } from '../../hooks/useSupabaseTable';
+import { useAuth } from '../../features/auth';
+import { formatToGMT7 } from '../../utils/formatTimezone';
+import type { History } from '../../types/supabase';
+import { mapStatusToLifecycle } from '../../utils/orderStatusHelpers';
+
+interface HistoryWithFormatted extends History {
+  date?: string;
+  displayDate?: string;
+  time?: string;
+}
+
+export const HistoryPage: React.FC = () => {
+  const { user } = useAuth();
+  const {
+    data: logs,
+    loading,
+    error,
+  } = useSupabaseTable<History>({ tableName: 'history', enableRealtime: true });
+  const [dateFilter, setDateFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
+  const [eventTypeFilter, setEventTypeFilter] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const clearAllFilters = () => {
+    setDateFilter('');
+    setStatusFilter([]);
+    setEventTypeFilter([]);
+    setSearchQuery('');
+  };
+
+  // Format history logs with date/time and filter by current user
+  const formattedLogs: HistoryWithFormatted[] = logs
+    .filter(log => user && log.user_id === user.id) // Only show current user's actions
+    .map(log => {
+      const { date, displayDate, time } = formatToGMT7(log.created_at);
+      return {
+        ...log,
+        date, // YYYY-MM-DD for filter
+        displayDate, // DD/MM/YYYY for display
+        time,
+      };
+    });
+
+  // Get unique event types for filter
+  const eventTypeOptions = Array.from(new Set(formattedLogs.map(log => log.action))).map(action => ({
+    value: action,
+    label: action
+  }));
+
+  const filteredLogs = formattedLogs.filter(log => {
+    const matchesDate = !dateFilter || log.date === dateFilter;
+    const matchesStatus = statusFilter.length === 0 || statusFilter.includes(log.status);
+    const matchesEventType = eventTypeFilter.length === 0 || eventTypeFilter.includes(log.action);
+
+    const searchLower = searchQuery.toLowerCase();
+    const matchesSearch = !searchQuery ||
+      (log.order_id && log.order_id.toLowerCase().includes(searchLower)) ||
+      (log.action && log.action.toLowerCase().includes(searchLower)) ||
+      (log.details && JSON.stringify(log.details).toLowerCase().includes(searchLower));
+
+    return matchesDate && matchesStatus && matchesEventType && matchesSearch;
+  });
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'success':
+        return { variant: 'success' as const, label: 'Success' };
+      case 'failed':
+        return { variant: 'danger' as const, label: 'Failed' };
+      default:
+        return { variant: 'warning' as const, label: status };
+    }
+  };
+
+  return (
+    <div className="space-y-6 p-6 h-full flex flex-col min-h-0">
+      {/* Filters */}
+      {/* Filters */}
+      <FilterBar
+        searchValue={searchQuery}
+        onSearch={setSearchQuery}
+        searchPlaceholder="Search by Order ID / Product / Phone / Name..."
+      >
+        <MultiSelectFilter
+          label="Status"
+          options={[
+            { value: 'success', label: 'Success' },
+            { value: 'failed', label: 'Failed' },
+          ]}
+          selectedValues={statusFilter}
+          onChange={setStatusFilter}
+        />
+        <MultiSelectFilter
+          label="Event Type"
+          options={eventTypeOptions}
+          selectedValues={eventTypeFilter}
+          onChange={setEventTypeFilter}
+        />
+
+        {/* Date Filter */}
+        <input
+          type="date"
+          value={dateFilter}
+          onChange={(e) => setDateFilter(e.target.value)}
+          className="h-10 w-auto min-w-[180px] whitespace-nowrap px-3 bg-[var(--bg-input)] border border-[var(--border-subtle)] rounded-lg text-[var(--text-main)]"
+        />
+
+        {/* Clear filters */}
+        <button
+          type="button"
+          onClick={clearAllFilters}
+          className="text-sm text-[var(--text-muted)] whitespace-nowrap hover:text-white transition"
+        >
+          Clear filters
+        </button>
+      </FilterBar>
+
+      {/* History Logs */}
+      <Card className="flex-1 flex flex-col min-h-0 relative z-0">
+        <CardHeader className="!pt-4 !pb-3 !px-6 flex-shrink-0">
+          <CardTitle>History Logs</CardTitle>
+        </CardHeader>
+        <CardContent className="flex-1 min-h-0 overflow-y-auto p-0">
+          <div className="w-full max-w-full overflow-x-auto scrollbar-thin scrollbar-thumb-[#1E223D] scrollbar-track-transparent">
+            {error ? (
+              <div className="p-12 text-center">
+                <p className="text-red-400 mb-4">Error: {error}</p>
+              </div>
+            ) : loading && logs.length === 0 ? (
+              <div className="p-12 text-center text-[#E5E7EB]/70">
+                Loading history...
+              </div>
+            ) : (
+              <>
+                <table className="min-w-[1000px] w-full border-separate border-spacing-0">
+                  <thead>
+                    <tr className="border-b border-[#1E223D]">
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Date & Time</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Action</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Order/Product ID</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Changes</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredLogs.map((log) => {
+                      return (
+                        <tr key={log.id} className="border-b border-[#1E223D] hover:bg-white/5 transition">
+                          <td className="px-6 py-4 text-sm text-[#E5E7EB] whitespace-nowrap">
+                            <div>{log.displayDate}</div>
+                            <div className="text-xs text-[#E5E7EB]/70 mt-1">{log.time} (GMT+7)</div>
+                          </td>
+                          <td className="px-6 py-4 text-sm text-[#E5E7EB] whitespace-nowrap">{log.action}</td>
+                          <td className="px-6 py-4 text-sm text-[#E5E7EB] font-medium align-middle">
+                            <span className="block truncate whitespace-nowrap max-w-[200px]" title={log.order_id || 'N/A'}>
+                              {log.order_id || 'N/A'}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-sm text-[#E5E7EB] align-middle">
+                            {log.details && Object.keys(log.details).length > 0 ? (
+                              <div className="space-y-1">
+                                {/* Lifecycle Status Display */}
+                                {log.details.status_from && log.details.status_to && (
+                                  <div className="text-sm font-medium text-purple-300 mb-1">
+                                    Status: {mapStatusToLifecycle(log.details.status_from)} →{' '}
+                                    {mapStatusToLifecycle(log.details.status_to)}
+                                  </div>
+                                )}
+
+                                {Object.entries(log.details).map(([key, value]) => (
+                                  <div key={key} className="text-xs">
+                                    <span className="font-medium text-[#E5E7EB]/90">{key}:</span>{' '}
+                                    <span className="text-[#E5E7EB]/70">{value}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-[#E5E7EB]/50 text-xs">—</span>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 align-middle">
+                            <StatusBadge status={log.status} />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                {filteredLogs.length === 0 && !loading && (
+                  <div className="p-12 text-center text-[var(--text-muted)]">
+                    {logs.length === 0
+                      ? 'No history records found.'
+                      : 'No records match your filters.'}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+};
+</file>
+
 <file path="src/features/orders/components/OrdersView.tsx">
 import React, { useState, useEffect } from 'react';
 import { useOrdersData } from '../hooks/useOrdersData';
@@ -27684,13 +27485,12 @@ export default App;
 
 <file path="src/pages/dashboard/InvoicePage.tsx">
 import React, { useState, useEffect } from 'react';
-import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
+import { Card, CardHeader, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
-import { Input } from '../../components/ui/Input';
 import { FilterBar } from '../../components/ui/FilterBar';
 import { MultiSelectFilter } from '../../components/filters/MultiSelectFilter';
 import { StatusBadge } from '../../components/dashboard/StatusBadge';
-import { Download, Search } from 'lucide-react';
+import { Download } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient';
 import { useAuth } from '../../features/auth';
 import { useUserProfile } from '../../hooks/useUserProfile';
@@ -27707,13 +27507,18 @@ import { useToast } from '../../components/ui/Toast';
 
 interface InvoiceWithCustomer extends Invoice {
   customer_name?: string;
+  orders?: {
+    order_id: string | null;
+    customer_name: string | null;
+  } | null;
 }
 
 export const InvoicePage: React.FC = () => {
   const { user } = useAuth();
   const { profile } = useUserProfile();
   const { showSuccess, showError } = useToast();
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
+
+  const [invoices, setInvoices] = useState<InvoiceWithCustomer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [invoicesWithCustomers, setInvoicesWithCustomers] = useState<InvoiceWithCustomer[]>([]);
@@ -27724,7 +27529,7 @@ export const InvoicePage: React.FC = () => {
   const [dateFilter, setDateFilter] = useState('');
   const [isMarkingMap, setIsMarkingMap] = useState<Record<string, boolean>>({});
 
-  // Side Panel State
+  // Side Panel
   const [isSidePanelOpen, setIsSidePanelOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [orderEvents, setOrderEvents] = useState<OrderEvent[]>([]);
@@ -27737,18 +27542,18 @@ export const InvoicePage: React.FC = () => {
   });
   const [isAddressModified, setIsAddressModified] = useState(false);
 
+  // Pagination
+  const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const PAGE_SIZE = 200;
+
   const clearAllFilters = () => {
     setSearchQuery('');
     setStatusFilter([]);
     setDateFilter('');
   };
 
-  // Pagination state
-  const [page, setPage] = useState(1);
-  const [totalCount, setTotalCount] = useState(0);
-  const PAGE_SIZE = 200;
-
-  // Load Blacklist
+  // Load blacklist
   useEffect(() => {
     const loadBlacklist = async () => {
       if (!user) return;
@@ -27762,7 +27567,7 @@ export const InvoicePage: React.FC = () => {
     loadBlacklist();
   }, [user]);
 
-  // Fetch invoices when page or filters change
+  // Fetch invoices + orders
   useEffect(() => {
     if (!user) return;
 
@@ -27771,7 +27576,11 @@ export const InvoicePage: React.FC = () => {
       setError(null);
 
       try {
-        const { invoices: invoicesData, totalCount: count, error: invoicesError } = await fetchInvoicesByUser(
+        const {
+          invoices: invoicesData,
+          totalCount: count,
+          error: invoicesError,
+        } = await fetchInvoicesByUser(
           user.id,
           page,
           PAGE_SIZE,
@@ -27788,12 +27597,14 @@ export const InvoicePage: React.FC = () => {
 
         if (!invoicesData || invoicesData.length === 0) {
           setInvoices([]);
+          setOrdersMap(new Map());
           setLoading(false);
           return;
         }
 
-        // Fetch related orders for the current page of invoices
-        const orderIds = invoicesData.map(inv => inv.order_id).filter(Boolean);
+        const orderIds = invoicesData
+          .map(inv => inv.order_id)
+          .filter((id): id is string => Boolean(id));
 
         let ordersMapLocal = new Map<string, { order_id: string | null; customer_name: string | null }>();
         let fullOrdersMap = new Map<string, Order>();
@@ -27806,7 +27617,7 @@ export const InvoicePage: React.FC = () => {
             .in('id', orderIds);
 
           if (!ordersError && ordersData) {
-            ordersData.forEach(order => {
+            ordersData.forEach((order: any) => {
               ordersMapLocal.set(order.id, {
                 order_id: order.order_id || null,
                 customer_name: order.customer_name || null,
@@ -27816,14 +27627,14 @@ export const InvoicePage: React.FC = () => {
           }
         }
 
-        // Merge invoices with order data
-        const invoicesWithOrders = invoicesData.map(invoice => ({
-          ...invoice,
+        const invoicesWithOrders: InvoiceWithCustomer[] = (invoicesData as any[]).map((invoice) => ({
+          ...(invoice as Invoice),
           orders: ordersMapLocal.get(invoice.order_id) || null,
         }));
 
-        setInvoices(invoicesWithOrders as Invoice[]);
+        setInvoices(invoicesWithOrders);
         setOrdersMap(fullOrdersMap);
+
       } catch (err) {
         console.error('Error fetching invoices:', err);
         setError(err instanceof Error ? err.message : 'Failed to load invoices');
@@ -27835,12 +27646,12 @@ export const InvoicePage: React.FC = () => {
     fetchInvoices();
   }, [user, page, searchQuery, statusFilter, dateFilter]);
 
-  // Reset page to 1 when filters change
+  // Reset page when filters change
   useEffect(() => {
     setPage(1);
   }, [searchQuery, statusFilter, dateFilter]);
 
-  // Real-time subscription (simplified to just refetch current page)
+  // Realtime (hiện để đó)
   useEffect(() => {
     if (!user) return;
     const channel = supabase
@@ -27848,9 +27659,7 @@ export const InvoicePage: React.FC = () => {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'invoices', filter: `user_id=eq.${user.id}` },
-        () => {
-          // For now, we rely on manual refresh or navigation.
-        }
+        () => { }
       )
       .subscribe();
 
@@ -27859,7 +27668,7 @@ export const InvoicePage: React.FC = () => {
     };
   }, [user]);
 
-  // Merge invoices with customer names from joined orders
+  // Merge customer_name cho tiện
   useEffect(() => {
     const merged = invoices.map(invoice => ({
       ...invoice,
@@ -27868,7 +27677,6 @@ export const InvoicePage: React.FC = () => {
     setInvoicesWithCustomers(merged);
   }, [invoices]);
 
-  // Helper to check if invoice can be downloaded
   const canDownloadInvoice = (invoice: Invoice) => {
     return invoice.status === 'Paid';
   };
@@ -27878,7 +27686,7 @@ export const InvoicePage: React.FC = () => {
     return num.toLocaleString('vi-VN');
   };
 
-  const getInvoiceDisplayAmount = (inv: Invoice & { orders?: any }) => {
+  const getInvoiceDisplayAmount = (inv: InvoiceWithCustomer) => {
     const order = ordersMap.get(inv.order_id);
 
     if (order) {
@@ -27900,7 +27708,6 @@ export const InvoicePage: React.FC = () => {
       return subtotal + shipping - discount;
     }
 
-    // Fallback: use invoice fields only
     const subtotal =
       (inv as any).subtotal ??
       inv.amount ??
@@ -27924,7 +27731,6 @@ export const InvoicePage: React.FC = () => {
     }
 
     try {
-      // Fetch fresh order data from Supabase for accurate invoice generation
       const { data: freshOrder, error: orderError } = await supabase
         .from('orders')
         .select('*')
@@ -27938,8 +27744,6 @@ export const InvoicePage: React.FC = () => {
         return;
       }
 
-      // Fetch current user's profile for seller info
-      // Use profile from hook if available, otherwise fetch directly
       let sellerProfile = {
         company_name: profile?.company_name || undefined,
         email: profile?.email || undefined,
@@ -27948,7 +27752,6 @@ export const InvoicePage: React.FC = () => {
         address: undefined,
       };
 
-      // If profile not loaded yet, fetch it directly
       if (!profile && user) {
         const { data: authData } = await supabase.auth.getUser();
         const userId = authData?.user?.id;
@@ -27972,13 +27775,11 @@ export const InvoicePage: React.FC = () => {
         }
       }
 
-      // 🚨 Quan trọng: bỏ cache pdf_url cũ, ép generate lại
       const invoiceWithoutCache: Invoice = {
         ...(invoice as Invoice),
         pdf_url: null,
       };
 
-      // Always use ensureInvoicePdfStored - it handles caching and invalidation
       const pdfUrl = await ensureInvoicePdfStored(
         invoiceWithoutCache,
         freshOrder as Order,
@@ -27997,35 +27798,32 @@ export const InvoicePage: React.FC = () => {
   };
 
   const handleMarkAsPaid = async (invoice: Invoice, e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent row click
+    e.stopPropagation();
     if (!invoice.order_id) return;
 
     try {
       setIsMarkingMap((prev) => ({ ...prev, [invoice.id]: true }));
 
-      // 1) Mark invoice paid
       const updatedInvoice = await markInvoiceAsPaid(invoice.id);
-
-      // 2) Mark related order paid (only updates paid_at)
       await markOrderAsPaid(invoice.order_id);
-
-      // 3) Log order event
       await logOrderPaidEvent(invoice.order_id);
 
-      // 4) Optimistic UI update
       setInvoices((prev) =>
         prev.map((inv) =>
           inv.id === invoice.id
-            ? { ...inv, status: 'Paid', paid_at: updatedInvoice.paid_at, date: updatedInvoice.date }
+            ? { ...inv, status: 'Paid', paid_at: (updatedInvoice as any).paid_at, date: updatedInvoice.date }
             : inv
         )
       );
 
-      // Update local ordersMap to reflect paid_at change if needed
-      // (Not strictly necessary for display unless we show paid status on row, but good for consistency)
       const currentOrder = ordersMap.get(invoice.order_id);
       if (currentOrder) {
-        setOrdersMap(prev => new Map(prev).set(invoice.order_id, { ...currentOrder, paid_at: updatedInvoice.paid_at || new Date().toISOString() }));
+        setOrdersMap(prev =>
+          new Map(prev).set(
+            invoice.order_id,
+            { ...currentOrder, paid_at: (updatedInvoice as any).paid_at || new Date().toISOString() }
+          )
+        );
       }
 
     } catch (error) {
@@ -28046,7 +27844,6 @@ export const InvoicePage: React.FC = () => {
       return;
     }
 
-    // Prepare seller profile once
     let sellerProfile = {
       company_name: profile?.company_name || undefined,
       email: profile?.email || undefined,
@@ -28056,7 +27853,6 @@ export const InvoicePage: React.FC = () => {
       user_id: user?.id
     };
 
-    // If profile not loaded yet, fetch it directly (same logic as handleDownload)
     if (!profile && user) {
       try {
         const { data: authData } = await supabase.auth.getUser();
@@ -28085,10 +27881,8 @@ export const InvoicePage: React.FC = () => {
       }
     }
 
-    // Download each invoice PDF sequentially
     for (const inv of selectedDownloadable) {
       try {
-        // Fetch fresh order data from Supabase for accurate invoice generation
         const { data: freshOrder, error: orderError } = await supabase
           .from('orders')
           .select('*')
@@ -28101,13 +27895,11 @@ export const InvoicePage: React.FC = () => {
           continue;
         }
 
-        // 🚨 Bỏ cache pdf_url cũ cho từng invoice
         const invoiceWithoutCache: Invoice = {
           ...(inv as Invoice),
           pdf_url: null,
         };
 
-        // Ensure PDF exists and get URL
         const pdfUrl = await ensureInvoicePdfStored(
           invoiceWithoutCache,
           freshOrder as Order,
@@ -28124,29 +27916,10 @@ export const InvoicePage: React.FC = () => {
         console.error(`Failed to download invoice ${inv.id}`, err);
       }
 
-      // Small delay between downloads to avoid browser blocking
       await new Promise(resolve => setTimeout(resolve, 300));
     }
   };
 
-  const getStatusBadge = (status: string) => {
-    // Normalize to handle both old lowercase and new capitalized values
-    const normalizedStatus = status === 'Paid' || status === 'paid' ? 'Paid' :
-      status === 'Cancelled' || status === 'cancelled' ? 'Cancelled' :
-        'Pending';
-
-    switch (normalizedStatus) {
-      case 'Paid':
-        return { className: 'bg-green-500/20 text-green-400', label: 'Paid' };
-      case 'Cancelled':
-        return { className: 'bg-gray-500/20 text-gray-400', label: 'Cancelled' };
-      default:
-        return { className: 'bg-yellow-500/20 text-yellow-400', label: 'Pending' };
-    }
-  };
-
-  // Filtered invoices are now handled server-side, so we just use the current page's invoices
-  // But we still need to map customer names
   const filteredInvoices = invoicesWithCustomers;
 
   const handleSelectAll = () => {
@@ -28169,7 +27942,7 @@ export const InvoicePage: React.FC = () => {
     });
   };
 
-  // Side Panel Handlers
+  // SidePanel handlers
   const handleRowClick = async (invoice: InvoiceWithCustomer) => {
     const order = ordersMap.get(invoice.order_id);
     if (!order) {
@@ -28187,7 +27960,6 @@ export const InvoicePage: React.FC = () => {
     setIsAddressModified(false);
     setIsSidePanelOpen(true);
 
-    // Fetch events
     const { data, error } = await fetchOrderEvents(order.id);
     if (!error && data) {
       setOrderEvents(data);
@@ -28204,11 +27976,6 @@ export const InvoicePage: React.FC = () => {
 
   const handleSaveAddress = async () => {
     if (!selectedOrder || !user) return;
-    // Note: We don't have updateOrderLocal here, so we might need to call service directly
-    // or just skip this for now as it wasn't explicitly requested to work fully,
-    // but the requirement says "Actions inside side panel... should behave the same".
-    // Since we are in InvoicePage, we don't have the full context of OrdersView.
-    // We can implement a basic save using updateOrder service.
 
     const { address_detail, ward, district, province } = addressForm;
     const fullAddress = [address_detail, ward, district, province]
@@ -28234,28 +28001,20 @@ export const InvoicePage: React.FC = () => {
       showSuccess('Address updated successfully');
       setIsAddressModified(false);
 
-      // Update local state
-      setSelectedOrder(prev => prev ? { ...prev, address_detail, ward, district, province, address: fullAddress } : null);
-      setOrdersMap(prev => new Map(prev).set(selectedOrder.id, { ...selectedOrder, address_detail, ward, district, province, address: fullAddress }));
+      setSelectedOrder(prev =>
+        prev ? { ...prev, address_detail, ward, district, province, address: fullAddress } : null
+      );
+      setOrdersMap(prev =>
+        new Map(prev).set(
+          selectedOrder.id,
+          { ...selectedOrder, address_detail, ward, district, province, address: fullAddress }
+        )
+      );
 
     } catch (err) {
       showError('Failed to update address');
     }
   };
-
-  // Placeholder handlers for SidePanel actions (since we don't have full order management context here)
-  // The requirement says "Actions inside side panel... should behave the same".
-  // Ideally we should refactor useOrderActions to be usable here too, or duplicate logic.
-  // Given the scope, I'll implement basic stubs or reuse logic if simple.
-  // For now, I will pass empty handlers or simple alerts for complex actions to avoid huge duplication,
-  // unless I can easily import them. useOrderActions depends on updateOrderLocal which depends on useOrdersData state.
-  // It's better to keep it simple for this refactor: View Only + Address Edit + Mark Paid (which we have).
-  // Wait, the user said "Actions inside side panel (status change, notes, etc.) should behave the same."
-  // This implies full functionality.
-  // However, implementing full order management inside InvoicePage is a large scope creep.
-  // I will implement the props required by OrderSidePanel but maybe log a warning or implement minimal viable actions.
-  // Actually, OrderSidePanel expects onApprove, onReject etc.
-  // I will implement them using direct service calls for now to satisfy the requirement without refactoring the entire app to a global context.
 
   const refreshOrder = async (orderId: string) => {
     const { data } = await supabase.from('orders').select('*').eq('id', orderId).single();
@@ -28268,17 +28027,12 @@ export const InvoicePage: React.FC = () => {
   };
 
   const handleApprove = async (order: Order) => {
-    // Simplified approval logic
     try {
-      await supabase.from('orders').update({ status: 'Order Confirmation Sent' }).eq('id', order.id); // Simplified
+      await supabase.from('orders').update({ status: 'Order Confirmation Sent' }).eq('id', order.id);
       showSuccess('Order approved');
       refreshOrder(order.id);
     } catch (e) { showError('Failed'); }
   };
-
-  // We'll pass dummy handlers for complex actions not critical for Invoice view, 
-  // or simple implementations. The user focused on "Mark as Paid" and "Revenue Metrics".
-  // The SidePanel integration is mainly for viewing details.
 
   if (loading && invoices.length === 0) {
     return (
@@ -28309,10 +28063,6 @@ export const InvoicePage: React.FC = () => {
 
   return (
     <div className="space-y-6 p-6 h-full flex flex-col min-h-0">
-      {/* Filters */}
-      {/* Header */}
-      {/* Filters */}
-      {/* Filters */}
       <FilterBar
         searchValue={searchQuery}
         onSearch={setSearchQuery}
@@ -28329,7 +28079,6 @@ export const InvoicePage: React.FC = () => {
           onChange={(values) => setStatusFilter(values)}
         />
 
-        {/* Date Filter */}
         <input
           type="date"
           value={dateFilter}
@@ -28337,7 +28086,6 @@ export const InvoicePage: React.FC = () => {
           className="h-10 w-auto min-w-[180px] whitespace-nowrap px-3 bg-[var(--bg-input)] border border-[var(--border-subtle)] rounded-lg text-[var(--text-main)]"
         />
 
-        {/* Clear filters */}
         <button
           type="button"
           onClick={clearAllFilters}
@@ -28453,7 +28201,7 @@ export const InvoicePage: React.FC = () => {
                         {canDownloadInvoice(invoice) ? (
                           <button
                             onClick={() => handleDownload(invoice)}
-                            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-[#E5E7EB] transition"
+                            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg:white/10 text-[#E5E7EB] transition"
                           >
                             <Download size={16} />
                             <span className="text-sm">Download</span>
@@ -28503,9 +28251,9 @@ export const InvoicePage: React.FC = () => {
         onSaveAddress={handleSaveAddress}
         blacklistedPhones={blacklistedPhones}
         onApprove={handleApprove}
-        onReject={() => { }} // Dummy
-        onMarkDelivered={() => { }} // Dummy
-        onMarkCompleted={() => { }} // Dummy
+        onReject={() => { }}
+        onMarkDelivered={() => { }}
+        onMarkCompleted={() => { }}
         onOrderUpdated={() => {
           if (selectedOrder) {
             refreshOrder(selectedOrder.id);

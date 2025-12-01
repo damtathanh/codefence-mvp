@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
+import { Card, CardHeader, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
-import { Input } from '../../components/ui/Input';
 import { FilterBar } from '../../components/ui/FilterBar';
 import { MultiSelectFilter } from '../../components/filters/MultiSelectFilter';
 import { StatusBadge } from '../../components/dashboard/StatusBadge';
-import { Download, Search } from 'lucide-react';
+import { Download } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient';
 import { useAuth } from '../../features/auth';
 import { useUserProfile } from '../../hooks/useUserProfile';
@@ -22,13 +21,18 @@ import { useToast } from '../../components/ui/Toast';
 
 interface InvoiceWithCustomer extends Invoice {
   customer_name?: string;
+  orders?: {
+    order_id: string | null;
+    customer_name: string | null;
+  } | null;
 }
 
 export const InvoicePage: React.FC = () => {
   const { user } = useAuth();
   const { profile } = useUserProfile();
   const { showSuccess, showError } = useToast();
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
+
+  const [invoices, setInvoices] = useState<InvoiceWithCustomer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [invoicesWithCustomers, setInvoicesWithCustomers] = useState<InvoiceWithCustomer[]>([]);
@@ -39,7 +43,7 @@ export const InvoicePage: React.FC = () => {
   const [dateFilter, setDateFilter] = useState('');
   const [isMarkingMap, setIsMarkingMap] = useState<Record<string, boolean>>({});
 
-  // Side Panel State
+  // Side Panel
   const [isSidePanelOpen, setIsSidePanelOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [orderEvents, setOrderEvents] = useState<OrderEvent[]>([]);
@@ -52,18 +56,18 @@ export const InvoicePage: React.FC = () => {
   });
   const [isAddressModified, setIsAddressModified] = useState(false);
 
+  // Pagination
+  const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const PAGE_SIZE = 200;
+
   const clearAllFilters = () => {
     setSearchQuery('');
     setStatusFilter([]);
     setDateFilter('');
   };
 
-  // Pagination state
-  const [page, setPage] = useState(1);
-  const [totalCount, setTotalCount] = useState(0);
-  const PAGE_SIZE = 200;
-
-  // Load Blacklist
+  // Load blacklist
   useEffect(() => {
     const loadBlacklist = async () => {
       if (!user) return;
@@ -77,7 +81,7 @@ export const InvoicePage: React.FC = () => {
     loadBlacklist();
   }, [user]);
 
-  // Fetch invoices when page or filters change
+  // Fetch invoices + orders
   useEffect(() => {
     if (!user) return;
 
@@ -86,7 +90,11 @@ export const InvoicePage: React.FC = () => {
       setError(null);
 
       try {
-        const { invoices: invoicesData, totalCount: count, error: invoicesError } = await fetchInvoicesByUser(
+        const {
+          invoices: invoicesData,
+          totalCount: count,
+          error: invoicesError,
+        } = await fetchInvoicesByUser(
           user.id,
           page,
           PAGE_SIZE,
@@ -103,12 +111,14 @@ export const InvoicePage: React.FC = () => {
 
         if (!invoicesData || invoicesData.length === 0) {
           setInvoices([]);
+          setOrdersMap(new Map());
           setLoading(false);
           return;
         }
 
-        // Fetch related orders for the current page of invoices
-        const orderIds = invoicesData.map(inv => inv.order_id).filter(Boolean);
+        const orderIds = invoicesData
+          .map(inv => inv.order_id)
+          .filter((id): id is string => Boolean(id));
 
         let ordersMapLocal = new Map<string, { order_id: string | null; customer_name: string | null }>();
         let fullOrdersMap = new Map<string, Order>();
@@ -121,7 +131,7 @@ export const InvoicePage: React.FC = () => {
             .in('id', orderIds);
 
           if (!ordersError && ordersData) {
-            ordersData.forEach(order => {
+            ordersData.forEach((order: any) => {
               ordersMapLocal.set(order.id, {
                 order_id: order.order_id || null,
                 customer_name: order.customer_name || null,
@@ -131,14 +141,14 @@ export const InvoicePage: React.FC = () => {
           }
         }
 
-        // Merge invoices with order data
-        const invoicesWithOrders = invoicesData.map(invoice => ({
-          ...invoice,
+        const invoicesWithOrders: InvoiceWithCustomer[] = (invoicesData as any[]).map((invoice) => ({
+          ...(invoice as Invoice),
           orders: ordersMapLocal.get(invoice.order_id) || null,
         }));
 
-        setInvoices(invoicesWithOrders as Invoice[]);
+        setInvoices(invoicesWithOrders);
         setOrdersMap(fullOrdersMap);
+
       } catch (err) {
         console.error('Error fetching invoices:', err);
         setError(err instanceof Error ? err.message : 'Failed to load invoices');
@@ -150,12 +160,12 @@ export const InvoicePage: React.FC = () => {
     fetchInvoices();
   }, [user, page, searchQuery, statusFilter, dateFilter]);
 
-  // Reset page to 1 when filters change
+  // Reset page when filters change
   useEffect(() => {
     setPage(1);
   }, [searchQuery, statusFilter, dateFilter]);
 
-  // Real-time subscription (simplified to just refetch current page)
+  // Realtime (hiện để đó)
   useEffect(() => {
     if (!user) return;
     const channel = supabase
@@ -163,9 +173,7 @@ export const InvoicePage: React.FC = () => {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'invoices', filter: `user_id=eq.${user.id}` },
-        () => {
-          // For now, we rely on manual refresh or navigation.
-        }
+        () => { }
       )
       .subscribe();
 
@@ -174,7 +182,7 @@ export const InvoicePage: React.FC = () => {
     };
   }, [user]);
 
-  // Merge invoices with customer names from joined orders
+  // Merge customer_name cho tiện
   useEffect(() => {
     const merged = invoices.map(invoice => ({
       ...invoice,
@@ -183,7 +191,6 @@ export const InvoicePage: React.FC = () => {
     setInvoicesWithCustomers(merged);
   }, [invoices]);
 
-  // Helper to check if invoice can be downloaded
   const canDownloadInvoice = (invoice: Invoice) => {
     return invoice.status === 'Paid';
   };
@@ -193,7 +200,7 @@ export const InvoicePage: React.FC = () => {
     return num.toLocaleString('vi-VN');
   };
 
-  const getInvoiceDisplayAmount = (inv: Invoice & { orders?: any }) => {
+  const getInvoiceDisplayAmount = (inv: InvoiceWithCustomer) => {
     const order = ordersMap.get(inv.order_id);
 
     if (order) {
@@ -215,7 +222,6 @@ export const InvoicePage: React.FC = () => {
       return subtotal + shipping - discount;
     }
 
-    // Fallback: use invoice fields only
     const subtotal =
       (inv as any).subtotal ??
       inv.amount ??
@@ -239,7 +245,6 @@ export const InvoicePage: React.FC = () => {
     }
 
     try {
-      // Fetch fresh order data from Supabase for accurate invoice generation
       const { data: freshOrder, error: orderError } = await supabase
         .from('orders')
         .select('*')
@@ -253,8 +258,6 @@ export const InvoicePage: React.FC = () => {
         return;
       }
 
-      // Fetch current user's profile for seller info
-      // Use profile from hook if available, otherwise fetch directly
       let sellerProfile = {
         company_name: profile?.company_name || undefined,
         email: profile?.email || undefined,
@@ -263,7 +266,6 @@ export const InvoicePage: React.FC = () => {
         address: undefined,
       };
 
-      // If profile not loaded yet, fetch it directly
       if (!profile && user) {
         const { data: authData } = await supabase.auth.getUser();
         const userId = authData?.user?.id;
@@ -287,13 +289,11 @@ export const InvoicePage: React.FC = () => {
         }
       }
 
-      // 🚨 Quan trọng: bỏ cache pdf_url cũ, ép generate lại
       const invoiceWithoutCache: Invoice = {
         ...(invoice as Invoice),
         pdf_url: null,
       };
 
-      // Always use ensureInvoicePdfStored - it handles caching and invalidation
       const pdfUrl = await ensureInvoicePdfStored(
         invoiceWithoutCache,
         freshOrder as Order,
@@ -312,35 +312,32 @@ export const InvoicePage: React.FC = () => {
   };
 
   const handleMarkAsPaid = async (invoice: Invoice, e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent row click
+    e.stopPropagation();
     if (!invoice.order_id) return;
 
     try {
       setIsMarkingMap((prev) => ({ ...prev, [invoice.id]: true }));
 
-      // 1) Mark invoice paid
       const updatedInvoice = await markInvoiceAsPaid(invoice.id);
-
-      // 2) Mark related order paid (only updates paid_at)
       await markOrderAsPaid(invoice.order_id);
-
-      // 3) Log order event
       await logOrderPaidEvent(invoice.order_id);
 
-      // 4) Optimistic UI update
       setInvoices((prev) =>
         prev.map((inv) =>
           inv.id === invoice.id
-            ? { ...inv, status: 'Paid', paid_at: updatedInvoice.paid_at, date: updatedInvoice.date }
+            ? { ...inv, status: 'Paid', paid_at: (updatedInvoice as any).paid_at, date: updatedInvoice.date }
             : inv
         )
       );
 
-      // Update local ordersMap to reflect paid_at change if needed
-      // (Not strictly necessary for display unless we show paid status on row, but good for consistency)
       const currentOrder = ordersMap.get(invoice.order_id);
       if (currentOrder) {
-        setOrdersMap(prev => new Map(prev).set(invoice.order_id, { ...currentOrder, paid_at: updatedInvoice.paid_at || new Date().toISOString() }));
+        setOrdersMap(prev =>
+          new Map(prev).set(
+            invoice.order_id,
+            { ...currentOrder, paid_at: (updatedInvoice as any).paid_at || new Date().toISOString() }
+          )
+        );
       }
 
     } catch (error) {
@@ -361,7 +358,6 @@ export const InvoicePage: React.FC = () => {
       return;
     }
 
-    // Prepare seller profile once
     let sellerProfile = {
       company_name: profile?.company_name || undefined,
       email: profile?.email || undefined,
@@ -371,7 +367,6 @@ export const InvoicePage: React.FC = () => {
       user_id: user?.id
     };
 
-    // If profile not loaded yet, fetch it directly (same logic as handleDownload)
     if (!profile && user) {
       try {
         const { data: authData } = await supabase.auth.getUser();
@@ -400,10 +395,8 @@ export const InvoicePage: React.FC = () => {
       }
     }
 
-    // Download each invoice PDF sequentially
     for (const inv of selectedDownloadable) {
       try {
-        // Fetch fresh order data from Supabase for accurate invoice generation
         const { data: freshOrder, error: orderError } = await supabase
           .from('orders')
           .select('*')
@@ -416,13 +409,11 @@ export const InvoicePage: React.FC = () => {
           continue;
         }
 
-        // 🚨 Bỏ cache pdf_url cũ cho từng invoice
         const invoiceWithoutCache: Invoice = {
           ...(inv as Invoice),
           pdf_url: null,
         };
 
-        // Ensure PDF exists and get URL
         const pdfUrl = await ensureInvoicePdfStored(
           invoiceWithoutCache,
           freshOrder as Order,
@@ -439,29 +430,10 @@ export const InvoicePage: React.FC = () => {
         console.error(`Failed to download invoice ${inv.id}`, err);
       }
 
-      // Small delay between downloads to avoid browser blocking
       await new Promise(resolve => setTimeout(resolve, 300));
     }
   };
 
-  const getStatusBadge = (status: string) => {
-    // Normalize to handle both old lowercase and new capitalized values
-    const normalizedStatus = status === 'Paid' || status === 'paid' ? 'Paid' :
-      status === 'Cancelled' || status === 'cancelled' ? 'Cancelled' :
-        'Pending';
-
-    switch (normalizedStatus) {
-      case 'Paid':
-        return { className: 'bg-green-500/20 text-green-400', label: 'Paid' };
-      case 'Cancelled':
-        return { className: 'bg-gray-500/20 text-gray-400', label: 'Cancelled' };
-      default:
-        return { className: 'bg-yellow-500/20 text-yellow-400', label: 'Pending' };
-    }
-  };
-
-  // Filtered invoices are now handled server-side, so we just use the current page's invoices
-  // But we still need to map customer names
   const filteredInvoices = invoicesWithCustomers;
 
   const handleSelectAll = () => {
@@ -484,7 +456,7 @@ export const InvoicePage: React.FC = () => {
     });
   };
 
-  // Side Panel Handlers
+  // SidePanel handlers
   const handleRowClick = async (invoice: InvoiceWithCustomer) => {
     const order = ordersMap.get(invoice.order_id);
     if (!order) {
@@ -502,7 +474,6 @@ export const InvoicePage: React.FC = () => {
     setIsAddressModified(false);
     setIsSidePanelOpen(true);
 
-    // Fetch events
     const { data, error } = await fetchOrderEvents(order.id);
     if (!error && data) {
       setOrderEvents(data);
@@ -519,11 +490,6 @@ export const InvoicePage: React.FC = () => {
 
   const handleSaveAddress = async () => {
     if (!selectedOrder || !user) return;
-    // Note: We don't have updateOrderLocal here, so we might need to call service directly
-    // or just skip this for now as it wasn't explicitly requested to work fully,
-    // but the requirement says "Actions inside side panel... should behave the same".
-    // Since we are in InvoicePage, we don't have the full context of OrdersView.
-    // We can implement a basic save using updateOrder service.
 
     const { address_detail, ward, district, province } = addressForm;
     const fullAddress = [address_detail, ward, district, province]
@@ -549,28 +515,20 @@ export const InvoicePage: React.FC = () => {
       showSuccess('Address updated successfully');
       setIsAddressModified(false);
 
-      // Update local state
-      setSelectedOrder(prev => prev ? { ...prev, address_detail, ward, district, province, address: fullAddress } : null);
-      setOrdersMap(prev => new Map(prev).set(selectedOrder.id, { ...selectedOrder, address_detail, ward, district, province, address: fullAddress }));
+      setSelectedOrder(prev =>
+        prev ? { ...prev, address_detail, ward, district, province, address: fullAddress } : null
+      );
+      setOrdersMap(prev =>
+        new Map(prev).set(
+          selectedOrder.id,
+          { ...selectedOrder, address_detail, ward, district, province, address: fullAddress }
+        )
+      );
 
     } catch (err) {
       showError('Failed to update address');
     }
   };
-
-  // Placeholder handlers for SidePanel actions (since we don't have full order management context here)
-  // The requirement says "Actions inside side panel... should behave the same".
-  // Ideally we should refactor useOrderActions to be usable here too, or duplicate logic.
-  // Given the scope, I'll implement basic stubs or reuse logic if simple.
-  // For now, I will pass empty handlers or simple alerts for complex actions to avoid huge duplication,
-  // unless I can easily import them. useOrderActions depends on updateOrderLocal which depends on useOrdersData state.
-  // It's better to keep it simple for this refactor: View Only + Address Edit + Mark Paid (which we have).
-  // Wait, the user said "Actions inside side panel (status change, notes, etc.) should behave the same."
-  // This implies full functionality.
-  // However, implementing full order management inside InvoicePage is a large scope creep.
-  // I will implement the props required by OrderSidePanel but maybe log a warning or implement minimal viable actions.
-  // Actually, OrderSidePanel expects onApprove, onReject etc.
-  // I will implement them using direct service calls for now to satisfy the requirement without refactoring the entire app to a global context.
 
   const refreshOrder = async (orderId: string) => {
     const { data } = await supabase.from('orders').select('*').eq('id', orderId).single();
@@ -583,17 +541,12 @@ export const InvoicePage: React.FC = () => {
   };
 
   const handleApprove = async (order: Order) => {
-    // Simplified approval logic
     try {
-      await supabase.from('orders').update({ status: 'Order Confirmation Sent' }).eq('id', order.id); // Simplified
+      await supabase.from('orders').update({ status: 'Order Confirmation Sent' }).eq('id', order.id);
       showSuccess('Order approved');
       refreshOrder(order.id);
     } catch (e) { showError('Failed'); }
   };
-
-  // We'll pass dummy handlers for complex actions not critical for Invoice view, 
-  // or simple implementations. The user focused on "Mark as Paid" and "Revenue Metrics".
-  // The SidePanel integration is mainly for viewing details.
 
   if (loading && invoices.length === 0) {
     return (
@@ -624,10 +577,6 @@ export const InvoicePage: React.FC = () => {
 
   return (
     <div className="space-y-6 p-6 h-full flex flex-col min-h-0">
-      {/* Filters */}
-      {/* Header */}
-      {/* Filters */}
-      {/* Filters */}
       <FilterBar
         searchValue={searchQuery}
         onSearch={setSearchQuery}
@@ -644,7 +593,6 @@ export const InvoicePage: React.FC = () => {
           onChange={(values) => setStatusFilter(values)}
         />
 
-        {/* Date Filter */}
         <input
           type="date"
           value={dateFilter}
@@ -652,7 +600,6 @@ export const InvoicePage: React.FC = () => {
           className="h-10 w-auto min-w-[180px] whitespace-nowrap px-3 bg-[var(--bg-input)] border border-[var(--border-subtle)] rounded-lg text-[var(--text-main)]"
         />
 
-        {/* Clear filters */}
         <button
           type="button"
           onClick={clearAllFilters}
@@ -768,7 +715,7 @@ export const InvoicePage: React.FC = () => {
                         {canDownloadInvoice(invoice) ? (
                           <button
                             onClick={() => handleDownload(invoice)}
-                            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-[#E5E7EB] transition"
+                            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg:white/10 text-[#E5E7EB] transition"
                           >
                             <Download size={16} />
                             <span className="text-sm">Download</span>
@@ -818,9 +765,9 @@ export const InvoicePage: React.FC = () => {
         onSaveAddress={handleSaveAddress}
         blacklistedPhones={blacklistedPhones}
         onApprove={handleApprove}
-        onReject={() => { }} // Dummy
-        onMarkDelivered={() => { }} // Dummy
-        onMarkCompleted={() => { }} // Dummy
+        onReject={() => { }}
+        onMarkDelivered={() => { }}
+        onMarkCompleted={() => { }}
         onOrderUpdated={() => {
           if (selectedOrder) {
             refreshOrder(selectedOrder.id);

@@ -15,4 +15,3 @@ export const ORDER_STATUS = {
 } as const;
 
 export type OrderStatus = (typeof ORDER_STATUS)[keyof typeof ORDER_STATUS];
-

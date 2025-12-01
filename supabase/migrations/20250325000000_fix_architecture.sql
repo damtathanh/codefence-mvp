@@ -193,7 +193,7 @@ $$;
 CREATE OR REPLACE FUNCTION approve_medium_risk_order(p_order_id uuid)
 RETURNS void
 LANGUAGE plpgsql
-SECURITY DEFINER
+SECURITY DEFINER   
 AS $$
 BEGIN
     -- 1. Insert Log

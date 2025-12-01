@@ -14,7 +14,8 @@ export const InvoicesRepository = {
 
         let query = supabase
             .from("invoices")
-            .select('*', { count: 'exact' })
+            // ❗ KHÔNG JOIN GÌ HẾT, CHỈ LẤY THẲNG BẢNG INVOICES
+            .select("*", { count: "exact" })
             .eq("user_id", userId);
 
         if (filters) {
@@ -27,14 +28,14 @@ export const InvoicesRepository = {
 
             if (filters.status) {
                 if (Array.isArray(filters.status) && filters.status.length > 0) {
-                    query = query.in('status', filters.status);
-                } else if (typeof filters.status === 'string' && filters.status !== 'all') {
-                    query = query.eq('status', filters.status);
+                    query = query.in("status", filters.status);
+                } else if (typeof filters.status === "string" && filters.status !== "all") {
+                    query = query.eq("status", filters.status);
                 }
             }
 
             if (filters.date) {
-                query = query.eq('date', filters.date);
+                query = query.eq("date", filters.date);
             }
         }
 
@@ -93,17 +94,17 @@ export const InvoicesRepository = {
 
     async invalidateInvoicePdfs(invoiceIds: string[]) {
         return supabase
-            .from('invoices')
+            .from("invoices")
             .update({
                 pdf_url: null,
             })
-            .in('id', invoiceIds);
+            .in("id", invoiceIds);
     },
 
     async getInvoicesByOrderId(orderId: string) {
         return supabase
-            .from('invoices')
-            .select('id')
-            .eq('order_id', orderId);
+            .from("invoices")
+            .select("id")
+            .eq("order_id", orderId);
     }
 };
