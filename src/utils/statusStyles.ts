@@ -1,6 +1,12 @@
 import type { OrderStatus } from "../constants/orderStatus";
 import { ORDER_STATUS } from "../constants/orderStatus";
 
+export const INVOICE_STATUS_STYLES: Record<string, string> = {
+  Pending: "bg-amber-500/20 text-amber-300 border-amber-500/40",
+  Paid: "bg-green-500/20 text-green-300 border-green-500/40",
+  Cancelled: "bg-rose-500/20 text-rose-300 border-rose-500/40",
+};
+
 export const statusStyles: Record<OrderStatus, string> = {
   // ✅ SUCCESS / COMPLETED (green)
   [ORDER_STATUS.ORDER_PAID]: "bg-green-600/20 text-green-300 border-green-600/40",
@@ -23,13 +29,22 @@ export const statusStyles: Record<OrderStatus, string> = {
 };
 
 export function getStatusBadge(status: string | null | undefined) {
+  const key = status || "";
+
+  // 1️⃣ Invoice Status (ưu tiên nếu trùng)
+  if (INVOICE_STATUS_STYLES[key]) {
+    return { className: INVOICE_STATUS_STYLES[key], label: key };
+  }
+
+  // 2️⃣ Order Status (mapping cũ)
   const badgeClass =
-    statusStyles[status || ""] ||
+    statusStyles[key as OrderStatus] ||
     "bg-gray-600/20 text-gray-300 border-gray-600/40";
 
   return {
     className: badgeClass,
-    label: status || "Unknown",
+    label: key,
   };
 }
+
 

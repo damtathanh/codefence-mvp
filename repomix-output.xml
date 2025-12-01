@@ -78,7 +78,6 @@ src/
       Input.tsx
       PageHeader.tsx
       Pagination.tsx
-      StatusBadge.tsx
       Table.tsx
       Toast.tsx
     About.tsx
@@ -1001,64 +1000,6 @@ export const Pagination: React.FC<PaginationProps> = ({
                 </button>
             </div>
         </div>
-    );
-};
-</file>
-
-<file path="src/components/ui/StatusBadge.tsx">
-import React from 'react';
-
-interface StatusBadgeProps {
-    status: string;
-    className?: string;
-    variant?: 'default' | 'outline';
-}
-
-export const StatusBadge: React.FC<StatusBadgeProps> = ({
-    status,
-    className = "",
-    variant = 'default'
-}) => {
-    const getStatusColor = (statusVal: string) => {
-        const s = statusVal?.toLowerCase() || '';
-
-        // Success / Green
-        if (['completed', 'paid', 'delivered', 'active', 'approved', 'success'].includes(s)) {
-            return 'bg-green-500/10 text-green-400 border-green-500/20';
-        }
-
-        // Warning / Yellow
-        if (['pending', 'processing', 'delivering', 'verification_required', 'pending_review', 'warning'].includes(s)) {
-            return 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20';
-        }
-
-        // Error / Red
-        if (['cancelled', 'rejected', 'inactive', 'customer_cancelled', 'customer_unreachable', 'error', 'banned'].includes(s)) {
-            return 'bg-red-500/10 text-red-400 border-red-500/20';
-        }
-
-        // Info / Blue
-        if (['new', 'info', 'order_confirmation_sent'].includes(s)) {
-            return 'bg-blue-500/10 text-blue-400 border-blue-500/20';
-        }
-
-        // Default / Gray
-        return 'bg-gray-500/10 text-gray-400 border-gray-500/20';
-    };
-
-    const formatStatus = (s: string) => {
-        if (!s) return 'UNKNOWN';
-        return s.replace(/_/g, ' ').toUpperCase();
-    };
-
-    return (
-        <span className={`
-      inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-xs font-medium border
-      ${getStatusColor(status)} 
-      ${className}
-    `}>
-            {formatStatus(status)}
-        </span>
     );
 };
 </file>
@@ -3315,119 +3256,6 @@ export const RiskDistributionChart: React.FC<RiskDistributionChartProps> = ({ da
             )}
         </div>
     );
-};
-</file>
-
-<file path="src/features/invoices/repositories/invoicesRepository.ts">
-import { supabase } from "../../../lib/supabaseClient";
-import type { InvoiceStatus } from "../services/invoiceTypes";
-import type { InvoiceFilters } from "../services/invoiceService";
-
-export const InvoicesRepository = {
-    async fetchInvoicesByUser(
-        userId: string,
-        page: number,
-        pageSize: number,
-        filters?: InvoiceFilters
-    ) {
-        const from = (page - 1) * pageSize;
-        const to = from + pageSize - 1;
-
-        let query = supabase
-            .from("invoices")
-            // ❗ KHÔNG JOIN GÌ HẾT, CHỈ LẤY THẲNG BẢNG INVOICES
-            .select("*", { count: "exact" })
-            .eq("user_id", userId);
-
-        if (filters) {
-            if (filters.searchQuery) {
-                const term = filters.searchQuery.trim();
-                if (term) {
-                    query = query.or(`invoice_code.ilike.%${term}%`);
-                }
-            }
-
-            if (filters.status) {
-                if (Array.isArray(filters.status) && filters.status.length > 0) {
-                    query = query.in("status", filters.status);
-                } else if (typeof filters.status === "string" && filters.status !== "all") {
-                    query = query.eq("status", filters.status);
-                }
-            }
-
-            if (filters.date) {
-                query = query.eq("date", filters.date);
-            }
-        }
-
-        const { data, error, count } = await query
-            .order("created_at", { ascending: false })
-            .range(from, to);
-
-        return { data, error, count };
-    },
-
-    async getInvoiceByOrderId(orderId: string, userId: string) {
-        return supabase
-            .from("invoices")
-            .select("*")
-            .eq("user_id", userId)
-            .eq("order_id", orderId)
-            .maybeSingle();
-    },
-
-    async insertInvoice(payload: {
-        user_id: string;
-        order_id: string;
-        amount: number;
-        status: InvoiceStatus;
-        date: string;
-        invoice_code: string;
-        paid_at?: string;
-    }) {
-        return supabase.from("invoices").insert(payload);
-    },
-
-    async updateInvoice(
-        invoiceId: string,
-        updates: {
-            status?: InvoiceStatus;
-            date?: string;
-            paid_at?: string | null;
-            pdf_url?: string | null;
-        }
-    ) {
-        return supabase
-            .from("invoices")
-            .update(updates)
-            .eq("id", invoiceId)
-            .select("*")
-            .single();
-    },
-
-    async deleteInvoicesByOrderIds(userId: string, orderIds: string[]) {
-        return supabase
-            .from("invoices")
-            .delete()
-            .eq("user_id", userId)
-            .in("order_id", orderIds);
-    },
-
-    async invalidateInvoicePdfs(invoiceIds: string[]) {
-        return supabase
-            .from("invoices")
-            .update({
-                pdf_url: null,
-            })
-            .in("id", invoiceIds);
-    },
-
-    async getInvoicesByOrderId(orderId: string) {
-        return supabase
-            .from("invoices")
-            .select("id")
-            .eq("order_id", orderId);
-    }
 };
 </file>
 
@@ -10374,6 +10202,119 @@ export { authService } from './services/authService';
 export type { LoginResult, SignupResult } from './services/authService';
 </file>
 
+<file path="src/features/invoices/repositories/invoicesRepository.ts">
+import { supabase } from "../../../lib/supabaseClient";
+import type { InvoiceStatus } from "../services/invoiceTypes";
+import type { InvoiceFilters } from "../services/invoiceService";
+
+export const InvoicesRepository = {
+    async fetchInvoicesByUser(
+        userId: string,
+        page: number,
+        pageSize: number,
+        filters?: InvoiceFilters
+    ) {
+        const from = (page - 1) * pageSize;
+        const to = from + pageSize - 1;
+
+        let query = supabase
+            .from("invoices")
+            // ❗ KHÔNG JOIN GÌ HẾT, CHỈ LẤY THẲNG BẢNG INVOICES
+            .select("*", { count: "exact" })
+            .eq("user_id", userId);
+
+        if (filters) {
+            if (filters.searchQuery) {
+                const term = filters.searchQuery.trim();
+                if (term) {
+                    query = query.or(`invoice_code.ilike.%${term}%`);
+                }
+            }
+
+            if (filters.status) {
+                if (Array.isArray(filters.status) && filters.status.length > 0) {
+                    query = query.in("status", filters.status);
+                } else if (typeof filters.status === "string" && filters.status !== "all") {
+                    query = query.eq("status", filters.status);
+                }
+            }
+
+            if (filters.date) {
+                query = query.eq("date", filters.date);
+            }
+        }
+
+        const { data, error, count } = await query
+            .order("created_at", { ascending: false })
+            .range(from, to);
+
+        return { data, error, count };
+    },
+
+    async getInvoiceByOrderId(orderId: string, userId: string) {
+        return supabase
+            .from("invoices")
+            .select("*")
+            .eq("user_id", userId)
+            .eq("order_id", orderId)
+            .maybeSingle();
+    },
+
+    async insertInvoice(payload: {
+        user_id: string;
+        order_id: string;
+        amount: number;
+        status: InvoiceStatus;
+        date: string;
+        invoice_code: string;
+        paid_at?: string;
+    }) {
+        return supabase.from("invoices").insert(payload);
+    },
+
+    async updateInvoice(
+        invoiceId: string,
+        updates: {
+            status?: InvoiceStatus;
+            date?: string;
+            paid_at?: string | null;
+            pdf_url?: string | null;
+        }
+    ) {
+        return supabase
+            .from("invoices")
+            .update(updates)
+            .eq("id", invoiceId)
+            .select("*")
+            .single();
+    },
+
+    async deleteInvoicesByOrderIds(userId: string, orderIds: string[]) {
+        return supabase
+            .from("invoices")
+            .delete()
+            .eq("user_id", userId)
+            .in("order_id", orderIds);
+    },
+
+    async invalidateInvoicePdfs(invoiceIds: string[]) {
+        return supabase
+            .from("invoices")
+            .update({
+                pdf_url: null,
+            })
+            .in("id", invoiceIds);
+    },
+
+    async getInvoicesByOrderId(orderId: string) {
+        return supabase
+            .from("invoices")
+            .select("id")
+            .eq("order_id", orderId);
+    }
+};
+</file>
+
 <file path="src/features/orders/application/orderActions.ts">
 import type { Order } from "../../../types/supabase";
 import { ORDER_STATUS } from "../../../constants/orderStatus";
@@ -11519,376 +11460,6 @@ CREATE TRIGGER on_auth_user_created
 -- - Prevents trigger conflicts
 -- - Maintains proper role assignment
 -- - Allows authenticated users to manage their profiles
-</file>
-
-<file path="supabase/migrations/20250325000000_fix_architecture.sql">
--- Migration: Fix Architecture (Consolidated)
--- Includes:
--- 1. import_orders_bulk RPC (Server-side logic)
--- 2. Customer Blacklist Table
--- 3. Risk Stats Tables (Address & Area)
--- 4. Orders Schema Updates
-
--- ============================================================================
--- SECTION 1: RPC Function (import_orders_bulk)
--- ============================================================================
-
-CREATE OR REPLACE FUNCTION import_orders_bulk(payload jsonb)
-RETURNS jsonb
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-DECLARE
-    order_item jsonb;
-    _user_id uuid;
-    _product_id uuid;
-    _product_name text;
-    _customer_phone text;
-    _risk_score int;
-    _risk_level text;
-    _blacklist_count int;
-    _boom_count int;
-    _success_count int := 0;
-    _error_count int := 0;
-    _errors jsonb := '[]'::jsonb;
-    _inserted_id uuid;
-    _status text;
-    _payment_method text;
-BEGIN
-    -- Get current user ID
-    _user_id := auth.uid();
-    IF _user_id IS NULL THEN
-        RETURN jsonb_build_object('success', 0, 'failed', 0, 'errors', jsonb_build_array('User not authenticated'));
-    END IF;
-
-    -- Loop through each order in the payload array
-    FOR order_item IN SELECT * FROM jsonb_array_elements(payload)
-    LOOP
-        BEGIN
-            -- Extract basic fields
-            _customer_phone := TRIM(order_item->>'phone');
-            _product_name := TRIM(order_item->>'product');
-            _payment_method := COALESCE(order_item->>'payment_method', 'COD');
-            
-            -- 1. Product Mapping
-            _product_id := NULL;
-            
-            IF _product_name IS NOT NULL AND _product_name != '' THEN
-                -- Try exact match first
-                SELECT id INTO _product_id
-                FROM products
-                WHERE user_id = _user_id 
-                  AND LOWER(TRIM(name)) = LOWER(TRIM(_product_name))
-                LIMIT 1;
-                
-                -- If not found, try fuzzy match (ILIKE)
-                IF _product_id IS NULL THEN
-                    SELECT id INTO _product_id
-                    FROM products
-                    WHERE user_id = _user_id 
-                      AND name ILIKE '%' || _product_name || '%'
-                    LIMIT 1;
-                END IF;
-            END IF;
-
-            -- 2. Risk Calculation
-            _risk_score := 0;
-            _risk_level := 'safe';
-            
-            -- Check Blacklist
-            SELECT COUNT(*) INTO _blacklist_count
-            FROM customer_blacklist
-            WHERE user_id = _user_id AND phone = _customer_phone;
-            
-            IF _blacklist_count > 0 THEN
-                _risk_score := 100;
-                _risk_level := 'danger';
-            ELSE
-                -- Check Order History (Boom/Returned count)
-                SELECT COUNT(*) INTO _boom_count
-                FROM orders
-                WHERE user_id = _user_id 
-                  AND phone = _customer_phone 
-                  AND status IN ('Boom', 'Returned', 'Failed');
-                  
-                IF _boom_count > 0 THEN
-                    _risk_score := 50 + (_boom_count * 10);
-                    IF _risk_score > 100 THEN _risk_score := 100; END IF;
-                    _risk_level := CASE 
-                        WHEN _risk_score >= 80 THEN 'danger'
-                        WHEN _risk_score >= 50 THEN 'warning'
-                        ELSE 'safe'
-                    END;
-                END IF;
-            END IF;
-
-            -- 3. Status Determination
-            IF UPPER(_payment_method) != 'COD' THEN
-                _status := 'Order Paid';
-            ELSE
-                -- COD Logic
-                IF _risk_score > 70 THEN
-                    _status := 'Order Rejected';
-                ELSIF _risk_score >= 30 THEN
-                    _status := 'Pending Review';
-                ELSE
-                    _status := 'Order Approved';
-                END IF;
-            END IF;
-
-            -- 4. Insert Order
-            INSERT INTO orders (
-                user_id,
-                order_id,
-                customer_name,
-                phone,
-                address,
-                product_id,
-                product,
-                amount,
-                status,
-                risk_score,
-                risk_level,
-                payment_method,
-                address_detail,
-                ward,
-                district,
-                province,
-                gender,
-                birth_year,
-                discount_amount,
-                shipping_fee,
-                channel,
-                source,
-                order_date,
-                created_at,
-                updated_at
-            ) VALUES (
-                _user_id,
-                order_item->>'order_id',
-                order_item->>'customer_name',
-                _customer_phone,
-                order_item->>'address',
-                _product_id,
-                COALESCE(_product_name, ''),
-                (order_item->>'amount')::numeric,
-                _status,
-                _risk_score,
-                _risk_level,
-                _payment_method,
-                order_item->>'address_detail',
-                order_item->>'ward',
-                order_item->>'district',
-                order_item->>'province',
-                order_item->>'gender',
-                (order_item->>'birth_year')::int,
-                COALESCE((order_item->>'discount_amount')::numeric, 0),
-                COALESCE((order_item->>'shipping_fee')::numeric, 0),
-                order_item->>'channel',
-                order_item->>'source',
-                (order_item->>'order_date')::date,
-                NOW(),
-                NOW()
-            ) RETURNING id INTO _inserted_id;
-
-            _success_count := _success_count + 1;
-
-        EXCEPTION WHEN OTHERS THEN
-            _error_count := _error_count + 1;
-            _errors := _errors || jsonb_build_object(
-                'order_id', order_item->>'order_id',
-                'error', SQLERRM
-            );
-        END;
-    END LOOP;
-
-    RETURN jsonb_build_object(
-        'success', _success_count,
-        'failed', _error_count,
-        'errors', _errors
-    );
-END;
-$$;
-
--- ============================================================================
--- SECTION 1.1: Approve Medium Risk Order RPC
--- ============================================================================
-
-CREATE OR REPLACE FUNCTION approve_medium_risk_order(p_order_id uuid)
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER   
-AS $$
-BEGIN
-    -- 1. Insert Log
-    INSERT INTO order_events (order_id, event_type, details)
-    VALUES (p_order_id, 'ORDER_APPROVED', 'Shop Owner approved the order (manual)');
-
-    -- 2. Update Status
-    UPDATE orders
-    SET status = 'Order Confirmation Sent',
-        updated_at = NOW()
-    WHERE id = p_order_id;
-END;
-$$;
-
--- ============================================================================
--- SECTION 2: Customer Blacklist Table
--- ============================================================================
-
-CREATE TABLE IF NOT EXISTS customer_blacklist (
-  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  phone text NOT NULL,
-  address text,
-  reason text,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-
--- Uniqueness constraint
-ALTER TABLE customer_blacklist
-ADD CONSTRAINT IF NOT EXISTS customer_blacklist_user_phone_unique
-UNIQUE (user_id, phone);
-
--- Indexes
-CREATE INDEX IF NOT EXISTS idx_customer_blacklist_user_id ON customer_blacklist(user_id);
-CREATE INDEX IF NOT EXISTS idx_customer_blacklist_phone ON customer_blacklist(phone);
-
--- RLS
-ALTER TABLE customer_blacklist ENABLE ROW LEVEL SECURITY;
-
--- Policies
-DO $$ 
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'customer_blacklist' AND policyname = 'Users can view their own blacklist entries') THEN
-        CREATE POLICY "Users can view their own blacklist entries" ON customer_blacklist FOR SELECT USING (auth.uid() = user_id);
-    END IF;
-    
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'customer_blacklist' AND policyname = 'Users can insert their own blacklist entries') THEN
-        CREATE POLICY "Users can insert their own blacklist entries" ON customer_blacklist FOR INSERT WITH CHECK (auth.uid() = user_id);
-    END IF;
-
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'customer_blacklist' AND policyname = 'Users can update their own blacklist entries') THEN
-        CREATE POLICY "Users can update their own blacklist entries" ON customer_blacklist FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-    END IF;
-
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'customer_blacklist' AND policyname = 'Users can delete their own blacklist entries') THEN
-        CREATE POLICY "Users can delete their own blacklist entries" ON customer_blacklist FOR DELETE USING (auth.uid() = user_id);
-    END IF;
-END $$;
-
--- ============================================================================
--- SECTION 3: Risk Stats Tables
--- ============================================================================
-
--- address_risk_stats
-CREATE TABLE IF NOT EXISTS public.address_risk_stats (
-  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  address_key text NOT NULL,
-  full_address text,
-  province text,
-  district text,
-  ward text,
-  street text,
-  total_orders integer NOT NULL DEFAULT 0,
-  success_orders integer NOT NULL DEFAULT 0,
-  failed_orders integer NOT NULL DEFAULT 0,
-  boom_orders integer NOT NULL DEFAULT 0,
-  last_order_at timestamptz,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-
-ALTER TABLE public.address_risk_stats
-ADD CONSTRAINT IF NOT EXISTS address_risk_stats_user_address_key_unique
-UNIQUE (user_id, address_key);
-
-CREATE INDEX IF NOT EXISTS idx_address_risk_stats_user_id ON public.address_risk_stats(user_id);
-CREATE INDEX IF NOT EXISTS idx_address_risk_stats_address_key ON public.address_risk_stats(address_key);
-
-ALTER TABLE public.address_risk_stats ENABLE ROW LEVEL SECURITY;
-
--- Policies
-DO $$ 
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'address_risk_stats' AND policyname = 'Address risk select own rows') THEN
-        CREATE POLICY "Address risk select own rows" ON public.address_risk_stats FOR SELECT USING (auth.uid() = user_id);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'address_risk_stats' AND policyname = 'Address risk insert own rows') THEN
-        CREATE POLICY "Address risk insert own rows" ON public.address_risk_stats FOR INSERT WITH CHECK (auth.uid() = user_id);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'address_risk_stats' AND policyname = 'Address risk update own rows') THEN
-        CREATE POLICY "Address risk update own rows" ON public.address_risk_stats FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'address_risk_stats' AND policyname = 'Address risk delete own rows') THEN
-        CREATE POLICY "Address risk delete own rows" ON public.address_risk_stats FOR DELETE USING (auth.uid() = user_id);
-    END IF;
-END $$;
-
--- area_risk_stats
-CREATE TABLE IF NOT EXISTS public.area_risk_stats (
-  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  province text,
-  district text,
-  ward text,
-  street text,
-  total_orders integer NOT NULL DEFAULT 0,
-  success_orders integer NOT NULL DEFAULT 0,
-  failed_orders integer NOT NULL DEFAULT 0,
-  boom_orders integer NOT NULL DEFAULT 0,
-  last_order_at timestamptz,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-
-ALTER TABLE public.area_risk_stats
-ADD CONSTRAINT IF NOT EXISTS area_risk_stats_user_area_unique
-UNIQUE (user_id, province, district, ward, street);
-
-CREATE INDEX IF NOT EXISTS idx_area_risk_stats_user_id ON public.area_risk_stats(user_id);
-CREATE INDEX IF NOT EXISTS idx_area_risk_stats_area ON public.area_risk_stats(province, district, ward, street);
-
-ALTER TABLE public.area_risk_stats ENABLE ROW LEVEL SECURITY;
-
--- Policies
-DO $$ 
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'area_risk_stats' AND policyname = 'Area risk select own rows') THEN
-        CREATE POLICY "Area risk select own rows" ON public.area_risk_stats FOR SELECT USING (auth.uid() = user_id);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'area_risk_stats' AND policyname = 'Area risk insert own rows') THEN
-        CREATE POLICY "Area risk insert own rows" ON public.area_risk_stats FOR INSERT WITH CHECK (auth.uid() = user_id);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'area_risk_stats' AND policyname = 'Area risk update own rows') THEN
-        CREATE POLICY "Area risk update own rows" ON public.area_risk_stats FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'area_risk_stats' AND policyname = 'Area risk delete own rows') THEN
-        CREATE POLICY "Area risk delete own rows" ON public.area_risk_stats FOR DELETE USING (auth.uid() = user_id);
-    END IF;
-END $$;
-
--- ============================================================================
--- SECTION 4: Orders Schema Updates
--- ============================================================================
-
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_id TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS phone TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS address TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS product TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS product_id UUID REFERENCES products(id) ON DELETE SET NULL;
-
--- Ensure status is text, risk_score is integer
-ALTER TABLE orders ALTER COLUMN status TYPE TEXT;
-ALTER TABLE orders ALTER COLUMN risk_score TYPE INTEGER USING (CASE WHEN risk_score = 'N/A' THEN NULL ELSE risk_score::INTEGER END);
-
--- Set defaults
-ALTER TABLE orders ALTER COLUMN status SET DEFAULT 'Pending';
-ALTER TABLE orders ALTER COLUMN risk_score SET DEFAULT NULL;
-
--- Index
-CREATE INDEX IF NOT EXISTS idx_orders_product_id ON orders(product_id);
 </file>
 
 <file path=".eslintrc.cjs">
@@ -13251,26 +12822,6 @@ export const Footer: React.FC = () => {
     </footer>
   );
 };
-</file>
-
-<file path="src/constants/orderStatus.ts">
-export const ORDER_STATUS = {
-  PENDING_REVIEW: "Pending Review",
-  VERIFICATION_REQUIRED: "Verification Required",
-  ORDER_CONFIRMATION_SENT: "Order Confirmation Sent",
-  ORDER_APPROVED: "Order Approved",
-  CUSTOMER_CONFIRMED: "Customer Confirmed",
-  CUSTOMER_CANCELLED: "Customer Cancelled",
-  ORDER_PAID: "Order Paid",
-  ORDER_REJECTED: "Order Rejected",
-  DELIVERING: "Delivering",
-  COMPLETED: "Completed",
-  CUSTOMER_UNREACHABLE: "Customer Unreachable",
-  RETURNED: "Returned",
-  EXCHANGED: "Exchanged",
-} as const;
-
-export type OrderStatus = (typeof ORDER_STATUS)[keyof typeof ORDER_STATUS];
 </file>
 
 <file path="src/features/analytics/components/ChannelsTab.tsx">
@@ -15502,328 +15053,6 @@ export async function generateInvoicePdf(
 }
 </file>
 
-<file path="src/features/orders/components/OrderTimeline.tsx">
-import React from 'react';
-import {
-    CheckCircle,
-    XCircle,
-    Clock,
-    Truck,
-    AlertTriangle,
-    ShieldAlert,
-} from 'lucide-react';
-import type { OrderEvent } from '../../../types/supabase';
-
-interface OrderTimelineProps {
-    events: OrderEvent[];
-}
-
-// Những alias cần gom lại (cùng ý nghĩa nhưng khác tên)
-const EVENT_ALIASES: Record<string, string> = {
-
-    // Lower level event name -> tên chuẩn
-    ORDER_CONFIRMATION_SENT: 'CONFIRMATION_SENT',
-
-    // Các tên QR khác nhau -> QR_PAYMENT_LINK_SENT
-    QR_SENT: 'QR_PAYMENT_LINK_SENT',
-};
-
-export const OrderTimeline: React.FC<OrderTimelineProps> = ({ events }) => {
-    const getEventDisplay = (evt: OrderEvent) => {
-        const payload = (evt.payload_json || {}) as any;
-
-        // 1) Chuẩn hóa event_type: trim + uppercase
-        const rawType = evt.event_type || '';
-        const upperType = rawType.trim().toUpperCase();
-
-        // 2) Áp dụng alias nếu có, còn không giữ nguyên
-        const type = EVENT_ALIASES[upperType] || upperType;
-
-        switch (type) {
-            case 'ORDER_APPROVED':
-                return {
-                    title: 'Order approved',
-                    subtitle: '',
-                    icon: <CheckCircle size={14} className="text-green-400" />,
-                    color: 'bg-green-500/10 border-green-500/20 text-green-400',
-                };
-
-            case 'CONFIRMATION_SENT':
-                return {
-                    title: 'Order confirmation sent via Zalo',
-                    subtitle: '',
-                    icon: <CheckCircle size={14} className="text-blue-400" />,
-                    color: 'bg-blue-500/10 border-blue-500/20 text-blue-400',
-                };
-
-            case 'CUSTOMER_CONFIRMED':
-                return {
-                    title: 'Customer confirmed order',
-                    subtitle: '',
-                    icon: <CheckCircle size={14} className="text-green-400" />,
-                    color: 'bg-green-500/10 border-green-500/20 text-green-400',
-                };
-
-            case 'QR_PAYMENT_LINK_SENT':
-                return {
-                    title: 'QR payment link sent',
-                    subtitle: '',
-                    icon: <CheckCircle size={14} className="text-purple-400" />,
-                    color: 'bg-purple-500/10 border-purple-500/20 text-purple-400',
-                };
-
-            case 'ORDER_PAID':
-                return {
-                    title: 'Customer paid',
-                    subtitle: '',
-                    icon: <CheckCircle size={14} className="text-emerald-400" />,
-                    color: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400',
-                };
-
-            case 'CUSTOMER_CANCELLED':
-                return {
-                    title: 'Customer cancelled order',
-                    subtitle: payload.reason || '',
-                    icon: <XCircle size={14} className="text-red-400" />,
-                    color: 'bg-red-500/10 border-red-500/20 text-red-400',
-                };
-
-            case 'CUSTOMER_UNREACHABLE':
-                return {
-                    title: 'Customer unreachable',
-                    subtitle: payload.reason || '',
-                    icon: <XCircle size={14} className="text-orange-400" />,
-                    color: 'bg-orange-500/10 border-orange-500/20 text-orange-400',
-                };
-
-            case 'ORDER_MARKED_DELIVERING':
-                return {
-                    title: 'Order marked as delivering',
-                    subtitle: '',
-                    icon: <Truck size={14} className="text-blue-400" />,
-                    color: 'bg-blue-500/10 border-blue-500/20 text-blue-400',
-                };
-
-            case 'ORDER_SHIPPED':
-                return {
-                    title: 'Order shipped (Delivering)',
-                    subtitle: payload.shipped_at
-                        ? new Date(payload.shipped_at).toLocaleString('vi-VN')
-                        : '',
-                    icon: <Truck size={14} className="text-blue-400" />,
-                    color: 'bg-blue-500/10 border-blue-500/20 text-blue-400',
-                };
-
-            case 'ORDER_COMPLETED':
-                return {
-                    title: 'Order completed',
-                    subtitle: payload.completed_at
-                        ? new Date(payload.completed_at).toLocaleString('vi-VN')
-                        : '',
-                    icon: <CheckCircle size={14} className="text-green-400" />,
-                    color: 'bg-green-500/10 border-green-500/20 text-green-400',
-                };
-
-            case 'VERIFICATION_REQUIRED':
-                return {
-                    title: 'Verification required',
-                    subtitle: payload.reason || '',
-                    icon: <AlertTriangle size={14} className="text-yellow-400" />,
-                    color: 'bg-yellow-500/10 border-yellow-500/20 text-yellow-400',
-                };
-
-            case 'ORDER_REJECTED':
-                return {
-                    title: 'Order rejected',
-                    subtitle: payload.reason || '',
-                    icon: <XCircle size={14} className="text-red-400" />,
-                    color: 'bg-red-500/10 border-red-500/20 text-red-400',
-                };
-
-            case 'RISK_EVALUATED':
-                return {
-                    title: 'Risk evaluated',
-                    subtitle:
-                        payload.level && payload.score != null
-                            ? `${payload.level} (${payload.score})`
-                            : '',
-                    icon: <ShieldAlert size={14} className="text-purple-400" />,
-                    color: 'bg-purple-500/10 border-purple-500/20 text-purple-400',
-                };
-
-            default:
-                // Fallback: format lại cho đỡ xấu
-                const prettyTitle =
-                    type
-                        .toLowerCase()
-                        .replace(/_/g, ' ')
-                        .replace(/^\w/, (c) => c.toUpperCase()) || 'Unknown event';
-
-                return {
-                    title: prettyTitle,
-                    subtitle: '',
-                    icon: <Clock size={14} className="text-gray-400" />,
-                    color: 'bg-gray-500/10 border-gray-500/20 text-gray-400',
-                };
-        }
-    };
-
-    if (events.length === 0) {
-        return (
-            <div className="text-sm text-white/40 italic">
-                No events recorded
-            </div>
-        );
-    }
-
-    // Deduplicate: nếu 2 event cùng type + cùng timestamp -> chỉ giữ 1
-    const uniqueEventsMap = new Map<string, OrderEvent>();
-    events.forEach((evt) => {
-        const key = `${evt.event_type}__${evt.created_at}`;
-        if (!uniqueEventsMap.has(key)) {
-            uniqueEventsMap.set(key, evt);
-        }
-    });
-    const uniqueEvents = Array.from(uniqueEventsMap.values());
-
-    // Sort theo thời gian tăng dần
-    const sortedEvents = [...uniqueEvents].sort(
-        (a, b) =>
-            new Date(a.created_at).getTime() -
-            new Date(b.created_at).getTime(),
-    );
-
-    return (
-        <div className="space-y-4">
-            {sortedEvents.map((evt) => {
-                const display = getEventDisplay(evt);
-                return (
-                    <div
-                        key={evt.id}
-                        className="relative pl-6 pb-4 last:pb-0 border-l border-white/10 last:border-0"
-                    >
-                        <div
-                            className={`absolute -left-[13px] top-0 w-6 h-6 rounded-full border ${display.color.split(' ')[1]
-                                } bg-[#0B0E14] flex items-center justify-center`}
-                        >
-                            {display.icon}
-                        </div>
-                        <div className="flex flex-col gap-1">
-                            <span className="text-sm font-medium text-[#E5E7EB]">
-                                {display.title}
-                            </span>
-                            {display.subtitle && (
-                                <span className="text-xs text-white/50">
-                                    {display.subtitle}
-                                </span>
-                            )}
-                            <span className="text-[10px] text-white/30">
-                                {new Date(evt.created_at).toLocaleString('vi-VN')}
-                            </span>
-                        </div>
-                    </div>
-                );
-            })}
-        </div>
-    );
-};
-</file>
-
-<file path="src/features/orders/services/orderEventsService.ts">
-import { supabase } from "../../../lib/supabaseClient";
-import type { OrderEvent } from "../../../types/supabase";
-
-export interface InsertOrderEventPayload {
-  order_id: string;
-  event_type: string;
-  payload_json: any;
-}
-
-/**
- * Fetch order events for a specific order
- */
-export async function fetchOrderEvents(orderId: string) {
-  return supabase
-    .from("order_events")
-    .select("*")
-    .eq("order_id", orderId)
-    .order("created_at", { ascending: true });
-}
-
-/**
- * Insert a single order event
- */
-export async function insertOrderEvent(payload: InsertOrderEventPayload) {
-  const { data, error } = await supabase
-    .from("order_events")
-    .insert(payload)
-    .select()
-    .single();
-
-  if (error) {
-    console.error("[insertOrderEvent] error", error);
-    throw error;
-  }
-
-  return data as OrderEvent;
-}
-
-/**
- * Insert multiple order events (bulk)
- */
-export async function insertOrderEvents(payloads: InsertOrderEventPayload[]) {
-  const { data, error } = await supabase
-    .from("order_events")
-    .insert(payloads)
-    .select();
-
-  if (error) {
-    console.error("[insertOrderEvents] error", error);
-    throw error;
-  }
-
-  return (data || []) as OrderEvent[];
-}
-
-/**
- * Unified helper to log an order event.
- * This matches how other services call logOrderEvent(orderId, type, metadata, source).
- */
-export async function logOrderEvent(
-  orderId: string,
-  eventType: string,
-  metadata: Record<string, any> = {},
-  source: string = "system"
-) {
-  const cleanedMetadata = Object.fromEntries(
-    Object.entries(metadata ?? {}).filter(([, v]) => v !== undefined && v !== "")
-  );
-
-  const payload: InsertOrderEventPayload = {
-    order_id: orderId,
-    event_type: eventType,
-    payload_json: {
-      ...cleanedMetadata,
-      source,
-    },
-  };
-
-  return insertOrderEvent(payload);
-}
-
-/**
- * Log order paid event (manual action from Invoices page)
- */
-export async function logOrderPaidEvent(orderId: string) {
-  return logOrderEvent(
-    orderId,
-    "ORDER_PAID",
-    { source: "manual_invoice_mark_paid" },
-    "invoice_page"
-  );
-}
-</file>
-
 <file path="src/features/products/services/productsService.ts">
 import { supabase } from '../../../lib/supabaseClient';
 import type { Product } from '../../../types/supabase';
@@ -16272,6 +15501,376 @@ export function useRole() {
 }
 </file>
 
+<file path="supabase/migrations/20250325000000_fix_architecture.sql">
+-- Migration: Fix Architecture (Consolidated)
+-- Includes:
+-- 1. import_orders_bulk RPC (Server-side logic)
+-- 2. Customer Blacklist Table
+-- 3. Risk Stats Tables (Address & Area)
+-- 4. Orders Schema Updates
+
+-- ============================================================================
+-- SECTION 1: RPC Function (import_orders_bulk)
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION import_orders_bulk(payload jsonb)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    order_item jsonb;
+    _user_id uuid;
+    _product_id uuid;
+    _product_name text;
+    _customer_phone text;
+    _risk_score int;
+    _risk_level text;
+    _blacklist_count int;
+    _boom_count int;
+    _success_count int := 0;
+    _error_count int := 0;
+    _errors jsonb := '[]'::jsonb;
+    _inserted_id uuid;
+    _status text;
+    _payment_method text;
+BEGIN
+    -- Get current user ID
+    _user_id := auth.uid();
+    IF _user_id IS NULL THEN
+        RETURN jsonb_build_object('success', 0, 'failed', 0, 'errors', jsonb_build_array('User not authenticated'));
+    END IF;
+
+    -- Loop through each order in the payload array
+    FOR order_item IN SELECT * FROM jsonb_array_elements(payload)
+    LOOP
+        BEGIN
+            -- Extract basic fields
+            _customer_phone := TRIM(order_item->>'phone');
+            _product_name := TRIM(order_item->>'product');
+            _payment_method := COALESCE(order_item->>'payment_method', 'COD');
+            
+            -- 1. Product Mapping
+            _product_id := NULL;
+            
+            IF _product_name IS NOT NULL AND _product_name != '' THEN
+                -- Try exact match first
+                SELECT id INTO _product_id
+                FROM products
+                WHERE user_id = _user_id 
+                  AND LOWER(TRIM(name)) = LOWER(TRIM(_product_name))
+                LIMIT 1;
+                
+                -- If not found, try fuzzy match (ILIKE)
+                IF _product_id IS NULL THEN
+                    SELECT id INTO _product_id
+                    FROM products
+                    WHERE user_id = _user_id 
+                      AND name ILIKE '%' || _product_name || '%'
+                    LIMIT 1;
+                END IF;
+            END IF;
+
+            -- 2. Risk Calculation
+            _risk_score := 0;
+            _risk_level := 'safe';
+            
+            -- Check Blacklist
+            SELECT COUNT(*) INTO _blacklist_count
+            FROM customer_blacklist
+            WHERE user_id = _user_id AND phone = _customer_phone;
+            
+            IF _blacklist_count > 0 THEN
+                _risk_score := 100;
+                _risk_level := 'danger';
+            ELSE
+                -- Check Order History (Boom/Returned count)
+                SELECT COUNT(*) INTO _boom_count
+                FROM orders
+                WHERE user_id = _user_id 
+                  AND phone = _customer_phone 
+                  AND status IN ('Boom', 'Returned', 'Failed');
+                  
+                IF _boom_count > 0 THEN
+                    _risk_score := 50 + (_boom_count * 10);
+                    IF _risk_score > 100 THEN _risk_score := 100; END IF;
+                    _risk_level := CASE 
+                        WHEN _risk_score >= 80 THEN 'danger'
+                        WHEN _risk_score >= 50 THEN 'warning'
+                        ELSE 'safe'
+                    END;
+                END IF;
+            END IF;
+
+            -- 3. Status Determination
+            IF UPPER(_payment_method) != 'COD' THEN
+                _status := 'Order Paid';
+            ELSE
+                -- COD Logic
+                IF _risk_score > 70 THEN
+                    _status := 'Order Rejected';
+                ELSIF _risk_score >= 30 THEN
+                    _status := 'Pending Review';
+                ELSE
+                    _status := 'Order Approved';
+                END IF;
+            END IF;
+
+            -- 4. Insert Order
+            INSERT INTO orders (
+                user_id,
+                order_id,
+                customer_name,
+                phone,
+                address,
+                product_id,
+                product,
+                amount,
+                status,
+                risk_score,
+                risk_level,
+                payment_method,
+                address_detail,
+                ward,
+                district,
+                province,
+                gender,
+                birth_year,
+                discount_amount,
+                shipping_fee,
+                channel,
+                source,
+                order_date,
+                created_at,
+                updated_at
+            ) VALUES (
+                _user_id,
+                order_item->>'order_id',
+                order_item->>'customer_name',
+                _customer_phone,
+                order_item->>'address',
+                _product_id,
+                COALESCE(_product_name, ''),
+                (order_item->>'amount')::numeric,
+                _status,
+                _risk_score,
+                _risk_level,
+                _payment_method,
+                order_item->>'address_detail',
+                order_item->>'ward',
+                order_item->>'district',
+                order_item->>'province',
+                order_item->>'gender',
+                (order_item->>'birth_year')::int,
+                COALESCE((order_item->>'discount_amount')::numeric, 0),
+                COALESCE((order_item->>'shipping_fee')::numeric, 0),
+                order_item->>'channel',
+                order_item->>'source',
+                (order_item->>'order_date')::date,
+                NOW(),
+                NOW()
+            ) RETURNING id INTO _inserted_id;
+
+            _success_count := _success_count + 1;
+
+        EXCEPTION WHEN OTHERS THEN
+            _error_count := _error_count + 1;
+            _errors := _errors || jsonb_build_object(
+                'order_id', order_item->>'order_id',
+                'error', SQLERRM
+            );
+        END;
+    END LOOP;
+
+    RETURN jsonb_build_object(
+        'success', _success_count,
+        'failed', _error_count,
+        'errors', _errors
+    );
+END;
+$$;
+
+-- ============================================================================
+-- SECTION 1.1: Approve Medium Risk Order RPC
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION approve_medium_risk_order(p_order_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER   
+AS $$
+BEGIN
+    -- 1. Insert Log
+    INSERT INTO order_events (order_id, event_type, details)
+    VALUES (p_order_id, 'ORDER_APPROVED', 'Shop Owner approved the order (manual)');
+
+    -- 2. Update Status
+    UPDATE orders
+    SET status = 'Order Confirmation Sent',
+        updated_at = NOW()
+    WHERE id = p_order_id;
+END;
+$$;
+
+-- ============================================================================
+-- SECTION 2: Customer Blacklist Table
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS customer_blacklist (
+  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  phone text NOT NULL,
+  address text,
+  reason text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Uniqueness constraint
+ALTER TABLE customer_blacklist
+ADD CONSTRAINT IF NOT EXISTS customer_blacklist_user_phone_unique
+UNIQUE (user_id, phone);
+
+-- Indexes
+CREATE INDEX IF NOT EXISTS idx_customer_blacklist_user_id ON customer_blacklist(user_id);
+CREATE INDEX IF NOT EXISTS idx_customer_blacklist_phone ON customer_blacklist(phone);
+
+-- RLS
+ALTER TABLE customer_blacklist ENABLE ROW LEVEL SECURITY;
+
+-- Policies
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'customer_blacklist' AND policyname = 'Users can view their own blacklist entries') THEN
+        CREATE POLICY "Users can view their own blacklist entries" ON customer_blacklist FOR SELECT USING (auth.uid() = user_id);
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'customer_blacklist' AND policyname = 'Users can insert their own blacklist entries') THEN
+        CREATE POLICY "Users can insert their own blacklist entries" ON customer_blacklist FOR INSERT WITH CHECK (auth.uid() = user_id);
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'customer_blacklist' AND policyname = 'Users can update their own blacklist entries') THEN
+        CREATE POLICY "Users can update their own blacklist entries" ON customer_blacklist FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'customer_blacklist' AND policyname = 'Users can delete their own blacklist entries') THEN
+        CREATE POLICY "Users can delete their own blacklist entries" ON customer_blacklist FOR DELETE USING (auth.uid() = user_id);
+    END IF;
+END $$;
+
+-- ============================================================================
+-- SECTION 3: Risk Stats Tables
+-- ============================================================================
+
+-- address_risk_stats
+CREATE TABLE IF NOT EXISTS public.address_risk_stats (
+  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  address_key text NOT NULL,
+  full_address text,
+  province text,
+  district text,
+  ward text,
+  street text,
+  total_orders integer NOT NULL DEFAULT 0,
+  success_orders integer NOT NULL DEFAULT 0,
+  failed_orders integer NOT NULL DEFAULT 0,
+  boom_orders integer NOT NULL DEFAULT 0,
+  last_order_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.address_risk_stats
+ADD CONSTRAINT IF NOT EXISTS address_risk_stats_user_address_key_unique
+UNIQUE (user_id, address_key);
+
+CREATE INDEX IF NOT EXISTS idx_address_risk_stats_user_id ON public.address_risk_stats(user_id);
+CREATE INDEX IF NOT EXISTS idx_address_risk_stats_address_key ON public.address_risk_stats(address_key);
+
+ALTER TABLE public.address_risk_stats ENABLE ROW LEVEL SECURITY;
+
+-- Policies
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'address_risk_stats' AND policyname = 'Address risk select own rows') THEN
+        CREATE POLICY "Address risk select own rows" ON public.address_risk_stats FOR SELECT USING (auth.uid() = user_id);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'address_risk_stats' AND policyname = 'Address risk insert own rows') THEN
+        CREATE POLICY "Address risk insert own rows" ON public.address_risk_stats FOR INSERT WITH CHECK (auth.uid() = user_id);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'address_risk_stats' AND policyname = 'Address risk update own rows') THEN
+        CREATE POLICY "Address risk update own rows" ON public.address_risk_stats FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'address_risk_stats' AND policyname = 'Address risk delete own rows') THEN
+        CREATE POLICY "Address risk delete own rows" ON public.address_risk_stats FOR DELETE USING (auth.uid() = user_id);
+    END IF;
+END $$;
+
+-- area_risk_stats
+CREATE TABLE IF NOT EXISTS public.area_risk_stats (
+  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  province text,
+  district text,
+  ward text,
+  street text,
+  total_orders integer NOT NULL DEFAULT 0,
+  success_orders integer NOT NULL DEFAULT 0,
+  failed_orders integer NOT NULL DEFAULT 0,
+  boom_orders integer NOT NULL DEFAULT 0,
+  last_order_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.area_risk_stats
+ADD CONSTRAINT IF NOT EXISTS area_risk_stats_user_area_unique
+UNIQUE (user_id, province, district, ward, street);
+
+CREATE INDEX IF NOT EXISTS idx_area_risk_stats_user_id ON public.area_risk_stats(user_id);
+CREATE INDEX IF NOT EXISTS idx_area_risk_stats_area ON public.area_risk_stats(province, district, ward, street);
+
+ALTER TABLE public.area_risk_stats ENABLE ROW LEVEL SECURITY;
+
+-- Policies
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'area_risk_stats' AND policyname = 'Area risk select own rows') THEN
+        CREATE POLICY "Area risk select own rows" ON public.area_risk_stats FOR SELECT USING (auth.uid() = user_id);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'area_risk_stats' AND policyname = 'Area risk insert own rows') THEN
+        CREATE POLICY "Area risk insert own rows" ON public.area_risk_stats FOR INSERT WITH CHECK (auth.uid() = user_id);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'area_risk_stats' AND policyname = 'Area risk update own rows') THEN
+        CREATE POLICY "Area risk update own rows" ON public.area_risk_stats FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'area_risk_stats' AND policyname = 'Area risk delete own rows') THEN
+        CREATE POLICY "Area risk delete own rows" ON public.area_risk_stats FOR DELETE USING (auth.uid() = user_id);
+    END IF;
+END $$;
+
+-- ============================================================================
+-- SECTION 4: Orders Schema Updates
+-- ============================================================================
+
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_id TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS phone TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS address TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS product TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS product_id UUID REFERENCES products(id) ON DELETE SET NULL;
+
+-- Ensure status is text, risk_score is integer
+ALTER TABLE orders ALTER COLUMN status TYPE TEXT;
+ALTER TABLE orders ALTER COLUMN risk_score TYPE INTEGER USING (CASE WHEN risk_score = 'N/A' THEN NULL ELSE risk_score::INTEGER END);
+
+-- Set defaults
+ALTER TABLE orders ALTER COLUMN status SET DEFAULT 'Pending';
+ALTER TABLE orders ALTER COLUMN risk_score SET DEFAULT NULL;
+
+-- Index
+CREATE INDEX IF NOT EXISTS idx_orders_product_id ON orders(product_id);
+</file>
+
 <file path="tailwind.config.js">
 /** @type {import('tailwindcss').Config} */
 module.exports = {
@@ -16443,6 +16042,26 @@ export const Input: React.FC<InputProps> = ({
     </div>
   );
 };
+</file>
+
+<file path="src/constants/orderStatus.ts">
+export const ORDER_STATUS = {
+  PENDING_REVIEW: "Pending Review",
+  VERIFICATION_REQUIRED: "Verification Required",
+  ORDER_CONFIRMATION_SENT: "Order Confirmation Sent",
+  ORDER_APPROVED: "Order Approved",
+  CUSTOMER_CONFIRMED: "Customer Confirmed",
+  CUSTOMER_CANCELLED: "Customer Cancelled",
+  ORDER_PAID: "Order Paid",
+  ORDER_REJECTED: "Order Rejected",
+  DELIVERING: "Delivering",
+  COMPLETED: "Completed",
+  CUSTOMER_UNREACHABLE: "Customer Unreachable",
+  RETURNED: "Returned",
+  EXCHANGED: "Exchanged",
+} as const;
+
+export type OrderStatus = (typeof ORDER_STATUS)[keyof typeof ORDER_STATUS];
 </file>
 
 <file path="src/features/auth/components/ProtectedRoute.tsx">
@@ -17172,6 +16791,328 @@ export async function fetchCustomerOrdersForUser(userId: string, phone: string) 
     data: (data || []) as unknown as Order[],
     error,
   };
+}
+</file>
+
+<file path="src/features/orders/components/OrderTimeline.tsx">
+import React from 'react';
+import {
+    CheckCircle,
+    XCircle,
+    Clock,
+    Truck,
+    AlertTriangle,
+    ShieldAlert,
+} from 'lucide-react';
+import type { OrderEvent } from '../../../types/supabase';
+
+interface OrderTimelineProps {
+    events: OrderEvent[];
+}
+
+// Những alias cần gom lại (cùng ý nghĩa nhưng khác tên)
+const EVENT_ALIASES: Record<string, string> = {
+
+    // Lower level event name -> tên chuẩn
+    ORDER_CONFIRMATION_SENT: 'CONFIRMATION_SENT',
+
+    // Các tên QR khác nhau -> QR_PAYMENT_LINK_SENT
+    QR_SENT: 'QR_PAYMENT_LINK_SENT',
+};
+
+export const OrderTimeline: React.FC<OrderTimelineProps> = ({ events }) => {
+    const getEventDisplay = (evt: OrderEvent) => {
+        const payload = (evt.payload_json || {}) as any;
+
+        // 1) Chuẩn hóa event_type: trim + uppercase
+        const rawType = evt.event_type || '';
+        const upperType = rawType.trim().toUpperCase();
+
+        // 2) Áp dụng alias nếu có, còn không giữ nguyên
+        const type = EVENT_ALIASES[upperType] || upperType;
+
+        switch (type) {
+            case 'ORDER_APPROVED':
+                return {
+                    title: 'Order approved',
+                    subtitle: '',
+                    icon: <CheckCircle size={14} className="text-green-400" />,
+                    color: 'bg-green-500/10 border-green-500/20 text-green-400',
+                };
+
+            case 'CONFIRMATION_SENT':
+                return {
+                    title: 'Order confirmation sent via Zalo',
+                    subtitle: '',
+                    icon: <CheckCircle size={14} className="text-blue-400" />,
+                    color: 'bg-blue-500/10 border-blue-500/20 text-blue-400',
+                };
+
+            case 'CUSTOMER_CONFIRMED':
+                return {
+                    title: 'Customer confirmed order',
+                    subtitle: '',
+                    icon: <CheckCircle size={14} className="text-green-400" />,
+                    color: 'bg-green-500/10 border-green-500/20 text-green-400',
+                };
+
+            case 'QR_PAYMENT_LINK_SENT':
+                return {
+                    title: 'QR payment link sent',
+                    subtitle: '',
+                    icon: <CheckCircle size={14} className="text-purple-400" />,
+                    color: 'bg-purple-500/10 border-purple-500/20 text-purple-400',
+                };
+
+            case 'ORDER_PAID':
+                return {
+                    title: 'Customer paid',
+                    subtitle: '',
+                    icon: <CheckCircle size={14} className="text-emerald-400" />,
+                    color: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400',
+                };
+
+            case 'CUSTOMER_CANCELLED':
+                return {
+                    title: 'Customer cancelled order',
+                    subtitle: payload.reason || '',
+                    icon: <XCircle size={14} className="text-red-400" />,
+                    color: 'bg-red-500/10 border-red-500/20 text-red-400',
+                };
+
+            case 'CUSTOMER_UNREACHABLE':
+                return {
+                    title: 'Customer unreachable',
+                    subtitle: payload.reason || '',
+                    icon: <XCircle size={14} className="text-orange-400" />,
+                    color: 'bg-orange-500/10 border-orange-500/20 text-orange-400',
+                };
+
+            case 'ORDER_MARKED_DELIVERING':
+                return {
+                    title: 'Order marked as delivering',
+                    subtitle: '',
+                    icon: <Truck size={14} className="text-blue-400" />,
+                    color: 'bg-blue-500/10 border-blue-500/20 text-blue-400',
+                };
+
+            case 'ORDER_SHIPPED':
+                return {
+                    title: 'Order shipped (Delivering)',
+                    subtitle: payload.shipped_at
+                        ? new Date(payload.shipped_at).toLocaleString('vi-VN')
+                        : '',
+                    icon: <Truck size={14} className="text-blue-400" />,
+                    color: 'bg-blue-500/10 border-blue-500/20 text-blue-400',
+                };
+
+            case 'ORDER_COMPLETED':
+                return {
+                    title: 'Order completed',
+                    subtitle: payload.completed_at
+                        ? new Date(payload.completed_at).toLocaleString('vi-VN')
+                        : '',
+                    icon: <CheckCircle size={14} className="text-green-400" />,
+                    color: 'bg-green-500/10 border-green-500/20 text-green-400',
+                };
+
+            case 'VERIFICATION_REQUIRED':
+                return {
+                    title: 'Verification required',
+                    subtitle: payload.reason || '',
+                    icon: <AlertTriangle size={14} className="text-yellow-400" />,
+                    color: 'bg-yellow-500/10 border-yellow-500/20 text-yellow-400',
+                };
+
+            case 'ORDER_REJECTED':
+                return {
+                    title: 'Order rejected',
+                    subtitle: payload.reason || '',
+                    icon: <XCircle size={14} className="text-red-400" />,
+                    color: 'bg-red-500/10 border-red-500/20 text-red-400',
+                };
+
+            case 'RISK_EVALUATED':
+                return {
+                    title: 'Risk evaluated',
+                    subtitle:
+                        payload.level && payload.score != null
+                            ? `${payload.level} (${payload.score})`
+                            : '',
+                    icon: <ShieldAlert size={14} className="text-purple-400" />,
+                    color: 'bg-purple-500/10 border-purple-500/20 text-purple-400',
+                };
+
+            default:
+                // Fallback: format lại cho đỡ xấu
+                const prettyTitle =
+                    type
+                        .toLowerCase()
+                        .replace(/_/g, ' ')
+                        .replace(/^\w/, (c) => c.toUpperCase()) || 'Unknown event';
+
+                return {
+                    title: prettyTitle,
+                    subtitle: '',
+                    icon: <Clock size={14} className="text-gray-400" />,
+                    color: 'bg-gray-500/10 border-gray-500/20 text-gray-400',
+                };
+        }
+    };
+
+    if (events.length === 0) {
+        return (
+            <div className="text-sm text-white/40 italic">
+                No events recorded
+            </div>
+        );
+    }
+
+    // Deduplicate: nếu 2 event cùng type + cùng timestamp -> chỉ giữ 1
+    const uniqueEventsMap = new Map<string, OrderEvent>();
+    events.forEach((evt) => {
+        const key = `${evt.event_type}__${evt.created_at}`;
+        if (!uniqueEventsMap.has(key)) {
+            uniqueEventsMap.set(key, evt);
+        }
+    });
+    const uniqueEvents = Array.from(uniqueEventsMap.values());
+
+    // Sort theo thời gian tăng dần
+    const sortedEvents = [...uniqueEvents].sort(
+        (a, b) =>
+            new Date(a.created_at).getTime() -
+            new Date(b.created_at).getTime(),
+    );
+
+    return (
+        <div className="space-y-4">
+            {sortedEvents.map((evt) => {
+                const display = getEventDisplay(evt);
+                return (
+                    <div
+                        key={evt.id}
+                        className="relative pl-6 pb-4 last:pb-0 border-l border-white/10 last:border-0"
+                    >
+                        <div
+                            className={`absolute -left-[13px] top-0 w-6 h-6 rounded-full border ${display.color.split(' ')[1]
+                                } bg-[#0B0E14] flex items-center justify-center`}
+                        >
+                            {display.icon}
+                        </div>
+                        <div className="flex flex-col gap-1">
+                            <span className="text-sm font-medium text-[#E5E7EB]">
+                                {display.title}
+                            </span>
+                            {display.subtitle && (
+                                <span className="text-xs text-white/50">
+                                    {display.subtitle}
+                                </span>
+                            )}
+                            <span className="text-[10px] text-white/30">
+                                {new Date(evt.created_at).toLocaleString('vi-VN')}
+                            </span>
+                        </div>
+                    </div>
+                );
+            })}
+        </div>
+    );
+};
+</file>
+
+<file path="src/features/orders/services/orderEventsService.ts">
+import { supabase } from "../../../lib/supabaseClient";
+import type { OrderEvent } from "../../../types/supabase";
+
+export interface InsertOrderEventPayload {
+  order_id: string;
+  event_type: string;
+  payload_json: any;
+}
+
+/**
+ * Fetch order events for a specific order
+ */
+export async function fetchOrderEvents(orderId: string) {
+  return supabase
+    .from("order_events")
+    .select("*")
+    .eq("order_id", orderId)
+    .order("created_at", { ascending: true });
+}
+
+/**
+ * Insert a single order event
+ */
+export async function insertOrderEvent(payload: InsertOrderEventPayload) {
+  const { data, error } = await supabase
+    .from("order_events")
+    .insert(payload)
+    .select()
+    .single();
+
+  if (error) {
+    console.error("[insertOrderEvent] error", error);
+    throw error;
+  }
+
+  return data as OrderEvent;
+}
+
+/**
+ * Insert multiple order events (bulk)
+ */
+export async function insertOrderEvents(payloads: InsertOrderEventPayload[]) {
+  const { data, error } = await supabase
+    .from("order_events")
+    .insert(payloads)
+    .select();
+
+  if (error) {
+    console.error("[insertOrderEvents] error", error);
+    throw error;
+  }
+
+  return (data || []) as OrderEvent[];
+}
+
+/**
+ * Unified helper to log an order event.
+ * This matches how other services call logOrderEvent(orderId, type, metadata, source).
+ */
+export async function logOrderEvent(
+  orderId: string,
+  eventType: string,
+  metadata: Record<string, any> = {},
+  source: string = "system"
+) {
+  const cleanedMetadata = Object.fromEntries(
+    Object.entries(metadata ?? {}).filter(([, v]) => v !== undefined && v !== "")
+  );
+
+  const payload: InsertOrderEventPayload = {
+    order_id: orderId,
+    event_type: eventType,
+    payload_json: {
+      ...cleanedMetadata,
+      source,
+    },
+  };
+
+  return insertOrderEvent(payload);
+}
+
+/**
+ * Log order paid event (manual action from Invoices page)
+ */
+export async function logOrderPaidEvent(orderId: string) {
+  return logOrderEvent(
+    orderId,
+    "ORDER_PAID",
+    { source: "manual_invoice_mark_paid" },
+    "invoice_page"
+  );
 }
 </file>
 
@@ -20411,6 +20352,12 @@ export const AdminDashboard: React.FC = () => {
 import type { OrderStatus } from "../constants/orderStatus";
 import { ORDER_STATUS } from "../constants/orderStatus";
 
+export const INVOICE_STATUS_STYLES: Record<string, string> = {
+  Pending: "bg-amber-500/20 text-amber-300 border-amber-500/40",
+  Paid: "bg-green-500/20 text-green-300 border-green-500/40",
+  Cancelled: "bg-rose-500/20 text-rose-300 border-rose-500/40",
+};
+
 export const statusStyles: Record<OrderStatus, string> = {
   // ✅ SUCCESS / COMPLETED (green)
   [ORDER_STATUS.ORDER_PAID]: "bg-green-600/20 text-green-300 border-green-600/40",
@@ -20433,13 +20380,21 @@ export const statusStyles: Record<OrderStatus, string> = {
 };
 
 export function getStatusBadge(status: string | null | undefined) {
+  const key = status || "";
+
+  // 1️⃣ Invoice Status (ưu tiên nếu trùng)
+  if (INVOICE_STATUS_STYLES[key]) {
+    return { className: INVOICE_STATUS_STYLES[key], label: key };
+  }
+
+  // 2️⃣ Order Status (mapping cũ)
   const badgeClass =
-    statusStyles[status || ""] ||
+    statusStyles[key as OrderStatus] ||
     "bg-gray-600/20 text-gray-300 border-gray-600/40";
 
   return {
     className: badgeClass,
-    label: status || "Unknown",
+    label: key,
   };
 }
 </file>
@@ -23257,323 +23212,6 @@ svg.recharts-surface>g>rect:first-child {
 }
 </file>
 
-<file path="src/features/invoices/services/invoiceService.ts">
-import { ORDER_STATUS } from "../../../constants/orderStatus";
-import { InvoicesRepository } from "../repositories/invoicesRepository";
-import { INVOICE_STATUS, type InvoiceStatus } from "./invoiceTypes";
-import type { Order, Invoice } from "../../../types/supabase";
-import { logOrderEvent } from "../../orders/services/orderEventsService";
-
-// helper to get today's date as YYYY-MM-DD for the `date` column
-function getTodayDateString() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-// Generate human-friendly invoice code from order
-function generateInvoiceCode(order: Order): string {
-  if (order.order_id) {
-    // Business ID like ORD0001
-    return `INV-${order.order_id}`;
-  }
-
-  // Fallback if order_id is missing for some reason
-  return `INV-${order.id.slice(0, 8).toUpperCase()}`;
-}
-
-/**
- * Ensure there is a Pending invoice for this order.
- * Used when a COD order is Confirmed by the customer (simulate flow).
- *
- * Rules:
- * - If an invoice already exists for this (user_id, order_id) with status "Pending" or "Paid" => do nothing.
- * - If there's a Cancelled invoice, also do nothing for now (keep history).
- * - If no invoice exists => create a new Pending invoice.
- */
-export async function ensurePendingInvoiceForOrder(order: Order) {
-  if (!order.user_id) return;
-
-  const { data: existing, error } = await InvoicesRepository.getInvoiceByOrderId(order.id, order.user_id);
-
-  if (error) {
-    console.error("ensurePendingInvoiceForOrder: fetch error", error);
-    return;
-  }
-
-  if (existing) {
-    // If there's already a Pending or Paid invoice, we don't change it.
-    if (existing.status === INVOICE_STATUS.PENDING || existing.status === INVOICE_STATUS.PAID) {
-      return;
-    }
-
-    // If it's Cancelled, we currently don't re-open or create a new one.
-    return;
-  }
-
-  const { error: insertError } = await InvoicesRepository.insertInvoice({
-    user_id: order.user_id,
-    order_id: order.id,
-    amount: order.amount ?? 0,
-    status: INVOICE_STATUS.PENDING,
-    date: getTodayDateString(),
-    invoice_code: generateInvoiceCode(order),
-  });
-
-  if (insertError) {
-    console.error("ensurePendingInvoiceForOrder: insert error", insertError);
-  }
-}
-
-/**
- * Mark the invoice for this order as Paid.
- *
- * Rules:
- * - If an invoice exists for this (user_id, order_id) => update its status to "Paid" and set `date` = today, `paid_at` = now.
- * - If no invoice exists => create a new "Paid" invoice.
- */
-export async function markInvoicePaidForOrder(order: Order) {
-  if (!order.user_id) return;
-
-  const now = new Date().toISOString();
-
-  const { data: existing, error } =
-    await InvoicesRepository.getInvoiceByOrderId(order.id, order.user_id);
-
-  if (error) {
-    console.error("markInvoicePaidForOrder: fetch error", error);
-    throw error;
-  }
-
-  // ĐÃ CÓ INVOICE
-  if (existing) {
-    // ❗ Nếu đã Paid rồi thì thôi, không update, không log thêm event PAID
-    if (
-      existing.status === INVOICE_STATUS.PAID ||
-      existing.status === "Paid"
-    ) {
-      return existing;
-    }
-
-    const { error: updateError } =
-      await InvoicesRepository.updateInvoice(existing.id, {
-        status: INVOICE_STATUS.PAID,
-        paid_at: now,
-        // giữ nguyên date cũ nếu có, nếu không thì gán hôm nay
-        date: existing.date ?? getTodayDateString(),
-      });
-
-    if (updateError) {
-      console.error("markInvoicePaidForOrder: update error", updateError);
-      throw updateError;
-    }
-
-    // Log đúng 1 lần sự kiện PAID
-    await logOrderEvent(
-      order.id,
-      "ORDER_PAID",
-      {
-        amount: order.amount,
-        paid_at: now,
-      },
-      "invoice_service"
-    );
-
-    return existing;
-  }
-
-  // CHƯA CÓ INVOICE -> tạo mới invoice Paid
-  const { error: insertError } = await InvoicesRepository.insertInvoice({
-    user_id: order.user_id,
-    order_id: order.id,
-    amount: order.amount ?? 0,
-    status: INVOICE_STATUS.PAID,
-    date: getTodayDateString(),
-    paid_at: now,
-    invoice_code: generateInvoiceCode(order),
-  });
-
-  if (insertError) {
-    console.error("markInvoicePaidForOrder: insert error", insertError);
-    throw insertError;
-  }
-
-  // Đồng bộ: luôn log ORDER_PAID, không dùng PAID nữa
-  await logOrderEvent(
-    order.id,
-    "ORDER_PAID",
-    {
-      amount: order.amount,
-      paid_at: now,
-    },
-    "invoice_service"
-  );
-}
-
-/**
- * Delete invoices by a list of order IDs for a specific user.
- * Used when orders are deleted to clean up related invoices.
- */
-export async function deleteInvoicesByOrderIds(
-  userId: string,
-  orderIds: string[]
-) {
-  if (!userId || orderIds.length === 0) return;
-
-  const { error } = await InvoicesRepository.deleteInvoicesByOrderIds(userId, orderIds);
-
-  if (error) {
-    console.error("deleteInvoicesByOrderIds: delete error", error);
-    throw error;
-  }
-}
-
-/**
- * Get invoice by order ID and user ID.
- * Returns the invoice if found, null otherwise.
- */
-export async function getInvoiceByOrderId(
-  orderId: string,
-  userId: string
-): Promise<Invoice | null> {
-  if (!orderId || !userId) return null;
-
-  const { data, error } = await InvoicesRepository.getInvoiceByOrderId(orderId, userId);
-
-  if (error) {
-    console.error("getInvoiceByOrderId: fetch error", error);
-    return null;
-  }
-
-  return data as Invoice | null;
-}
-
-export interface InvoiceFilters {
-  searchQuery?: string;
-  status?: string | string[];
-  date?: string;
-}
-
-/**
- * Fetch invoices by user with pagination and filters
- */
-export async function fetchInvoicesByUser(
-  userId: string,
-  page: number,
-  pageSize: number,
-  filters?: InvoiceFilters
-) {
-  const { data, error, count } = await InvoicesRepository.fetchInvoicesByUser(userId, page, pageSize, filters);
-
-  return {
-    invoices: data ?? [],
-    totalCount: count ?? 0,
-    pageSize,
-    error
-  };
-}
-
-/**
- * Invalidate invoice PDF cache for an order.
- * Clears pdf_url so the next download will regenerate the PDF with fresh data.
- * Call this after updating order fields that affect the invoice (amount, discount, shipping).
- */
-export async function invalidateInvoicePdfForOrder(orderId: string) {
-  if (!orderId) return;
-
-  // Find invoices for this order
-  const { data: invoices, error } = await InvoicesRepository.getInvoicesByOrderId(orderId);
-
-  if (error) {
-    console.error('Failed to load invoices for order to invalidate PDF', error);
-    return;
-  }
-
-  if (!invoices || invoices.length === 0) return;
-
-  const invoiceIds = invoices.map((inv) => inv.id);
-
-  // Clear pdf_url to force regeneration on next download
-  const { error: updateError } = await InvoicesRepository.invalidateInvoicePdfs(invoiceIds);
-
-  if (updateError) {
-    console.error('Failed to invalidate invoice PDFs for order', orderId, updateError);
-  }
-}
-
-
-/**
- * Mark a specific invoice as Paid by ID.
- * Used for manual "Mark as Paid" action from Invoices page.
- */
-export async function markInvoiceAsPaid(invoiceId: string) {
-  const now = new Date().toISOString();
-
-  const { data, error } = await InvoicesRepository.updateInvoice(invoiceId, {
-    status: INVOICE_STATUS.PAID,
-    paid_at: now,
-    date: getTodayDateString(),
-  });
-
-  if (error) {
-    console.error("markInvoiceAsPaid: update error", error);
-    throw error;
-  }
-
-  return data;
-}
-
-/**
- * Apply business rules for invoice creation/updates based on order status changes.
- * This should be called whenever an order is updated.
- */
-export async function applyInvoiceRules(order: Order) {
-  if (!order || !order.status) return;
-
-  const status = order.status;
-  const riskScore = order.risk_score;
-  const paymentMethod = (order.payment_method || "COD").toUpperCase(); // Default COD
-  const isCOD = paymentMethod === "COD";
-
-  // 1. PAID logic (mọi payment method)
-  // => Chỉ khi status là 1 trong các trạng thái "đã thanh toán" RÕ RÀNG
-  //    (Simulate Paid, QR callback, non-COD prepaid...)
-  const paidStatuses = [
-    ORDER_STATUS.ORDER_PAID,
-  ];
-
-  if (status === ORDER_STATUS.ORDER_PAID) {
-    // Order đã ở trạng thái đã thanh toán -> đảm bảo Invoice = Paid
-    await markInvoicePaidForOrder(order);
-    return; // Paid override mọi trạng thái Pending
-  }
-
-  // 2. PENDING logic (COD ONLY)
-  if (isCOD) {
-    // A. COD Low Risk: auto approve -> tạo Pending khi Order Approved
-    if (
-      riskScore != null &&
-      riskScore <= 30 &&
-      status === ORDER_STATUS.ORDER_APPROVED
-    ) {
-      await ensurePendingInvoiceForOrder(order);
-      return;
-    }
-
-    // B. COD Medium/High Risk: chỉ sau khi Customer Confirmed mới tạo Pending
-    //    (risk_score > 30 hoặc null)
-    if (
-      (riskScore == null || riskScore > 30) &&
-      status === ORDER_STATUS.CUSTOMER_CONFIRMED
-    ) {
-      await ensurePendingInvoiceForOrder(order);
-      return;
-    }
-  }
-
-  // Các trạng thái khác (Start Delivery, Completed, Return, Exchange...)
-  // => KHÔNG tạo/đụng gì tới Invoice ở đây.
-}
-</file>
-
 <file path="src/lib/supabaseClient.ts">
 import { createClient } from "@supabase/supabase-js";
 
@@ -25154,6 +24792,323 @@ export function validateAndMapHeaders(headers: string[]): HeaderMappingResult {
     missingRequired,
     unknownHeaders,
   };
+}
+</file>
+
+<file path="src/features/invoices/services/invoiceService.ts">
+import { ORDER_STATUS } from "../../../constants/orderStatus";
+import { InvoicesRepository } from "../repositories/invoicesRepository";
+import { INVOICE_STATUS, type InvoiceStatus } from "./invoiceTypes";
+import type { Order, Invoice } from "../../../types/supabase";
+import { logOrderEvent } from "../../orders/services/orderEventsService";
+
+// helper to get today's date as YYYY-MM-DD for the `date` column
+function getTodayDateString() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+// Generate human-friendly invoice code from order
+function generateInvoiceCode(order: Order): string {
+  if (order.order_id) {
+    // Business ID like ORD0001
+    return `INV-${order.order_id}`;
+  }
+
+  // Fallback if order_id is missing for some reason
+  return `INV-${order.id.slice(0, 8).toUpperCase()}`;
+}
+
+/**
+ * Ensure there is a Pending invoice for this order.
+ * Used when a COD order is Confirmed by the customer (simulate flow).
+ *
+ * Rules:
+ * - If an invoice already exists for this (user_id, order_id) with status "Pending" or "Paid" => do nothing.
+ * - If there's a Cancelled invoice, also do nothing for now (keep history).
+ * - If no invoice exists => create a new Pending invoice.
+ */
+export async function ensurePendingInvoiceForOrder(order: Order) {
+  if (!order.user_id) return;
+
+  const { data: existing, error } = await InvoicesRepository.getInvoiceByOrderId(order.id, order.user_id);
+
+  if (error) {
+    console.error("ensurePendingInvoiceForOrder: fetch error", error);
+    return;
+  }
+
+  if (existing) {
+    // If there's already a Pending or Paid invoice, we don't change it.
+    if (existing.status === INVOICE_STATUS.PENDING || existing.status === INVOICE_STATUS.PAID) {
+      return;
+    }
+
+    // If it's Cancelled, we currently don't re-open or create a new one.
+    return;
+  }
+
+  const { error: insertError } = await InvoicesRepository.insertInvoice({
+    user_id: order.user_id,
+    order_id: order.id,
+    amount: order.amount ?? 0,
+    status: INVOICE_STATUS.PENDING,
+    date: getTodayDateString(),
+    invoice_code: generateInvoiceCode(order),
+  });
+
+  if (insertError) {
+    console.error("ensurePendingInvoiceForOrder: insert error", insertError);
+  }
+}
+
+/**
+ * Mark the invoice for this order as Paid.
+ *
+ * Rules:
+ * - If an invoice exists for this (user_id, order_id) => update its status to "Paid" and set `date` = today, `paid_at` = now.
+ * - If no invoice exists => create a new "Paid" invoice.
+ */
+export async function markInvoicePaidForOrder(order: Order) {
+  if (!order.user_id) return;
+
+  const now = new Date().toISOString();
+
+  const { data: existing, error } =
+    await InvoicesRepository.getInvoiceByOrderId(order.id, order.user_id);
+
+  if (error) {
+    console.error("markInvoicePaidForOrder: fetch error", error);
+    throw error;
+  }
+
+  // ĐÃ CÓ INVOICE
+  if (existing) {
+    // ❗ Nếu đã Paid rồi thì thôi, không update, không log thêm event PAID
+    if (
+      existing.status === INVOICE_STATUS.PAID ||
+      existing.status === "Paid"
+    ) {
+      return existing;
+    }
+
+    const { error: updateError } =
+      await InvoicesRepository.updateInvoice(existing.id, {
+        status: INVOICE_STATUS.PAID,
+        paid_at: now,
+        // giữ nguyên date cũ nếu có, nếu không thì gán hôm nay
+        date: existing.date ?? getTodayDateString(),
+      });
+
+    if (updateError) {
+      console.error("markInvoicePaidForOrder: update error", updateError);
+      throw updateError;
+    }
+
+    // Log đúng 1 lần sự kiện PAID
+    await logOrderEvent(
+      order.id,
+      "ORDER_PAID",
+      {
+        amount: order.amount,
+        paid_at: now,
+      },
+      "invoice_service"
+    );
+
+    return existing;
+  }
+
+  // CHƯA CÓ INVOICE -> tạo mới invoice Paid
+  const { error: insertError } = await InvoicesRepository.insertInvoice({
+    user_id: order.user_id,
+    order_id: order.id,
+    amount: order.amount ?? 0,
+    status: INVOICE_STATUS.PAID,
+    date: getTodayDateString(),
+    paid_at: now,
+    invoice_code: generateInvoiceCode(order),
+  });
+
+  if (insertError) {
+    console.error("markInvoicePaidForOrder: insert error", insertError);
+    throw insertError;
+  }
+
+  // Đồng bộ: luôn log ORDER_PAID, không dùng PAID nữa
+  await logOrderEvent(
+    order.id,
+    "ORDER_PAID",
+    {
+      amount: order.amount,
+      paid_at: now,
+    },
+    "invoice_service"
+  );
+}
+
+/**
+ * Delete invoices by a list of order IDs for a specific user.
+ * Used when orders are deleted to clean up related invoices.
+ */
+export async function deleteInvoicesByOrderIds(
+  userId: string,
+  orderIds: string[]
+) {
+  if (!userId || orderIds.length === 0) return;
+
+  const { error } = await InvoicesRepository.deleteInvoicesByOrderIds(userId, orderIds);
+
+  if (error) {
+    console.error("deleteInvoicesByOrderIds: delete error", error);
+    throw error;
+  }
+}
+
+/**
+ * Get invoice by order ID and user ID.
+ * Returns the invoice if found, null otherwise.
+ */
+export async function getInvoiceByOrderId(
+  orderId: string,
+  userId: string
+): Promise<Invoice | null> {
+  if (!orderId || !userId) return null;
+
+  const { data, error } = await InvoicesRepository.getInvoiceByOrderId(orderId, userId);
+
+  if (error) {
+    console.error("getInvoiceByOrderId: fetch error", error);
+    return null;
+  }
+
+  return data as Invoice | null;
+}
+
+export interface InvoiceFilters {
+  searchQuery?: string;
+  status?: string | string[];
+  date?: string;
+}
+
+/**
+ * Fetch invoices by user with pagination and filters
+ */
+export async function fetchInvoicesByUser(
+  userId: string,
+  page: number,
+  pageSize: number,
+  filters?: InvoiceFilters
+) {
+  const { data, error, count } = await InvoicesRepository.fetchInvoicesByUser(userId, page, pageSize, filters);
+
+  return {
+    invoices: data ?? [],
+    totalCount: count ?? 0,
+    pageSize,
+    error
+  };
+}
+
+/**
+ * Invalidate invoice PDF cache for an order.
+ * Clears pdf_url so the next download will regenerate the PDF with fresh data.
+ * Call this after updating order fields that affect the invoice (amount, discount, shipping).
+ */
+export async function invalidateInvoicePdfForOrder(orderId: string) {
+  if (!orderId) return;
+
+  // Find invoices for this order
+  const { data: invoices, error } = await InvoicesRepository.getInvoicesByOrderId(orderId);
+
+  if (error) {
+    console.error('Failed to load invoices for order to invalidate PDF', error);
+    return;
+  }
+
+  if (!invoices || invoices.length === 0) return;
+
+  const invoiceIds = invoices.map((inv) => inv.id);
+
+  // Clear pdf_url to force regeneration on next download
+  const { error: updateError } = await InvoicesRepository.invalidateInvoicePdfs(invoiceIds);
+
+  if (updateError) {
+    console.error('Failed to invalidate invoice PDFs for order', orderId, updateError);
+  }
+}
+
+
+/**
+ * Mark a specific invoice as Paid by ID.
+ * Used for manual "Mark as Paid" action from Invoices page.
+ */
+export async function markInvoiceAsPaid(invoiceId: string) {
+  const now = new Date().toISOString();
+
+  const { data, error } = await InvoicesRepository.updateInvoice(invoiceId, {
+    status: INVOICE_STATUS.PAID,
+    paid_at: now,
+    date: getTodayDateString(),
+  });
+
+  if (error) {
+    console.error("markInvoiceAsPaid: update error", error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Apply business rules for invoice creation/updates based on order status changes.
+ * This should be called whenever an order is updated.
+ */
+export async function applyInvoiceRules(order: Order) {
+  if (!order || !order.status) return;
+
+  const status = order.status;
+  const riskScore = order.risk_score;
+  const paymentMethod = (order.payment_method || "COD").toUpperCase(); // Default COD
+  const isCOD = paymentMethod === "COD";
+
+  // 1. PAID logic (mọi payment method)
+  // => Chỉ khi status là 1 trong các trạng thái "đã thanh toán" RÕ RÀNG
+  //    (Simulate Paid, QR callback, non-COD prepaid...)
+  const paidStatuses = [
+    ORDER_STATUS.ORDER_PAID,
+  ];
+
+  if (status === ORDER_STATUS.ORDER_PAID) {
+    // Order đã ở trạng thái đã thanh toán -> đảm bảo Invoice = Paid
+    await markInvoicePaidForOrder(order);
+    return; // Paid override mọi trạng thái Pending
+  }
+
+  // 2. PENDING logic (COD ONLY)
+  if (isCOD) {
+    // A. COD Low Risk: auto approve -> tạo Pending khi Order Approved
+    if (
+      riskScore != null &&
+      riskScore <= 30 &&
+      status === ORDER_STATUS.ORDER_APPROVED
+    ) {
+      await ensurePendingInvoiceForOrder(order);
+      return;
+    }
+
+    // B. COD Medium/High Risk: chỉ sau khi Customer Confirmed mới tạo Pending
+    //    (risk_score > 30 hoặc null)
+    if (
+      (riskScore == null || riskScore > 30) &&
+      status === ORDER_STATUS.CUSTOMER_CONFIRMED
+    ) {
+      await ensurePendingInvoiceForOrder(order);
+      return;
+    }
+  }
+
+  // Các trạng thái khác (Start Delivery, Completed, Return, Exchange...)
+  // => KHÔNG tạo/đụng gì tới Invoice ở đây.
 }
 </file>
 
@@ -27483,793 +27438,6 @@ function App() {
 export default App;
 </file>
 
-<file path="src/pages/dashboard/InvoicePage.tsx">
-import React, { useState, useEffect } from 'react';
-import { Card, CardHeader, CardContent } from '../../components/ui/Card';
-import { Button } from '../../components/ui/Button';
-import { FilterBar } from '../../components/ui/FilterBar';
-import { MultiSelectFilter } from '../../components/filters/MultiSelectFilter';
-import { StatusBadge } from '../../components/dashboard/StatusBadge';
-import { Download } from 'lucide-react';
-import { supabase } from '../../lib/supabaseClient';
-import { useAuth } from '../../features/auth';
-import { useUserProfile } from '../../hooks/useUserProfile';
-import type { Invoice, Order, OrderEvent } from '../../types/supabase';
-import { ensureInvoicePdfStored } from '../../features/invoices/services/invoiceStorage';
-import { fetchInvoicesByUser, markInvoiceAsPaid } from '../../features/invoices/services/invoiceService';
-import { markOrderAsPaid } from '../../features/orders/services/ordersService';
-import { logOrderPaidEvent, fetchOrderEvents } from '../../features/orders/services/orderEventsService';
-import { Pagination } from '../../components/ui/Pagination';
-import { downloadFileDirectly } from '../../features/invoices/utils/invoiceDownload';
-import { OrderSidePanel } from '../../features/orders/components/OrderSidePanel';
-import { fetchCustomerBlacklist } from '../../features/customers/services/customersService';
-import { useToast } from '../../components/ui/Toast';
-
-interface InvoiceWithCustomer extends Invoice {
-  customer_name?: string;
-  orders?: {
-    order_id: string | null;
-    customer_name: string | null;
-  } | null;
-}
-
-export const InvoicePage: React.FC = () => {
-  const { user } = useAuth();
-  const { profile } = useUserProfile();
-  const { showSuccess, showError } = useToast();
-
-  const [invoices, setInvoices] = useState<InvoiceWithCustomer[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [invoicesWithCustomers, setInvoicesWithCustomers] = useState<InvoiceWithCustomer[]>([]);
-  const [ordersMap, setOrdersMap] = useState<Map<string, Order>>(new Map());
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [statusFilter, setStatusFilter] = useState<string[]>([]);
-  const [dateFilter, setDateFilter] = useState('');
-  const [isMarkingMap, setIsMarkingMap] = useState<Record<string, boolean>>({});
-
-  // Side Panel
-  const [isSidePanelOpen, setIsSidePanelOpen] = useState(false);
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [orderEvents, setOrderEvents] = useState<OrderEvent[]>([]);
-  const [blacklistedPhones, setBlacklistedPhones] = useState<Set<string>>(new Set());
-  const [addressForm, setAddressForm] = useState({
-    address_detail: '',
-    ward: '',
-    district: '',
-    province: '',
-  });
-  const [isAddressModified, setIsAddressModified] = useState(false);
-
-  // Pagination
-  const [page, setPage] = useState(1);
-  const [totalCount, setTotalCount] = useState(0);
-  const PAGE_SIZE = 200;
-
-  const clearAllFilters = () => {
-    setSearchQuery('');
-    setStatusFilter([]);
-    setDateFilter('');
-  };
-
-  // Load blacklist
-  useEffect(() => {
-    const loadBlacklist = async () => {
-      if (!user) return;
-      try {
-        const { data } = await fetchCustomerBlacklist(user.id);
-        setBlacklistedPhones(new Set((data ?? []).map((entry) => entry.phone)));
-      } catch (err) {
-        console.error('Error loading blacklist:', err);
-      }
-    };
-    loadBlacklist();
-  }, [user]);
-
-  // Fetch invoices + orders
-  useEffect(() => {
-    if (!user) return;
-
-    const fetchInvoices = async () => {
-      setLoading(true);
-      setError(null);
-
-      try {
-        const {
-          invoices: invoicesData,
-          totalCount: count,
-          error: invoicesError,
-        } = await fetchInvoicesByUser(
-          user.id,
-          page,
-          PAGE_SIZE,
-          {
-            searchQuery,
-            status: statusFilter,
-            date: dateFilter
-          }
-        );
-
-        if (invoicesError) throw invoicesError;
-
-        setTotalCount(count);
-
-        if (!invoicesData || invoicesData.length === 0) {
-          setInvoices([]);
-          setOrdersMap(new Map());
-          setLoading(false);
-          return;
-        }
-
-        const orderIds = invoicesData
-          .map(inv => inv.order_id)
-          .filter((id): id is string => Boolean(id));
-
-        let ordersMapLocal = new Map<string, { order_id: string | null; customer_name: string | null }>();
-        let fullOrdersMap = new Map<string, Order>();
-
-        if (orderIds.length > 0) {
-          const { data: ordersData, error: ordersError } = await supabase
-            .from('orders')
-            .select('id, order_id, customer_name, phone, address, product, amount, discount_amount, shipping_fee, status, payment_method, risk_score, risk_level, created_at, updated_at, paid_at, customer_confirmed_at, confirmation_sent_at, cancelled_at, shipped_at, completed_at, product_id, address_detail, ward, district, province')
-            .eq('user_id', user.id)
-            .in('id', orderIds);
-
-          if (!ordersError && ordersData) {
-            ordersData.forEach((order: any) => {
-              ordersMapLocal.set(order.id, {
-                order_id: order.order_id || null,
-                customer_name: order.customer_name || null,
-              });
-              fullOrdersMap.set(order.id, order as Order);
-            });
-          }
-        }
-
-        const invoicesWithOrders: InvoiceWithCustomer[] = (invoicesData as any[]).map((invoice) => ({
-          ...(invoice as Invoice),
-          orders: ordersMapLocal.get(invoice.order_id) || null,
-        }));
-
-        setInvoices(invoicesWithOrders);
-        setOrdersMap(fullOrdersMap);
-
-      } catch (err) {
-        console.error('Error fetching invoices:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load invoices');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchInvoices();
-  }, [user, page, searchQuery, statusFilter, dateFilter]);
-
-  // Reset page when filters change
-  useEffect(() => {
-    setPage(1);
-  }, [searchQuery, statusFilter, dateFilter]);
-
-  // Realtime (hiện để đó)
-  useEffect(() => {
-    if (!user) return;
-    const channel = supabase
-      .channel('invoices-changes')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'invoices', filter: `user_id=eq.${user.id}` },
-        () => { }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user]);
-
-  // Merge customer_name cho tiện
-  useEffect(() => {
-    const merged = invoices.map(invoice => ({
-      ...invoice,
-      customer_name: invoice.orders?.customer_name || 'Unknown Customer',
-    }));
-    setInvoicesWithCustomers(merged);
-  }, [invoices]);
-
-  const canDownloadInvoice = (invoice: Invoice) => {
-    return invoice.status === 'Paid';
-  };
-
-  const formatVnd = (n: any) => {
-    const num = Number(n || 0);
-    return num.toLocaleString('vi-VN');
-  };
-
-  const getInvoiceDisplayAmount = (inv: InvoiceWithCustomer) => {
-    const order = ordersMap.get(inv.order_id);
-
-    if (order) {
-      const subtotal =
-        (order as any).subtotal ??
-        order.amount ??
-        0;
-
-      const discount =
-        order.discount_amount ??
-        (inv as any).discount_amount ??
-        0;
-
-      const shipping =
-        order.shipping_fee ??
-        (inv as any).shipping_fee ??
-        0;
-
-      return subtotal + shipping - discount;
-    }
-
-    const subtotal =
-      (inv as any).subtotal ??
-      inv.amount ??
-      0;
-
-    const discount =
-      (inv as any).discount_amount ??
-      0;
-
-    const shipping =
-      (inv as any).shipping_fee ??
-      0;
-
-    return subtotal + shipping - discount;
-  };
-
-  const handleDownload = async (invoice: InvoiceWithCustomer) => {
-    if (!canDownloadInvoice(invoice)) {
-      alert('Only Paid invoices can be downloaded.');
-      return;
-    }
-
-    try {
-      const { data: freshOrder, error: orderError } = await supabase
-        .from('orders')
-        .select('*')
-        .eq('id', invoice.order_id)
-        .eq('user_id', user?.id)
-        .single();
-
-      if (orderError || !freshOrder) {
-        console.error('Failed to fetch fresh order data for invoice', invoice.id, orderError);
-        alert('Order not found for this invoice.');
-        return;
-      }
-
-      let sellerProfile = {
-        company_name: profile?.company_name || undefined,
-        email: profile?.email || undefined,
-        phone: profile?.phone || undefined,
-        website: undefined,
-        address: undefined,
-      };
-
-      if (!profile && user) {
-        const { data: authData } = await supabase.auth.getUser();
-        const userId = authData?.user?.id;
-
-        if (userId) {
-          const { data: profileData } = await supabase
-            .from("users_profile")
-            .select("company_name, email, phone, website, address")
-            .eq("id", userId)
-            .maybeSingle();
-
-          if (profileData) {
-            sellerProfile = {
-              company_name: profileData.company_name || undefined,
-              email: profileData.email || undefined,
-              phone: profileData.phone || undefined,
-              website: (profileData as any).website || undefined,
-              address: (profileData as any).address || undefined,
-            };
-          }
-        }
-      }
-
-      const invoiceWithoutCache: Invoice = {
-        ...(invoice as Invoice),
-        pdf_url: null,
-      };
-
-      const pdfUrl = await ensureInvoicePdfStored(
-        invoiceWithoutCache,
-        freshOrder as Order,
-        sellerProfile
-      );
-
-      if (pdfUrl) {
-        window.open(pdfUrl, '_blank');
-      } else {
-        alert('Failed to generate invoice PDF. Please try again.');
-      }
-    } catch (err) {
-      console.error('Failed to download invoice PDF', err);
-      alert('Failed to download invoice PDF. Please try again.');
-    }
-  };
-
-  const handleMarkAsPaid = async (invoice: Invoice, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!invoice.order_id) return;
-
-    try {
-      setIsMarkingMap((prev) => ({ ...prev, [invoice.id]: true }));
-
-      const updatedInvoice = await markInvoiceAsPaid(invoice.id);
-      await markOrderAsPaid(invoice.order_id);
-      await logOrderPaidEvent(invoice.order_id);
-
-      setInvoices((prev) =>
-        prev.map((inv) =>
-          inv.id === invoice.id
-            ? { ...inv, status: 'Paid', paid_at: (updatedInvoice as any).paid_at, date: updatedInvoice.date }
-            : inv
-        )
-      );
-
-      const currentOrder = ordersMap.get(invoice.order_id);
-      if (currentOrder) {
-        setOrdersMap(prev =>
-          new Map(prev).set(
-            invoice.order_id,
-            { ...currentOrder, paid_at: (updatedInvoice as any).paid_at || new Date().toISOString() }
-          )
-        );
-      }
-
-    } catch (error) {
-      console.error('Failed to mark invoice as paid', error);
-      alert('Failed to mark invoice as paid. Please try again.');
-    } finally {
-      setIsMarkingMap((prev) => ({ ...prev, [invoice.id]: false }));
-    }
-  };
-
-  const handleDownloadAll = async () => {
-    const selectedDownloadable = invoicesWithCustomers.filter(
-      (inv) => selectedIds.has(inv.id) && canDownloadInvoice(inv)
-    );
-
-    if (selectedDownloadable.length === 0) {
-      alert('No downloadable invoices selected. Only Paid invoices can be downloaded.');
-      return;
-    }
-
-    let sellerProfile = {
-      company_name: profile?.company_name || undefined,
-      email: profile?.email || undefined,
-      phone: profile?.phone || undefined,
-      website: undefined,
-      address: undefined,
-      user_id: user?.id
-    };
-
-    if (!profile && user) {
-      try {
-        const { data: authData } = await supabase.auth.getUser();
-        const userId = authData?.user?.id;
-
-        if (userId) {
-          const { data: profileData } = await supabase
-            .from("users_profile")
-            .select("company_name, email, phone, website, address")
-            .eq("id", userId)
-            .maybeSingle();
-
-          if (profileData) {
-            sellerProfile = {
-              company_name: profileData.company_name || undefined,
-              email: profileData.email || undefined,
-              phone: profileData.phone || undefined,
-              website: (profileData as any).website || undefined,
-              address: (profileData as any).address || undefined,
-              user_id: userId
-            };
-          }
-        }
-      } catch (err) {
-        console.error('Error fetching profile for bulk download:', err);
-      }
-    }
-
-    for (const inv of selectedDownloadable) {
-      try {
-        const { data: freshOrder, error: orderError } = await supabase
-          .from('orders')
-          .select('*')
-          .eq('id', inv.order_id)
-          .eq('user_id', user?.id)
-          .single();
-
-        if (orderError || !freshOrder) {
-          console.warn(`Failed to fetch fresh order data for invoice ${inv.id}`, orderError);
-          continue;
-        }
-
-        const invoiceWithoutCache: Invoice = {
-          ...(inv as Invoice),
-          pdf_url: null,
-        };
-
-        const pdfUrl = await ensureInvoicePdfStored(
-          invoiceWithoutCache,
-          freshOrder as Order,
-          sellerProfile
-        );
-
-        if (pdfUrl) {
-          const filename = `invoice-${inv.invoice_code || inv.id}.pdf`;
-          await downloadFileDirectly(pdfUrl, filename);
-        } else {
-          console.error(`Failed to generate PDF for invoice ${inv.id}`);
-        }
-      } catch (err) {
-        console.error(`Failed to download invoice ${inv.id}`, err);
-      }
-
-      await new Promise(resolve => setTimeout(resolve, 300));
-    }
-  };
-
-  const filteredInvoices = invoicesWithCustomers;
-
-  const handleSelectAll = () => {
-    if (selectedIds.size === filteredInvoices.length) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(filteredInvoices.map(inv => inv.id)));
-    }
-  };
-
-  const handleToggleSelect = (id: string) => {
-    setSelectedIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  };
-
-  // SidePanel handlers
-  const handleRowClick = async (invoice: InvoiceWithCustomer) => {
-    const order = ordersMap.get(invoice.order_id);
-    if (!order) {
-      showError('Order details not found');
-      return;
-    }
-
-    setSelectedOrder(order);
-    setAddressForm({
-      address_detail: order.address_detail || order.address || '',
-      ward: order.ward || '',
-      district: order.district || '',
-      province: order.province || '',
-    });
-    setIsAddressModified(false);
-    setIsSidePanelOpen(true);
-
-    const { data, error } = await fetchOrderEvents(order.id);
-    if (!error && data) {
-      setOrderEvents(data);
-    }
-  };
-
-  const handleAddressChange = (field: string, value: string) => {
-    setAddressForm((prev) => {
-      const next = { ...prev, [field]: value };
-      setIsAddressModified(true);
-      return next;
-    });
-  };
-
-  const handleSaveAddress = async () => {
-    if (!selectedOrder || !user) return;
-
-    const { address_detail, ward, district, province } = addressForm;
-    const fullAddress = [address_detail, ward, district, province]
-      .filter(Boolean)
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0)
-      .join(', ');
-
-    try {
-      const { error } = await supabase
-        .from('orders')
-        .update({
-          address_detail,
-          ward,
-          district,
-          province,
-          address: fullAddress,
-        })
-        .eq('id', selectedOrder.id);
-
-      if (error) throw error;
-
-      showSuccess('Address updated successfully');
-      setIsAddressModified(false);
-
-      setSelectedOrder(prev =>
-        prev ? { ...prev, address_detail, ward, district, province, address: fullAddress } : null
-      );
-      setOrdersMap(prev =>
-        new Map(prev).set(
-          selectedOrder.id,
-          { ...selectedOrder, address_detail, ward, district, province, address: fullAddress }
-        )
-      );
-
-    } catch (err) {
-      showError('Failed to update address');
-    }
-  };
-
-  const refreshOrder = async (orderId: string) => {
-    const { data } = await supabase.from('orders').select('*').eq('id', orderId).single();
-    if (data) {
-      setSelectedOrder(data as Order);
-      setOrdersMap(prev => new Map(prev).set(orderId, data as Order));
-      const { data: events } = await fetchOrderEvents(orderId);
-      if (events) setOrderEvents(events);
-    }
-  };
-
-  const handleApprove = async (order: Order) => {
-    try {
-      await supabase.from('orders').update({ status: 'Order Confirmation Sent' }).eq('id', order.id);
-      showSuccess('Order approved');
-      refreshOrder(order.id);
-    } catch (e) { showError('Failed'); }
-  };
-
-  if (loading && invoices.length === 0) {
-    return (
-      <div className="flex flex-col h-full min-h-0">
-        <Card className="flex-1 flex flex-col min-h-0">
-          <CardContent className="flex-1 flex items-center justify-center">
-            <p className="text-[var(--text-muted)]">Loading invoices...</p>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex flex-col h-full min-h-0">
-        <Card className="flex-1 flex flex-col min-h-0">
-          <CardContent className="flex-1 flex flex-col items-center justify-center">
-            <p className="text-red-400 mb-4">Error: {error}</p>
-            <Button onClick={() => window.location.reload()}>
-              Retry
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-6 p-6 h-full flex flex-col min-h-0">
-      <FilterBar
-        searchValue={searchQuery}
-        onSearch={setSearchQuery}
-        searchPlaceholder="Search by Invoice ID, Order ID, or Customer..."
-      >
-        <MultiSelectFilter
-          label="Status"
-          options={[
-            { value: 'Paid', label: 'Paid' },
-            { value: 'Pending', label: 'Pending' },
-            { value: 'Cancelled', label: 'Cancelled' },
-          ]}
-          selectedValues={Array.isArray(statusFilter) ? statusFilter : statusFilter === 'all' ? [] : [statusFilter]}
-          onChange={(values) => setStatusFilter(values)}
-        />
-
-        <input
-          type="date"
-          value={dateFilter}
-          onChange={(e) => setDateFilter(e.target.value)}
-          className="h-10 w-auto min-w-[180px] whitespace-nowrap px-3 bg-[var(--bg-input)] border border-[var(--border-subtle)] rounded-lg text-[var(--text-main)]"
-        />
-
-        <button
-          type="button"
-          onClick={clearAllFilters}
-          className="text-sm text-[var(--text-muted)] whitespace-nowrap hover:text-white transition"
-        >
-          Clear filters
-        </button>
-      </FilterBar>
-
-      <Card className="flex-1 flex flex-col min-h-0 relative z-0">
-        <CardHeader className="!pt-4 !pb-1 !px-6 flex-shrink-0">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <button
-                onClick={handleSelectAll}
-                className="text-sm text-[var(--text-muted)] hover:text-[var(--text-main)] transition"
-              >
-                {selectedIds.size === filteredInvoices.length && filteredInvoices.length > 0
-                  ? 'Deselect All'
-                  : 'Select All'}
-              </button>
-              {selectedIds.size > 0 && (
-                <span className="text-sm text-[var(--text-muted)]">
-                  {selectedIds.size} selected
-                </span>
-              )}
-            </div>
-            {selectedIds.size > 0 && (() => {
-              const selectedDownloadable = invoicesWithCustomers.filter(
-                (inv) => selectedIds.has(inv.id) && canDownloadInvoice(inv)
-              );
-              const selectedDownloadableCount = selectedDownloadable.length;
-
-              return (
-                <Button
-                  onClick={handleDownloadAll}
-                  size="sm"
-                  disabled={selectedDownloadableCount === 0}
-                >
-                  <Download size={16} className="mr-2" />
-                  Download All ({selectedDownloadableCount})
-                </Button>
-              );
-            })()}
-          </div>
-        </CardHeader>
-        <CardContent className="flex-1 min-h-0 overflow-y-auto p-0">
-          <div className="w-full max-w-full overflow-x-auto scrollbar-thin scrollbar-thumb-[#1E223D] scrollbar-track-transparent">
-            <table className="min-w-[1100px] w-full border-separate border-spacing-0">
-              <thead>
-                <tr className="border-b border-[#1E223D]">
-                  <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap w-12">
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.size === filteredInvoices.length && filteredInvoices.length > 0}
-                      onChange={handleSelectAll}
-                      className="w-4 h-4 rounded border-white/20 bg-white/5 text-[#8B5CF6] focus:ring-[#8B5CF6] focus:ring-offset-0 cursor-pointer"
-                    />
-                  </th>
-                  <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Invoice ID</th>
-                  <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Order ID</th>
-                  <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Customer</th>
-                  <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Amount (VND)</th>
-                  <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Date</th>
-                  <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Status</th>
-                  <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredInvoices.map((invoice) => {
-                  return (
-                    <tr
-                      key={invoice.id}
-                      className="border-b border-[#1E223D] hover:bg-white/5 transition cursor-pointer"
-                      onClick={() => handleRowClick(invoice)}
-                    >
-                      <td className="px-6 py-4 align-middle" onClick={(e) => e.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.has(invoice.id)}
-                          onChange={() => handleToggleSelect(invoice.id)}
-                          className="w-4 h-4 rounded border-white/20 bg-white/5 text-[#8B5CF6] focus:ring-[#8B5CF6] focus:ring-offset-0 cursor-pointer"
-                        />
-                      </td>
-                      <td className="px-6 py-4 text-sm text-[#E5E7EB] font-medium whitespace-nowrap align-middle">
-                        {invoice.invoice_code
-                          ? invoice.invoice_code
-                          : invoice.orders?.order_id
-                            ? `INV-${invoice.orders.order_id}`
-                            : `INV-${invoice.id.slice(0, 8).toUpperCase()}`}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-[#E5E7EB] whitespace-nowrap align-middle">
-                        {invoice.orders?.order_id ?? '—'}
-                      </td>
-                      <td
-                        className="px-6 py-4 text-sm text-[#E5E7EB] align-middle"
-                        title={invoice.customer_name || undefined}
-                      >
-                        <span className="block truncate whitespace-nowrap max-w-[200px]">
-                          {invoice.customer_name || 'Unknown'}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-[#E5E7EB] whitespace-nowrap align-middle">
-                        {formatVnd(getInvoiceDisplayAmount(invoice))}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-[#E5E7EB] whitespace-nowrap align-middle">
-                        {invoice.date}
-                      </td>
-                      <td className="px-6 py-4 align-middle">
-                        <StatusBadge status={invoice.status} />
-                      </td>
-                      <td className="px-6 py-4 align-middle" onClick={(e) => e.stopPropagation()}>
-                        {canDownloadInvoice(invoice) ? (
-                          <button
-                            onClick={() => handleDownload(invoice)}
-                            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg:white/10 text-[#E5E7EB] transition"
-                          >
-                            <Download size={16} />
-                            <span className="text-sm">Download</span>
-                          </button>
-                        ) : (
-                          <Button
-                            variant="primary"
-                            size="sm"
-                            onClick={(e) => handleMarkAsPaid(invoice, e)}
-                            disabled={isMarkingMap[invoice.id]}
-                            className="bg-[#8B5CF6] hover:bg-[#7C3AED] text-white border-none"
-                          >
-                            {isMarkingMap[invoice.id] ? 'Updating…' : 'Mark as Paid'}
-                          </Button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            {filteredInvoices.length === 0 && (
-              <div className="p-12 text-center text-[var(--text-muted)]">
-                {invoices.length === 0
-                  ? 'No invoices found.'
-                  : 'No invoices match your filters.'}
-              </div>
-            )}
-          </div>
-        </CardContent>
-        <Pagination
-          currentPage={page}
-          totalItems={totalCount}
-          pageSize={PAGE_SIZE}
-          onPageChange={setPage}
-        />
-      </Card>
-
-      <OrderSidePanel
-        isOpen={isSidePanelOpen}
-        onClose={() => setIsSidePanelOpen(false)}
-        order={selectedOrder}
-        orderEvents={orderEvents}
-        addressForm={addressForm}
-        isAddressModified={isAddressModified}
-        onAddressChange={handleAddressChange}
-        onSaveAddress={handleSaveAddress}
-        blacklistedPhones={blacklistedPhones}
-        onApprove={handleApprove}
-        onReject={() => { }}
-        onMarkDelivered={() => { }}
-        onMarkCompleted={() => { }}
-        onOrderUpdated={() => {
-          if (selectedOrder) {
-            refreshOrder(selectedOrder.id);
-          }
-        }}
-        onMarkMissed={() => { }}
-        onSimulateConfirmed={() => { }}
-        onSimulateCancelled={() => { }}
-        onSimulatePaid={() => { }}
-        onSendQrPaymentLink={() => { }}
-      />
-    </div>
-  );
-};
-</file>
-
 <file path="src/pages/dashboard/OrdersPage.tsx">
 import React from 'react';
 import { OrdersView } from '../../features/orders/components/OrdersView';
@@ -29123,6 +28291,807 @@ export function useOrders() {
 
     return { parseFile, insertOrders };
 }
+</file>
+
+<file path="src/pages/dashboard/InvoicePage.tsx">
+import React, { useState, useEffect } from 'react';
+import { Card, CardHeader, CardContent } from '../../components/ui/Card';
+import { Button } from '../../components/ui/Button';
+import { FilterBar } from '../../components/ui/FilterBar';
+import { MultiSelectFilter } from '../../components/filters/MultiSelectFilter';
+import { StatusBadge } from '../../components/dashboard/StatusBadge';
+import { Download } from 'lucide-react';
+import { supabase } from '../../lib/supabaseClient';
+import { useAuth } from '../../features/auth';
+import { useUserProfile } from '../../hooks/useUserProfile';
+import type { Invoice, Order, OrderEvent } from '../../types/supabase';
+import { ensureInvoicePdfStored } from '../../features/invoices/services/invoiceStorage';
+import { fetchInvoicesByUser, markInvoiceAsPaid } from '../../features/invoices/services/invoiceService';
+import { markOrderAsPaid } from '../../features/orders/services/ordersService';
+import { logOrderPaidEvent, fetchOrderEvents } from '../../features/orders/services/orderEventsService';
+import { Pagination } from '../../components/ui/Pagination';
+import { downloadFileDirectly } from '../../features/invoices/utils/invoiceDownload';
+import { OrderSidePanel } from '../../features/orders/components/OrderSidePanel';
+import { fetchCustomerBlacklist } from '../../features/customers/services/customersService';
+import { useToast } from '../../components/ui/Toast';
+
+interface InvoiceWithCustomer extends Invoice {
+  customer_name?: string;
+  orders?: {
+    order_id: string | null;
+    customer_name: string | null;
+  } | null;
+}
+
+export const InvoicePage: React.FC = () => {
+  const { user } = useAuth();
+  const { profile } = useUserProfile();
+  const { showSuccess, showError } = useToast();
+
+  const [invoices, setInvoices] = useState<InvoiceWithCustomer[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [invoicesWithCustomers, setInvoicesWithCustomers] = useState<InvoiceWithCustomer[]>([]);
+  const [ordersMap, setOrdersMap] = useState<Map<string, Order>>(new Map());
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
+  const [dateFilter, setDateFilter] = useState('');
+  const [isMarkingMap, setIsMarkingMap] = useState<Record<string, boolean>>({});
+
+  // Side Panel
+  const [isSidePanelOpen, setIsSidePanelOpen] = useState(false);
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [orderEvents, setOrderEvents] = useState<OrderEvent[]>([]);
+  const [blacklistedPhones, setBlacklistedPhones] = useState<Set<string>>(new Set());
+  const [addressForm, setAddressForm] = useState({
+    address_detail: '',
+    ward: '',
+    district: '',
+    province: '',
+  });
+  const [isAddressModified, setIsAddressModified] = useState(false);
+
+  // Pagination
+  const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const PAGE_SIZE = 200;
+
+  const clearAllFilters = () => {
+    setSearchQuery('');
+    setStatusFilter([]);
+    setDateFilter('');
+  };
+
+  // Load blacklist
+  useEffect(() => {
+    const loadBlacklist = async () => {
+      if (!user) return;
+      try {
+        const { data } = await fetchCustomerBlacklist(user.id);
+        setBlacklistedPhones(new Set((data ?? []).map((entry) => entry.phone)));
+      } catch (err) {
+        console.error('Error loading blacklist:', err);
+      }
+    };
+    loadBlacklist();
+  }, [user]);
+
+  // Fetch invoices + orders
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchInvoices = async () => {
+      setLoading(true);
+      setError(null);
+
+      try {
+        const {
+          invoices: invoicesData,
+          totalCount: count,
+          error: invoicesError,
+        } = await fetchInvoicesByUser(
+          user.id,
+          page,
+          PAGE_SIZE,
+          {
+            searchQuery,
+            status: statusFilter,
+            date: dateFilter
+          }
+        );
+
+        if (invoicesError) throw invoicesError;
+
+        setTotalCount(count);
+
+        if (!invoicesData || invoicesData.length === 0) {
+          setInvoices([]);
+          setOrdersMap(new Map());
+          setLoading(false);
+          return;
+        }
+
+        const orderIds = invoicesData
+          .map(inv => inv.order_id)
+          .filter((id): id is string => Boolean(id));
+
+        let ordersMapLocal = new Map<string, { order_id: string | null; customer_name: string | null }>();
+        let fullOrdersMap = new Map<string, Order>();
+
+        if (orderIds.length > 0) {
+          const { data: ordersData, error: ordersError } = await supabase
+            .from('orders')
+            .select('id, order_id, customer_name, phone, address, product, amount, discount_amount, shipping_fee, status, payment_method, risk_score, risk_level, created_at, updated_at, paid_at, customer_confirmed_at, confirmation_sent_at, cancelled_at, shipped_at, completed_at, product_id, address_detail, ward, district, province')
+            .eq('user_id', user.id)
+            .in('id', orderIds);
+
+          if (!ordersError && ordersData) {
+            ordersData.forEach((order: any) => {
+              ordersMapLocal.set(order.id, {
+                order_id: order.order_id || null,
+                customer_name: order.customer_name || null,
+              });
+              fullOrdersMap.set(order.id, order as Order);
+            });
+          }
+        }
+
+        const invoicesWithOrders: InvoiceWithCustomer[] = (invoicesData as any[]).map((invoice) => ({
+          ...(invoice as Invoice),
+          orders: ordersMapLocal.get(invoice.order_id) || null,
+        }));
+
+        setInvoices(invoicesWithOrders);
+        setOrdersMap(fullOrdersMap);
+
+      } catch (err) {
+        console.error('Error fetching invoices:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load invoices');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchInvoices();
+  }, [user, page, searchQuery, statusFilter, dateFilter]);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, statusFilter, dateFilter]);
+
+  // Realtime (hiện để đó)
+  useEffect(() => {
+    if (!user) return;
+    const channel = supabase
+      .channel('invoices-changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'invoices', filter: `user_id=eq.${user.id}` },
+        () => { }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
+
+  // Merge customer_name cho tiện
+  useEffect(() => {
+    const merged = invoices.map(invoice => ({
+      ...invoice,
+      customer_name: invoice.orders?.customer_name || 'Unknown Customer',
+    }));
+    setInvoicesWithCustomers(merged);
+  }, [invoices]);
+
+  const canDownloadInvoice = (invoice: Invoice) => {
+    return invoice.status === 'Paid';
+  };
+
+  const formatVnd = (n: any) => {
+    const num = Number(n || 0);
+    return num.toLocaleString('vi-VN');
+  };
+
+  const getInvoiceDisplayAmount = (inv: InvoiceWithCustomer) => {
+    const order = ordersMap.get(inv.order_id);
+
+    if (order) {
+      const subtotal =
+        (order as any).subtotal ??
+        order.amount ??
+        0;
+
+      const discount =
+        order.discount_amount ??
+        (inv as any).discount_amount ??
+        0;
+
+      const shipping =
+        order.shipping_fee ??
+        (inv as any).shipping_fee ??
+        0;
+
+      return subtotal + shipping - discount;
+    }
+
+    const subtotal =
+      (inv as any).subtotal ??
+      inv.amount ??
+      0;
+
+    const discount =
+      (inv as any).discount_amount ??
+      0;
+
+    const shipping =
+      (inv as any).shipping_fee ??
+      0;
+
+    return subtotal + shipping - discount;
+  };
+
+  const handleDownload = async (invoice: InvoiceWithCustomer) => {
+    if (!canDownloadInvoice(invoice)) {
+      alert('Only Paid invoices can be downloaded.');
+      return;
+    }
+
+    try {
+      const { data: freshOrder, error: orderError } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('id', invoice.order_id)
+        .eq('user_id', user?.id)
+        .single();
+
+      if (orderError || !freshOrder) {
+        console.error('Failed to fetch fresh order data for invoice', invoice.id, orderError);
+        alert('Order not found for this invoice.');
+        return;
+      }
+
+      let sellerProfile = {
+        company_name: profile?.company_name || undefined,
+        email: profile?.email || undefined,
+        phone: profile?.phone || undefined,
+        website: undefined,
+        address: undefined,
+      };
+
+      if (!profile && user) {
+        const { data: authData } = await supabase.auth.getUser();
+        const userId = authData?.user?.id;
+
+        if (userId) {
+          const { data: profileData } = await supabase
+            .from("users_profile")
+            .select("company_name, email, phone, website, address")
+            .eq("id", userId)
+            .maybeSingle();
+
+          if (profileData) {
+            sellerProfile = {
+              company_name: profileData.company_name || undefined,
+              email: profileData.email || undefined,
+              phone: profileData.phone || undefined,
+              website: (profileData as any).website || undefined,
+              address: (profileData as any).address || undefined,
+            };
+          }
+        }
+      }
+
+      const invoiceWithoutCache: Invoice = {
+        ...(invoice as Invoice),
+        pdf_url: null,
+      };
+
+      const pdfUrl = await ensureInvoicePdfStored(
+        invoiceWithoutCache,
+        freshOrder as Order,
+        sellerProfile
+      );
+
+      if (pdfUrl) {
+        window.open(pdfUrl, '_blank');
+      } else {
+        alert('Failed to generate invoice PDF. Please try again.');
+      }
+    } catch (err) {
+      console.error('Failed to download invoice PDF', err);
+      alert('Failed to download invoice PDF. Please try again.');
+    }
+  };
+
+  const handleMarkAsPaid = async (invoice: Invoice, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!invoice.order_id) return;
+
+    try {
+      setIsMarkingMap((prev) => ({ ...prev, [invoice.id]: true }));
+
+      const updatedInvoice = await markInvoiceAsPaid(invoice.id);
+      await markOrderAsPaid(invoice.order_id);
+      await logOrderPaidEvent(invoice.order_id);
+
+      setInvoices((prev) =>
+        prev.map((inv) =>
+          inv.id === invoice.id
+            ? { ...inv, status: 'Paid', paid_at: (updatedInvoice as any).paid_at, date: updatedInvoice.date }
+            : inv
+        )
+      );
+
+      const currentOrder = ordersMap.get(invoice.order_id);
+      if (currentOrder) {
+        setOrdersMap(prev =>
+          new Map(prev).set(
+            invoice.order_id,
+            { ...currentOrder, paid_at: (updatedInvoice as any).paid_at || new Date().toISOString() }
+          )
+        );
+      }
+
+    } catch (error) {
+      console.error('Failed to mark invoice as paid', error);
+      alert('Failed to mark invoice as paid. Please try again.');
+    } finally {
+      setIsMarkingMap((prev) => ({ ...prev, [invoice.id]: false }));
+    }
+  };
+
+  const handleDownloadAll = async () => {
+    const selectedDownloadable = invoicesWithCustomers.filter(
+      (inv) => selectedIds.has(inv.id) && canDownloadInvoice(inv)
+    );
+
+    if (selectedDownloadable.length === 0) {
+      alert('No downloadable invoices selected. Only Paid invoices can be downloaded.');
+      return;
+    }
+
+    let sellerProfile = {
+      company_name: profile?.company_name || undefined,
+      email: profile?.email || undefined,
+      phone: profile?.phone || undefined,
+      website: undefined,
+      address: undefined,
+      user_id: user?.id
+    };
+
+    if (!profile && user) {
+      try {
+        const { data: authData } = await supabase.auth.getUser();
+        const userId = authData?.user?.id;
+
+        if (userId) {
+          const { data: profileData } = await supabase
+            .from("users_profile")
+            .select("company_name, email, phone, website, address")
+            .eq("id", userId)
+            .maybeSingle();
+
+          if (profileData) {
+            sellerProfile = {
+              company_name: profileData.company_name || undefined,
+              email: profileData.email || undefined,
+              phone: profileData.phone || undefined,
+              website: (profileData as any).website || undefined,
+              address: (profileData as any).address || undefined,
+              user_id: userId
+            };
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching profile for bulk download:', err);
+      }
+    }
+
+    for (const inv of selectedDownloadable) {
+      try {
+        const { data: freshOrder, error: orderError } = await supabase
+          .from('orders')
+          .select('*')
+          .eq('id', inv.order_id)
+          .eq('user_id', user?.id)
+          .single();
+
+        if (orderError || !freshOrder) {
+          console.warn(`Failed to fetch fresh order data for invoice ${inv.id}`, orderError);
+          continue;
+        }
+
+        const invoiceWithoutCache: Invoice = {
+          ...(inv as Invoice),
+          pdf_url: null,
+        };
+
+        const pdfUrl = await ensureInvoicePdfStored(
+          invoiceWithoutCache,
+          freshOrder as Order,
+          sellerProfile
+        );
+
+        if (pdfUrl) {
+          const filename = `invoice-${inv.invoice_code || inv.id}.pdf`;
+          await downloadFileDirectly(pdfUrl, filename);
+        } else {
+          console.error(`Failed to generate PDF for invoice ${inv.id}`);
+        }
+      } catch (err) {
+        console.error(`Failed to download invoice ${inv.id}`, err);
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+  };
+
+  const filteredInvoices = invoicesWithCustomers;
+
+  const handleSelectAll = () => {
+    if (selectedIds.size === filteredInvoices.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredInvoices.map(inv => inv.id)));
+    }
+  };
+
+  const handleToggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  // SidePanel handlers
+  const handleRowClick = async (invoice: InvoiceWithCustomer) => {
+    const order = ordersMap.get(invoice.order_id);
+    if (!order) {
+      showError('Order details not found');
+      return;
+    }
+
+    setSelectedOrder(order);
+    setAddressForm({
+      address_detail: order.address_detail || order.address || '',
+      ward: order.ward || '',
+      district: order.district || '',
+      province: order.province || '',
+    });
+    setIsAddressModified(false);
+    setIsSidePanelOpen(true);
+
+    const { data, error } = await fetchOrderEvents(order.id);
+    if (!error && data) {
+      setOrderEvents(data);
+    }
+  };
+
+  const handleAddressChange = (field: string, value: string) => {
+    setAddressForm((prev) => {
+      const next = { ...prev, [field]: value };
+      setIsAddressModified(true);
+      return next;
+    });
+  };
+
+  const handleSaveAddress = async () => {
+    if (!selectedOrder || !user) return;
+
+    const { address_detail, ward, district, province } = addressForm;
+    const fullAddress = [address_detail, ward, district, province]
+      .filter(Boolean)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0)
+      .join(', ');
+
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          address_detail,
+          ward,
+          district,
+          province,
+          address: fullAddress,
+        })
+        .eq('id', selectedOrder.id);
+
+      if (error) throw error;
+
+      showSuccess('Address updated successfully');
+      setIsAddressModified(false);
+
+      setSelectedOrder(prev =>
+        prev ? { ...prev, address_detail, ward, district, province, address: fullAddress } : null
+      );
+      setOrdersMap(prev =>
+        new Map(prev).set(
+          selectedOrder.id,
+          { ...selectedOrder, address_detail, ward, district, province, address: fullAddress }
+        )
+      );
+
+    } catch (err) {
+      showError('Failed to update address');
+    }
+  };
+
+  const refreshOrder = async (orderId: string) => {
+    const { data } = await supabase.from('orders').select('*').eq('id', orderId).single();
+    if (data) {
+      setSelectedOrder(data as Order);
+      setOrdersMap(prev => new Map(prev).set(orderId, data as Order));
+      const { data: events } = await fetchOrderEvents(orderId);
+      if (events) setOrderEvents(events);
+    }
+  };
+
+  const handleApprove = async (order: Order) => {
+    try {
+      await supabase.from('orders').update({ status: 'Order Confirmation Sent' }).eq('id', order.id);
+      showSuccess('Order approved');
+      refreshOrder(order.id);
+    } catch (e) { showError('Failed'); }
+  };
+
+  if (loading && invoices.length === 0) {
+    return (
+      <div className="flex flex-col h-full min-h-0">
+        <Card className="flex-1 flex flex-col min-h-0">
+          <CardContent className="flex-1 flex items-center justify-center">
+            <p className="text-[var(--text-muted)]">Loading invoices...</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col h-full min-h-0">
+        <Card className="flex-1 flex flex-col min-h-0">
+          <CardContent className="flex-1 flex flex-col items-center justify-center">
+            <p className="text-red-400 mb-4">Error: {error}</p>
+            <Button onClick={() => window.location.reload()}>
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 p-6 h-full flex flex-col min-h-0">
+      <FilterBar
+        searchValue={searchQuery}
+        onSearch={setSearchQuery}
+        searchPlaceholder="Search by Invoice ID, Order ID, or Customer..."
+      >
+        <MultiSelectFilter
+          label="Status"
+          options={[
+            { value: 'Paid', label: 'Paid' },
+            { value: 'Pending', label: 'Pending' },
+            { value: 'Cancelled', label: 'Cancelled' },
+          ]}
+          selectedValues={Array.isArray(statusFilter) ? statusFilter : statusFilter === 'all' ? [] : [statusFilter]}
+          onChange={(values) => setStatusFilter(values)}
+        />
+
+        <input
+          type="date"
+          value={dateFilter}
+          onChange={(e) => setDateFilter(e.target.value)}
+          className="h-10 w-auto min-w-[180px] whitespace-nowrap px-3 bg-[var(--bg-input)] border border-[var(--border-subtle)] rounded-lg text-[var(--text-main)]"
+        />
+
+        <button
+          type="button"
+          onClick={clearAllFilters}
+          className="text-sm text-[var(--text-muted)] whitespace-nowrap hover:text-white transition"
+        >
+          Clear filters
+        </button>
+      </FilterBar>
+
+      <Card className="flex-1 flex flex-col min-h-0 relative z-0">
+        <CardHeader className="!pt-4 !pb-1 !px-6 flex-shrink-0">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={handleSelectAll}
+                className="text-sm text-[var(--text-muted)] hover:text-[var(--text-main)] transition"
+              >
+                {selectedIds.size === filteredInvoices.length && filteredInvoices.length > 0
+                  ? 'Deselect All'
+                  : 'Select All'}
+              </button>
+              {selectedIds.size > 0 && (
+                <span className="text-sm text-[var(--text-muted)]">
+                  {selectedIds.size} selected
+                </span>
+              )}
+            </div>
+            {selectedIds.size > 0 && (() => {
+              const selectedDownloadable = invoicesWithCustomers.filter(
+                (inv) => selectedIds.has(inv.id) && canDownloadInvoice(inv)
+              );
+              const selectedDownloadableCount = selectedDownloadable.length;
+
+              return (
+                <Button
+                  onClick={handleDownloadAll}
+                  size="sm"
+                  disabled={selectedDownloadableCount === 0}
+                >
+                  <Download size={16} className="mr-2" />
+                  Download All ({selectedDownloadableCount})
+                </Button>
+              );
+            })()}
+          </div>
+        </CardHeader>
+        <CardContent className="flex-1 min-h-0 overflow-y-auto p-0">
+          <div className="w-full max-w-full overflow-x-auto scrollbar-thin scrollbar-thumb-[#1E223D] scrollbar-track-transparent">
+            <table className="min-w-[1100px] w-full border-separate border-spacing-0">
+              <thead>
+                <tr className="border-b border-[#1E223D]">
+                  <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap w-12">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.size === filteredInvoices.length && filteredInvoices.length > 0}
+                      onChange={handleSelectAll}
+                      className="w-4 h-4 rounded border-white/20 bg-white/5 text-[#8B5CF6] focus:ring-[#8B5CF6] focus:ring-offset-0 cursor-pointer"
+                    />
+                  </th>
+                  <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Invoice ID</th>
+                  <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Order ID</th>
+                  <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Customer</th>
+                  <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Amount (VND)</th>
+                  <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Date</th>
+                  <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Status</th>
+                  <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredInvoices.map((invoice) => {
+                  return (
+                    <tr
+                      key={invoice.id}
+                      className="border-b border-[#1E223D] hover:bg-white/5 transition cursor-pointer"
+                      onClick={() => handleRowClick(invoice)}
+                    >
+                      <td className="px-6 py-4 align-middle" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(invoice.id)}
+                          onChange={() => handleToggleSelect(invoice.id)}
+                          className="w-4 h-4 rounded border-white/20 bg-white/5 text-[#8B5CF6] focus:ring-[#8B5CF6] focus:ring-offset-0 cursor-pointer"
+                        />
+                      </td>
+                      <td className="px-6 py-4 text-sm text-[#E5E7EB] font-medium whitespace-nowrap align-middle">
+                        {invoice.invoice_code
+                          ? invoice.invoice_code
+                          : invoice.orders?.order_id
+                            ? `INV-${invoice.orders.order_id}`
+                            : `INV-${invoice.id.slice(0, 8).toUpperCase()}`}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-[#E5E7EB] whitespace-nowrap align-middle">
+                        {invoice.orders?.order_id ?? '—'}
+                      </td>
+                      <td
+                        className="px-6 py-4 text-sm text-[#E5E7EB] align-middle"
+                        title={invoice.customer_name || undefined}
+                      >
+                        <span className="block truncate whitespace-nowrap max-w-[200px]">
+                          {invoice.customer_name || 'Unknown'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-[#E5E7EB] whitespace-nowrap align-middle">
+                        {formatVnd(getInvoiceDisplayAmount(invoice))}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-[#E5E7EB] whitespace-nowrap align-middle">
+                        {invoice.date}
+                      </td>
+                      <td className="px-6 py-4 align-middle">
+                        <StatusBadge status={invoice.status} />
+                      </td>
+                      <td className="px-6 py-4 align-middle" onClick={(e) => e.stopPropagation()}>
+                        {canDownloadInvoice(invoice) ? (
+                          <Button
+                            onClick={() => handleDownload(invoice)}
+                            className="
+                              flex items-center gap-2
+                              bg-gradient-to-r from-[#4E9EF4] to-[#8B5CF6]
+                              hover:opacity-90
+                              text-white border-none
+                              px-1 py-0.5 
+                              text-xs 
+                              rounded-md
+                            "
+                          >
+                            <Download size={14} />
+                            Download
+                          </Button>
+                        ) : (
+                          <Button
+                            onClick={(e) => handleMarkAsPaid(invoice, e)}
+                            disabled={isMarkingMap[invoice.id]}
+                            className="
+                              bg-gradient-to-r from-[#4E9EF4] to-[#8B5CF6]
+                              hover:opacity-90
+                              text-white border-none
+                              px-1 py-0.5
+                              text-xs
+                              rounded-md
+      "
+                          >
+                            {isMarkingMap[invoice.id] ? "Updating…" : "Mark as Paid"}
+                          </Button>
+                        )}
+                      </td>
+
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {filteredInvoices.length === 0 && (
+              <div className="p-12 text-center text-[var(--text-muted)]">
+                {invoices.length === 0
+                  ? 'No invoices found.'
+                  : 'No invoices match your filters.'}
+              </div>
+            )}
+          </div>
+        </CardContent>
+        <Pagination
+          currentPage={page}
+          totalItems={totalCount}
+          pageSize={PAGE_SIZE}
+          onPageChange={setPage}
+        />
+      </Card>
+
+      <OrderSidePanel
+        isOpen={isSidePanelOpen}
+        onClose={() => setIsSidePanelOpen(false)}
+        order={selectedOrder}
+        orderEvents={orderEvents}
+        addressForm={addressForm}
+        isAddressModified={isAddressModified}
+        onAddressChange={handleAddressChange}
+        onSaveAddress={handleSaveAddress}
+        blacklistedPhones={blacklistedPhones}
+        onApprove={handleApprove}
+        onReject={() => { }}
+        onMarkDelivered={() => { }}
+        onMarkCompleted={() => { }}
+        onOrderUpdated={() => {
+          if (selectedOrder) {
+            refreshOrder(selectedOrder.id);
+          }
+        }}
+        onMarkMissed={() => { }}
+        onSimulateConfirmed={() => { }}
+        onSimulateCancelled={() => { }}
+        onSimulatePaid={() => { }}
+        onSendQrPaymentLink={() => { }}
+      />
+    </div>
+  );
+};
 </file>
 
 <file path="src/components/dashboard/DashboardLayout.tsx">

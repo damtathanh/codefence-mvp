@@ -713,25 +713,39 @@ export const InvoicePage: React.FC = () => {
                       </td>
                       <td className="px-6 py-4 align-middle" onClick={(e) => e.stopPropagation()}>
                         {canDownloadInvoice(invoice) ? (
-                          <button
+                          <Button
                             onClick={() => handleDownload(invoice)}
-                            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg:white/10 text-[#E5E7EB] transition"
+                            className="
+                              flex items-center gap-2
+                              bg-gradient-to-r from-[#4E9EF4] to-[#8B5CF6]
+                              hover:opacity-90
+                              text-white border-none
+                              px-1 py-0.5 
+                              text-xs 
+                              rounded-md
+                            "
                           >
-                            <Download size={16} />
-                            <span className="text-sm">Download</span>
-                          </button>
+                            <Download size={14} />
+                            Download
+                          </Button>
                         ) : (
                           <Button
-                            variant="primary"
-                            size="sm"
                             onClick={(e) => handleMarkAsPaid(invoice, e)}
                             disabled={isMarkingMap[invoice.id]}
-                            className="bg-[#8B5CF6] hover:bg-[#7C3AED] text-white border-none"
+                            className="
+                              bg-gradient-to-r from-[#4E9EF4] to-[#8B5CF6]
+                              hover:opacity-90
+                              text-white border-none
+                              px-1 py-0.5
+                              text-xs
+                              rounded-md
+      "
                           >
-                            {isMarkingMap[invoice.id] ? 'Updating…' : 'Mark as Paid'}
+                            {isMarkingMap[invoice.id] ? "Updating…" : "Mark as Paid"}
                           </Button>
                         )}
                       </td>
+
                     </tr>
                   );
                 })}
