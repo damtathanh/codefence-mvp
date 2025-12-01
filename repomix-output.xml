@@ -10338,9 +10338,13 @@ export const OrderActions = {
 
         await logUserAction({
             userId: userId,
-            action: 'Approve Order',
+            action: 'Update Order Status',
             status: 'success',
             orderId: order.order_id ?? "",
+            details: {
+                status_from: order.status,
+                status_to: ORDER_STATUS.ORDER_CONFIRMATION_SENT,
+            }
         });
     },
 
@@ -10351,6 +10355,18 @@ export const OrderActions = {
         });
 
         await logOrderEvent(order.id, 'ORDER_REJECTED', { reason }, 'manual_action');
+
+        await logUserAction({
+            userId: userId,
+            action: 'Update Order Status',
+            status: 'success',
+            orderId: order.order_id ?? "",
+            details: {
+                status_from: order.status,
+                status_to: ORDER_STATUS.ORDER_REJECTED,
+                reason: reason,
+            }
+        });
     },
 
     async flagVerification(order: Order, reason: string, userId: string) {
@@ -10360,6 +10376,18 @@ export const OrderActions = {
         });
 
         await logOrderEvent(order.id, 'VERIFICATION_REQUIRED', { reason }, 'manual_action');
+
+        await logUserAction({
+            userId: userId,
+            action: 'Update Order Status',
+            status: 'success',
+            orderId: order.order_id ?? "",
+            details: {
+                status_from: order.status,
+                status_to: ORDER_STATUS.VERIFICATION_REQUIRED,
+                reason: reason,
+            }
+        });
     },
 
     async simulateConfirmed(order: Order, userId: string) {
@@ -10375,6 +10403,17 @@ export const OrderActions = {
 
         // Log event
         await logOrderEvent(order.id, 'QR_SENT', { desc: 'Sent after confirmation' }, 'simulation');
+
+        await logUserAction({
+            userId: userId,
+            action: 'Update Order Status',
+            status: 'success',
+            orderId: order.order_id ?? "",
+            details: {
+                status_from: order.status,
+                status_to: ORDER_STATUS.CUSTOMER_CONFIRMED,
+            }
+        });
     },
 
     async simulateCancelled(order: Order, userId: string) {
@@ -10384,6 +10423,18 @@ export const OrderActions = {
             cancel_reason: 'Simulated: Customer changed mind'
         });
         await logOrderEvent(order.id, 'CUSTOMER_CANCELLED', { reason: 'Customer clicked Cancel on Zalo' }, 'simulation');
+
+        await logUserAction({
+            userId: userId,
+            action: 'Update Order Status',
+            status: 'success',
+            orderId: order.order_id ?? "",
+            details: {
+                status_from: order.status,
+                status_to: ORDER_STATUS.CUSTOMER_CANCELLED,
+                reason: 'Simulated: Customer changed mind',
+            }
+        });
     },
 
     async simulatePaid(order: Order, userId: string) {
@@ -10410,6 +10461,19 @@ export const OrderActions = {
                 method: "simulation", // Simulate QR Paid / Payment Received
             });
         }
+
+        await logUserAction({
+            userId: userId,
+            action: 'Update Order Status',
+            status: 'success',
+            orderId: order.order_id ?? "",
+            details: {
+                status_from: order.status,
+                status_to: nextStatus,
+                payment_status: nextStatus === ORDER_STATUS.ORDER_PAID ? 'UNPAID → PAID' : undefined,
+                payment_method: 'simulation',
+            }
+        });
     },
 
     async markShipped(order: Order, userId: string) {
@@ -10418,6 +10482,17 @@ export const OrderActions = {
             shipped_at: new Date().toISOString(),
         });
         await logOrderEvent(order.id, 'ORDER_SHIPPED', {}, 'fulfillment');
+
+        await logUserAction({
+            userId: userId,
+            action: 'Update Order Status',
+            status: 'success',
+            orderId: order.order_id ?? "",
+            details: {
+                status_from: order.status,
+                status_to: ORDER_STATUS.DELIVERING,
+            }
+        });
     },
 
     async markCompleted(order: Order, userId: string) {
@@ -10426,6 +10501,17 @@ export const OrderActions = {
             completed_at: new Date().toISOString(),
         });
         await logOrderEvent(order.id, 'ORDER_COMPLETED', {}, 'fulfillment');
+
+        await logUserAction({
+            userId: userId,
+            action: 'Update Order Status',
+            status: 'success',
+            orderId: order.order_id ?? "",
+            details: {
+                status_from: order.status,
+                status_to: ORDER_STATUS.COMPLETED,
+            }
+        });
     },
 
     async updateProduct(order: Order, productId: string, productName: string, userId: string) {
@@ -10457,6 +10543,10 @@ export const OrderActions = {
                 action: 'Delete Order',
                 status: 'success',
                 orderId: order.order_id ?? "",
+                details: {
+                    status_from: order.status,
+                    status_to: 'DELETED',
+                }
             })
         );
         await Promise.all(logPromises);
@@ -12201,6 +12291,24 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
       }
 
       await fetchAll();
+
+      if (user && data) {
+        const logPromises = data.map(product =>
+          logUserAction({
+            userId: user.id,
+            action: 'Import Products',
+            status: 'success',
+            orderId: product.product_id ?? "",
+            details: {
+              source: 'excel_import',
+              file_name: file.name,
+              product_name: product.name,
+              category: product.category,
+            },
+          })
+        );
+        await Promise.all(logPromises);
+      }
 
       showSuccess(`Imported ${parsedProducts.length} products successfully.`);
       setUploadProgress('');
@@ -20348,57 +20456,6 @@ export const AdminDashboard: React.FC = () => {
 };
 </file>
 
-<file path="src/utils/statusStyles.ts">
-import type { OrderStatus } from "../constants/orderStatus";
-import { ORDER_STATUS } from "../constants/orderStatus";
-
-export const INVOICE_STATUS_STYLES: Record<string, string> = {
-  Pending: "bg-amber-500/20 text-amber-300 border-amber-500/40",
-  Paid: "bg-green-500/20 text-green-300 border-green-500/40",
-  Cancelled: "bg-rose-500/20 text-rose-300 border-rose-500/40",
-};
-
-export const statusStyles: Record<OrderStatus, string> = {
-  // ✅ SUCCESS / COMPLETED (green)
-  [ORDER_STATUS.ORDER_PAID]: "bg-green-600/20 text-green-300 border-green-600/40",
-  [ORDER_STATUS.ORDER_APPROVED]: "bg-green-600/20 text-green-300 border-green-600/40",
-  [ORDER_STATUS.CUSTOMER_CONFIRMED]: "bg-green-600/20 text-green-300 border-green-600/40",
-  [ORDER_STATUS.COMPLETED]: "bg-green-600/20 text-green-300 border-green-600/40",
-
-  // ⏳ IN PROGRESS (yellow/amber)
-  [ORDER_STATUS.PENDING_REVIEW]: "bg-yellow-600/20 text-yellow-300 border-yellow-600/40",
-  [ORDER_STATUS.VERIFICATION_REQUIRED]: "bg-amber-600/20 text-amber-300 border-amber-600/40",
-  [ORDER_STATUS.ORDER_CONFIRMATION_SENT]: "bg-yellow-600/20 text-yellow-300 border-yellow-600/40",
-  [ORDER_STATUS.DELIVERING]: "bg-blue-600/20 text-blue-300 border-blue-600/40",
-
-  // ❌ NEGATIVE (red)
-  [ORDER_STATUS.CUSTOMER_CANCELLED]: "bg-red-600/20 text-red-300 border-red-600/40",
-  [ORDER_STATUS.CUSTOMER_UNREACHABLE]: "bg-red-600/20 text-red-300 border-red-600/40",
-  [ORDER_STATUS.ORDER_REJECTED]: "bg-red-600/20 text-red-300 border-red-600/40",
-  [ORDER_STATUS.RETURNED]: "bg-purple-600/20 text-purple-300 border-purple-600/40",
-  [ORDER_STATUS.EXCHANGED]: "bg-indigo-600/20 text-indigo-300 border-indigo-600/40",
-};
-
-export function getStatusBadge(status: string | null | undefined) {
-  const key = status || "";
-
-  // 1️⃣ Invoice Status (ưu tiên nếu trùng)
-  if (INVOICE_STATUS_STYLES[key]) {
-    return { className: INVOICE_STATUS_STYLES[key], label: key };
-  }
-
-  // 2️⃣ Order Status (mapping cũ)
-  const badgeClass =
-    statusStyles[key as OrderStatus] ||
-    "bg-gray-600/20 text-gray-300 border-gray-600/40";
-
-  return {
-    className: badgeClass,
-    label: key,
-  };
-}
-</file>
-
 <file path="src/main.tsx">
 import React from 'react'
 import ReactDOM from 'react-dom/client'
@@ -20791,6 +20848,12 @@ export const ManualOrderForm: React.FC<ManualOrderFormProps> = ({
                         action: 'Create Order',
                         status: 'success',
                         orderId: newOrder.order_id ?? '',
+                        details: {
+                            source: 'manual',
+                            product: newOrder.product,
+                            amount: newOrder.amount?.toString() || '0',
+                            payment_method: newOrder.payment_method,
+                        },
                     });
 
                     const pm =
@@ -21820,6 +21883,10 @@ export const useOrderActions = (
                 action: 'Approve Order',
                 status: 'success',
                 orderId: order.order_id ?? "",
+                details: {
+                    status_from: order.status,
+                    status_to: ORDER_STATUS.ORDER_CONFIRMATION_SENT,
+                },
             });
 
             showSuccess('Order approved & confirmation sent.');
@@ -21870,6 +21937,18 @@ export const useOrderActions = (
                     "manual_action"
                 );
 
+                await logUserAction({
+                    userId: user.id,
+                    action: mode === "VERIFICATION_REQUIRED" ? "Flag Verification" : "Reject Order",
+                    status: "success",
+                    orderId: order.order_id ?? "",
+                    details: {
+                        status_from: order.status,
+                        status_to: nextStatus,
+                        reason: finalReason,
+                    },
+                });
+
                 showSuccess(
                     mode === "VERIFICATION_REQUIRED"
                         ? "Order flagged for verification."
@@ -21903,6 +21982,17 @@ export const useOrderActions = (
             await logOrderEvent(order.id, 'CUSTOMER_CONFIRMED', { method: 'simulation' }, 'simulation');
             await logOrderEvent(order.id, 'QR_SENT', { desc: 'Auto sent after confirmation' }, 'simulation');
 
+            await logUserAction({
+                userId: user.id,
+                action: 'Update Order Status',
+                status: 'success',
+                orderId: order.order_id ?? "",
+                details: {
+                    status_from: order.status,
+                    status_to: ORDER_STATUS.CUSTOMER_CONFIRMED,
+                },
+            });
+
             showSuccess('Customer Confirmed. Invoice Created. QR Sent.');
             if (onSuccess) onSuccess();
         } catch (e) { showError('Simulation failed.'); }
@@ -21918,6 +22008,21 @@ export const useOrderActions = (
                 cancel_reason: reason || 'Simulated cancellation'
             });
             await logOrderEvent(order.id, 'CUSTOMER_CANCELLED', { reason }, 'simulation');
+
+            const finalReason = reason || 'Simulated cancellation';
+
+            await logUserAction({
+                userId: user.id,
+                action: 'Update Order Status',
+                status: 'success',
+                orderId: order.order_id ?? "",
+                details: {
+                    status_from: order.status,
+                    status_to: ORDER_STATUS.CUSTOMER_CANCELLED,
+                    reason: finalReason,
+                },
+            });
+
             showSuccess('Order Cancelled by Customer.');
             if (onSuccess) onSuccess();
         } catch (e) { showError('Simulation failed.'); }
@@ -21949,7 +22054,13 @@ export const useOrderActions = (
                 action: 'Mark Paid',
                 status: 'success',
                 orderId: order.order_id ?? "",
-                details: { from: currentStatus, to: nextStatus }
+                details: {
+                    status_from: currentStatus,
+                    status_to: nextStatus,
+                    payment_status: 'UNPAID → PAID',
+                    payment_method: order.payment_method || 'COD',
+                    source: 'OrdersPage',
+                },
             });
 
             showSuccess('Payment Received. Invoice Updated.');
@@ -21965,6 +22076,16 @@ export const useOrderActions = (
             // Optimistic update to trigger UI re-render if needed (e.g. tracking qr_sent_at)
             await updateOrderLocal(order.id, { qr_sent_at: new Date().toISOString() });
 
+            await logUserAction({
+                userId: user.id,
+                action: 'Send QR Payment Link',
+                status: 'success',
+                orderId: order.order_id ?? "",
+                details: {
+                    source: 'OrdersPage',
+                },
+            });
+
             showSuccess('QR Payment Link Sent.');
             if (onSuccess) onSuccess();
         } catch (e) { showError('Failed to send QR link.'); }
@@ -21979,6 +22100,18 @@ export const useOrderActions = (
                 shipped_at: new Date().toISOString(),
             });
             await logOrderEvent(order.id, 'ORDER_SHIPPED', {}, 'fulfillment');
+
+            await logUserAction({
+                userId: user.id,
+                action: 'Update Order Status',
+                status: 'success',
+                orderId: order.order_id ?? "",
+                details: {
+                    status_from: order.status,
+                    status_to: ORDER_STATUS.DELIVERING,
+                },
+            });
+
             showSuccess('Order marked as Delivering.');
             if (onSuccess) onSuccess();
         } catch (err) { showError('Failed to update status.'); }
@@ -21993,6 +22126,18 @@ export const useOrderActions = (
                 completed_at: new Date().toISOString(),
             });
             await logOrderEvent(order.id, 'ORDER_COMPLETED', {}, 'fulfillment');
+
+            await logUserAction({
+                userId: user.id,
+                action: 'Update Order Status',
+                status: 'success',
+                orderId: order.order_id ?? "",
+                details: {
+                    status_from: order.status,
+                    status_to: ORDER_STATUS.COMPLETED,
+                },
+            });
+
             showSuccess('Order marked as Completed.');
             if (onSuccess) onSuccess();
         } catch (err) { showError('Failed to complete order.'); }
@@ -22041,8 +22186,13 @@ export const useOrderActions = (
                     action: 'Delete Order',
                     status: 'success',
                     orderId: order.order_id ?? "",
+                    details: {
+                        status_from: order.status,
+                        status_to: 'DELETED',
+                    },
                 })
             );
+
             await Promise.all(logPromises);
 
             await refreshOrders();
@@ -22065,6 +22215,57 @@ export const useOrderActions = (
         handleDeleteOrders
     };
 };
+</file>
+
+<file path="src/utils/statusStyles.ts">
+import type { OrderStatus } from "../constants/orderStatus";
+import { ORDER_STATUS } from "../constants/orderStatus";
+
+export const INVOICE_STATUS_STYLES: Record<string, string> = {
+  Pending: "bg-amber-500/20 text-amber-300 border-amber-500/40",
+  Paid: "bg-green-500/20 text-green-300 border-green-500/40",
+  Cancelled: "bg-rose-500/20 text-rose-300 border-rose-500/40",
+};
+
+export const statusStyles: Record<OrderStatus, string> = {
+  // ✅ SUCCESS / COMPLETED (green)
+  [ORDER_STATUS.ORDER_PAID]: "bg-green-600/20 text-green-300 border-green-600/40",
+  [ORDER_STATUS.ORDER_APPROVED]: "bg-green-600/20 text-green-300 border-green-600/40",
+  [ORDER_STATUS.CUSTOMER_CONFIRMED]: "bg-green-600/20 text-green-300 border-green-600/40",
+  [ORDER_STATUS.COMPLETED]: "bg-green-600/20 text-green-300 border-green-600/40",
+
+  // ⏳ IN PROGRESS (yellow/amber)
+  [ORDER_STATUS.PENDING_REVIEW]: "bg-yellow-600/20 text-yellow-300 border-yellow-600/40",
+  [ORDER_STATUS.VERIFICATION_REQUIRED]: "bg-amber-600/20 text-amber-300 border-amber-600/40",
+  [ORDER_STATUS.ORDER_CONFIRMATION_SENT]: "bg-yellow-600/20 text-yellow-300 border-yellow-600/40",
+  [ORDER_STATUS.DELIVERING]: "bg-blue-600/20 text-blue-300 border-blue-600/40",
+
+  // ❌ NEGATIVE (red)
+  [ORDER_STATUS.CUSTOMER_CANCELLED]: "bg-red-600/20 text-red-300 border-red-600/40",
+  [ORDER_STATUS.CUSTOMER_UNREACHABLE]: "bg-red-600/20 text-red-300 border-red-600/40",
+  [ORDER_STATUS.ORDER_REJECTED]: "bg-red-600/20 text-red-300 border-red-600/40",
+  [ORDER_STATUS.RETURNED]: "bg-purple-600/20 text-purple-300 border-purple-600/40",
+  [ORDER_STATUS.EXCHANGED]: "bg-indigo-600/20 text-indigo-300 border-indigo-600/40",
+};
+
+export function getStatusBadge(status: string | null | undefined) {
+  const key = status || "";
+
+  // 1️⃣ Invoice Status (ưu tiên nếu trùng)
+  if (INVOICE_STATUS_STYLES[key]) {
+    return { className: INVOICE_STATUS_STYLES[key], label: key };
+  }
+
+  // 2️⃣ Order Status (mapping cũ)
+  const badgeClass =
+    statusStyles[key as OrderStatus] ||
+    "bg-gray-600/20 text-gray-300 border-gray-600/40";
+
+  return {
+    className: badgeClass,
+    label: key,
+  };
+}
 </file>
 
 <file path="src/features/auth/hooks/useAuth.tsx">
@@ -26150,12 +26351,39 @@ import { useAuth } from '../../features/auth';
 import { formatToGMT7 } from '../../utils/formatTimezone';
 import type { History } from '../../types/supabase';
 import { mapStatusToLifecycle } from '../../utils/orderStatusHelpers';
+import { ORDER_STATUS } from '../../constants/orderStatus';
 
 interface HistoryWithFormatted extends History {
   date?: string;
   displayDate?: string;
   time?: string;
 }
+
+const getStatusLabel = (status: string) => {
+  switch (status) {
+    case ORDER_STATUS.PENDING_REVIEW:
+      return 'Pending Review';
+    case ORDER_STATUS.VERIFICATION_REQUIRED:
+      return 'Verification Required';
+    case ORDER_STATUS.ORDER_REJECTED:
+      return 'Order Rejected';
+    case ORDER_STATUS.ORDER_CONFIRMATION_SENT:
+      return 'Order Approved';
+    case ORDER_STATUS.CUSTOMER_CONFIRMED:
+      return 'Customer Confirmed';
+    case ORDER_STATUS.CUSTOMER_CANCELLED:
+      return 'Customer Cancelled';
+    case ORDER_STATUS.ORDER_PAID:
+      return 'Order Paid';
+    case ORDER_STATUS.DELIVERING:
+      return 'Delivering';
+    case ORDER_STATUS.COMPLETED:
+      return 'Completed';
+    default:
+      // fallback: vẫn dùng lifecycle hoặc trả raw
+      return mapStatusToLifecycle(status) || status;
+  }
+};
 
 export const HistoryPage: React.FC = () => {
   const { user } = useAuth();
@@ -26310,8 +26538,8 @@ export const HistoryPage: React.FC = () => {
                                 {/* Lifecycle Status Display */}
                                 {log.details.status_from && log.details.status_to && (
                                   <div className="text-sm font-medium text-purple-300 mb-1">
-                                    Status: {mapStatusToLifecycle(log.details.status_from)} →{' '}
-                                    {mapStatusToLifecycle(log.details.status_to)}
+                                    Status: {getStatusLabel(log.details.status_from as string)} →{' '}
+                                    {getStatusLabel(log.details.status_to as string)}
                                   </div>
                                 )}
 
@@ -26523,10 +26751,25 @@ export const OrdersView: React.FC = () => {
     const handleApproveOrder = async (order: Order) => {
         if (!user) return;
         try {
+            const previousStatus = order.status; // <-- DEFINE HERE
+
             const { error } = await supabase.rpc('approve_medium_risk_order', {
-                p_order_id: order.id
+                p_order_id: order.id,
             });
             if (error) throw error;
+
+            // Log history after RPC success
+            await logUserAction({
+                userId: user.id,
+                action: 'Approve Order',
+                status: 'success',
+                orderId: order.order_id ?? "",
+                details: {
+                    status_from: previousStatus,
+                    status_to: ORDER_STATUS.ORDER_CONFIRMATION_SENT,
+                },
+            });
+
             showSuccess('Order approved successfully');
             await refreshOrders();
             closeSidePanel();
@@ -26554,13 +26797,6 @@ export const OrdersView: React.FC = () => {
             setPendingConfirmOrder(order);
             setIsConfirmationModalOpen(true);
             closeSidePanel();
-
-            await logUserAction({
-                userId: user.id,
-                action: 'Customer Confirmed Order',
-                status: 'success',
-                orderId: order.order_id || order.id
-            });
         } catch (error) {
             showError('Failed to simulate confirmation');
         }
@@ -26616,13 +26852,6 @@ export const OrdersView: React.FC = () => {
             await updateOrderLocal(pendingConfirmOrder.id, {
                 status: ORDER_STATUS.CUSTOMER_CANCELLED,
                 cancel_reason: reason
-            });
-
-            await logUserAction({
-                userId: user.id,
-                action: 'Customer Cancelled Order',
-                status: 'success',
-                orderId: pendingConfirmOrder.order_id || pendingConfirmOrder.id
             });
 
             await refreshOrders();
@@ -27732,6 +27961,9 @@ import { Button } from "../ui/Button";
 import { supabase } from "../../lib/supabaseClient";
 import { applyInvoiceRules } from "../../features/invoices/services/invoiceService";
 
+import { logUserAction } from "../../utils/logUserAction";
+import { useAuth } from "../../features/auth";
+
 interface AddOrderModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -27756,6 +27988,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
   onSuccess,
   editingOrder = null,
 }) => {
+  const { user } = useAuth();
   const isEditMode = !!editingOrder;
   const [activeTab, setActiveTab] = useState<"manual" | "upload">("manual");
 
@@ -27821,7 +28054,26 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
           .in("id", insertedOrderIds);
 
         if (!error && newOrders) {
-          await Promise.all(newOrders.map((order) => applyInvoiceRules(order)));
+          // Log import action for each order
+          if (user) {
+            const logPromises = newOrders.map(order =>
+              logUserAction({
+                userId: user.id,
+                action: 'Import Orders',
+                status: 'success',
+                orderId: order.order_id ?? '',
+                details: {
+                  source: 'excel_import',
+                  file_name: file.name,
+                  amount: order.amount?.toString() || '0',
+                  product: order.product,
+                },
+              })
+            );
+            await Promise.all([...newOrders.map((order) => applyInvoiceRules(order)), ...logPromises]);
+          } else {
+            await Promise.all(newOrders.map((order) => applyInvoiceRules(order)));
+          }
         }
       }
 
@@ -28314,6 +28566,7 @@ import { downloadFileDirectly } from '../../features/invoices/utils/invoiceDownl
 import { OrderSidePanel } from '../../features/orders/components/OrderSidePanel';
 import { fetchCustomerBlacklist } from '../../features/customers/services/customersService';
 import { useToast } from '../../components/ui/Toast';
+import { logUserAction } from '../../utils/logUserAction';
 
 interface InvoiceWithCustomer extends Invoice {
   customer_name?: string;
@@ -28607,9 +28860,13 @@ export const InvoicePage: React.FC = () => {
     }
   };
 
+  // ... (imports)
+
+  // ... inside InvoicePage component ...
+
   const handleMarkAsPaid = async (invoice: Invoice, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!invoice.order_id) return;
+    if (!invoice.order_id || !user) return;
 
     try {
       setIsMarkingMap((prev) => ({ ...prev, [invoice.id]: true }));
@@ -28617,6 +28874,24 @@ export const InvoicePage: React.FC = () => {
       const updatedInvoice = await markInvoiceAsPaid(invoice.id);
       await markOrderAsPaid(invoice.order_id);
       await logOrderPaidEvent(invoice.order_id);
+
+      const currentOrder = ordersMap.get(invoice.order_id);
+
+      // Log User Action for History
+      await logUserAction({
+        userId: user.id,
+        action: 'Update Order Status', // Using generic action as per spec for payment updates
+        status: 'success',
+        orderId: currentOrder?.order_id ?? '',
+        details: {
+          payment_status: 'UNPAID → PAID',
+          payment_method: currentOrder?.payment_method || 'Unknown',
+          source: 'InvoicePage',
+          // We don't log status_from/to here because markOrderAsPaid doesn't necessarily change order status (e.g. if Delivering)
+          // If applyInvoiceRules changes it, it might be logged elsewhere or we miss it here. 
+          // But primarily this is a Payment update.
+        }
+      });
 
       setInvoices((prev) =>
         prev.map((inv) =>
@@ -28626,11 +28901,10 @@ export const InvoicePage: React.FC = () => {
         )
       );
 
-      const currentOrder = ordersMap.get(invoice.order_id);
       if (currentOrder) {
         setOrdersMap(prev =>
           new Map(prev).set(
-            invoice.order_id,
+            invoice.order_id!,
             { ...currentOrder, paid_at: (updatedInvoice as any).paid_at || new Date().toISOString() }
           )
         );

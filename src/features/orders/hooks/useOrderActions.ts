@@ -50,6 +50,10 @@ export const useOrderActions = (
                 action: 'Approve Order',
                 status: 'success',
                 orderId: order.order_id ?? "",
+                details: {
+                    status_from: order.status,
+                    status_to: ORDER_STATUS.ORDER_CONFIRMATION_SENT,
+                },
             });
 
             showSuccess('Order approved & confirmation sent.');
@@ -100,6 +104,18 @@ export const useOrderActions = (
                     "manual_action"
                 );
 
+                await logUserAction({
+                    userId: user.id,
+                    action: mode === "VERIFICATION_REQUIRED" ? "Flag Verification" : "Reject Order",
+                    status: "success",
+                    orderId: order.order_id ?? "",
+                    details: {
+                        status_from: order.status,
+                        status_to: nextStatus,
+                        reason: finalReason,
+                    },
+                });
+
                 showSuccess(
                     mode === "VERIFICATION_REQUIRED"
                         ? "Order flagged for verification."
@@ -133,6 +149,17 @@ export const useOrderActions = (
             await logOrderEvent(order.id, 'CUSTOMER_CONFIRMED', { method: 'simulation' }, 'simulation');
             await logOrderEvent(order.id, 'QR_SENT', { desc: 'Auto sent after confirmation' }, 'simulation');
 
+            await logUserAction({
+                userId: user.id,
+                action: 'Update Order Status',
+                status: 'success',
+                orderId: order.order_id ?? "",
+                details: {
+                    status_from: order.status,
+                    status_to: ORDER_STATUS.CUSTOMER_CONFIRMED,
+                },
+            });
+
             showSuccess('Customer Confirmed. Invoice Created. QR Sent.');
             if (onSuccess) onSuccess();
         } catch (e) { showError('Simulation failed.'); }
@@ -148,6 +175,21 @@ export const useOrderActions = (
                 cancel_reason: reason || 'Simulated cancellation'
             });
             await logOrderEvent(order.id, 'CUSTOMER_CANCELLED', { reason }, 'simulation');
+
+            const finalReason = reason || 'Simulated cancellation';
+
+            await logUserAction({
+                userId: user.id,
+                action: 'Update Order Status',
+                status: 'success',
+                orderId: order.order_id ?? "",
+                details: {
+                    status_from: order.status,
+                    status_to: ORDER_STATUS.CUSTOMER_CANCELLED,
+                    reason: finalReason,
+                },
+            });
+
             showSuccess('Order Cancelled by Customer.');
             if (onSuccess) onSuccess();
         } catch (e) { showError('Simulation failed.'); }
@@ -179,7 +221,13 @@ export const useOrderActions = (
                 action: 'Mark Paid',
                 status: 'success',
                 orderId: order.order_id ?? "",
-                details: { from: currentStatus, to: nextStatus }
+                details: {
+                    status_from: currentStatus,
+                    status_to: nextStatus,
+                    payment_status: 'UNPAID → PAID',
+                    payment_method: order.payment_method || 'COD',
+                    source: 'OrdersPage',
+                },
             });
 
             showSuccess('Payment Received. Invoice Updated.');
@@ -195,6 +243,16 @@ export const useOrderActions = (
             // Optimistic update to trigger UI re-render if needed (e.g. tracking qr_sent_at)
             await updateOrderLocal(order.id, { qr_sent_at: new Date().toISOString() });
 
+            await logUserAction({
+                userId: user.id,
+                action: 'Send QR Payment Link',
+                status: 'success',
+                orderId: order.order_id ?? "",
+                details: {
+                    source: 'OrdersPage',
+                },
+            });
+
             showSuccess('QR Payment Link Sent.');
             if (onSuccess) onSuccess();
         } catch (e) { showError('Failed to send QR link.'); }
@@ -209,6 +267,18 @@ export const useOrderActions = (
                 shipped_at: new Date().toISOString(),
             });
             await logOrderEvent(order.id, 'ORDER_SHIPPED', {}, 'fulfillment');
+
+            await logUserAction({
+                userId: user.id,
+                action: 'Update Order Status',
+                status: 'success',
+                orderId: order.order_id ?? "",
+                details: {
+                    status_from: order.status,
+                    status_to: ORDER_STATUS.DELIVERING,
+                },
+            });
+
             showSuccess('Order marked as Delivering.');
             if (onSuccess) onSuccess();
         } catch (err) { showError('Failed to update status.'); }
@@ -223,6 +293,18 @@ export const useOrderActions = (
                 completed_at: new Date().toISOString(),
             });
             await logOrderEvent(order.id, 'ORDER_COMPLETED', {}, 'fulfillment');
+
+            await logUserAction({
+                userId: user.id,
+                action: 'Update Order Status',
+                status: 'success',
+                orderId: order.order_id ?? "",
+                details: {
+                    status_from: order.status,
+                    status_to: ORDER_STATUS.COMPLETED,
+                },
+            });
+
             showSuccess('Order marked as Completed.');
             if (onSuccess) onSuccess();
         } catch (err) { showError('Failed to complete order.'); }
@@ -271,8 +353,13 @@ export const useOrderActions = (
                     action: 'Delete Order',
                     status: 'success',
                     orderId: order.order_id ?? "",
+                    details: {
+                        status_from: order.status,
+                        status_to: 'DELETED',
+                    },
                 })
             );
+
             await Promise.all(logPromises);
 
             await refreshOrders();

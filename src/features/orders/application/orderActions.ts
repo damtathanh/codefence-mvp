@@ -20,9 +20,13 @@ export const OrderActions = {
 
         await logUserAction({
             userId: userId,
-            action: 'Approve Order',
+            action: 'Update Order Status',
             status: 'success',
             orderId: order.order_id ?? "",
+            details: {
+                status_from: order.status,
+                status_to: ORDER_STATUS.ORDER_CONFIRMATION_SENT,
+            }
         });
     },
 
@@ -33,6 +37,18 @@ export const OrderActions = {
         });
 
         await logOrderEvent(order.id, 'ORDER_REJECTED', { reason }, 'manual_action');
+
+        await logUserAction({
+            userId: userId,
+            action: 'Update Order Status',
+            status: 'success',
+            orderId: order.order_id ?? "",
+            details: {
+                status_from: order.status,
+                status_to: ORDER_STATUS.ORDER_REJECTED,
+                reason: reason,
+            }
+        });
     },
 
     async flagVerification(order: Order, reason: string, userId: string) {
@@ -42,6 +58,18 @@ export const OrderActions = {
         });
 
         await logOrderEvent(order.id, 'VERIFICATION_REQUIRED', { reason }, 'manual_action');
+
+        await logUserAction({
+            userId: userId,
+            action: 'Update Order Status',
+            status: 'success',
+            orderId: order.order_id ?? "",
+            details: {
+                status_from: order.status,
+                status_to: ORDER_STATUS.VERIFICATION_REQUIRED,
+                reason: reason,
+            }
+        });
     },
 
     async simulateConfirmed(order: Order, userId: string) {
@@ -57,6 +85,17 @@ export const OrderActions = {
 
         // Log event
         await logOrderEvent(order.id, 'QR_SENT', { desc: 'Sent after confirmation' }, 'simulation');
+
+        await logUserAction({
+            userId: userId,
+            action: 'Update Order Status',
+            status: 'success',
+            orderId: order.order_id ?? "",
+            details: {
+                status_from: order.status,
+                status_to: ORDER_STATUS.CUSTOMER_CONFIRMED,
+            }
+        });
     },
 
     async simulateCancelled(order: Order, userId: string) {
@@ -66,6 +105,18 @@ export const OrderActions = {
             cancel_reason: 'Simulated: Customer changed mind'
         });
         await logOrderEvent(order.id, 'CUSTOMER_CANCELLED', { reason: 'Customer clicked Cancel on Zalo' }, 'simulation');
+
+        await logUserAction({
+            userId: userId,
+            action: 'Update Order Status',
+            status: 'success',
+            orderId: order.order_id ?? "",
+            details: {
+                status_from: order.status,
+                status_to: ORDER_STATUS.CUSTOMER_CANCELLED,
+                reason: 'Simulated: Customer changed mind',
+            }
+        });
     },
 
     async simulatePaid(order: Order, userId: string) {
@@ -92,6 +143,19 @@ export const OrderActions = {
                 method: "simulation", // Simulate QR Paid / Payment Received
             });
         }
+
+        await logUserAction({
+            userId: userId,
+            action: 'Update Order Status',
+            status: 'success',
+            orderId: order.order_id ?? "",
+            details: {
+                status_from: order.status,
+                status_to: nextStatus,
+                payment_status: nextStatus === ORDER_STATUS.ORDER_PAID ? 'UNPAID → PAID' : undefined,
+                payment_method: 'simulation',
+            }
+        });
     },
 
     async markShipped(order: Order, userId: string) {
@@ -100,6 +164,17 @@ export const OrderActions = {
             shipped_at: new Date().toISOString(),
         });
         await logOrderEvent(order.id, 'ORDER_SHIPPED', {}, 'fulfillment');
+
+        await logUserAction({
+            userId: userId,
+            action: 'Update Order Status',
+            status: 'success',
+            orderId: order.order_id ?? "",
+            details: {
+                status_from: order.status,
+                status_to: ORDER_STATUS.DELIVERING,
+            }
+        });
     },
 
     async markCompleted(order: Order, userId: string) {
@@ -108,6 +183,17 @@ export const OrderActions = {
             completed_at: new Date().toISOString(),
         });
         await logOrderEvent(order.id, 'ORDER_COMPLETED', {}, 'fulfillment');
+
+        await logUserAction({
+            userId: userId,
+            action: 'Update Order Status',
+            status: 'success',
+            orderId: order.order_id ?? "",
+            details: {
+                status_from: order.status,
+                status_to: ORDER_STATUS.COMPLETED,
+            }
+        });
     },
 
     async updateProduct(order: Order, productId: string, productName: string, userId: string) {
@@ -139,6 +225,10 @@ export const OrderActions = {
                 action: 'Delete Order',
                 status: 'success',
                 orderId: order.order_id ?? "",
+                details: {
+                    status_from: order.status,
+                    status_to: 'DELETED',
+                }
             })
         );
         await Promise.all(logPromises);

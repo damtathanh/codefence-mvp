@@ -18,6 +18,9 @@ import { Button } from "../ui/Button";
 import { supabase } from "../../lib/supabaseClient";
 import { applyInvoiceRules } from "../../features/invoices/services/invoiceService";
 
+import { logUserAction } from "../../utils/logUserAction";
+import { useAuth } from "../../features/auth";
+
 interface AddOrderModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -42,6 +45,7 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
   onSuccess,
   editingOrder = null,
 }) => {
+  const { user } = useAuth();
   const isEditMode = !!editingOrder;
   const [activeTab, setActiveTab] = useState<"manual" | "upload">("manual");
 
@@ -107,7 +111,26 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
           .in("id", insertedOrderIds);
 
         if (!error && newOrders) {
-          await Promise.all(newOrders.map((order) => applyInvoiceRules(order)));
+          // Log import action for each order
+          if (user) {
+            const logPromises = newOrders.map(order =>
+              logUserAction({
+                userId: user.id,
+                action: 'Import Orders',
+                status: 'success',
+                orderId: order.order_id ?? '',
+                details: {
+                  source: 'excel_import',
+                  file_name: file.name,
+                  amount: order.amount?.toString() || '0',
+                  product: order.product,
+                },
+              })
+            );
+            await Promise.all([...newOrders.map((order) => applyInvoiceRules(order)), ...logPromises]);
+          } else {
+            await Promise.all(newOrders.map((order) => applyInvoiceRules(order)));
+          }
         }
       }
 

@@ -321,6 +321,12 @@ export const ManualOrderForm: React.FC<ManualOrderFormProps> = ({
                         action: 'Create Order',
                         status: 'success',
                         orderId: newOrder.order_id ?? '',
+                        details: {
+                            source: 'manual',
+                            product: newOrder.product,
+                            amount: newOrder.amount?.toString() || '0',
+                            payment_method: newOrder.payment_method,
+                        },
                     });
 
                     const pm =

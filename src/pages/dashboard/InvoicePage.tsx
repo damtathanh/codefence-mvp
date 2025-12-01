@@ -18,6 +18,7 @@ import { downloadFileDirectly } from '../../features/invoices/utils/invoiceDownl
 import { OrderSidePanel } from '../../features/orders/components/OrderSidePanel';
 import { fetchCustomerBlacklist } from '../../features/customers/services/customersService';
 import { useToast } from '../../components/ui/Toast';
+import { logUserAction } from '../../utils/logUserAction';
 
 interface InvoiceWithCustomer extends Invoice {
   customer_name?: string;
@@ -311,9 +312,13 @@ export const InvoicePage: React.FC = () => {
     }
   };
 
+  // ... (imports)
+
+  // ... inside InvoicePage component ...
+
   const handleMarkAsPaid = async (invoice: Invoice, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!invoice.order_id) return;
+    if (!invoice.order_id || !user) return;
 
     try {
       setIsMarkingMap((prev) => ({ ...prev, [invoice.id]: true }));
@@ -321,6 +326,24 @@ export const InvoicePage: React.FC = () => {
       const updatedInvoice = await markInvoiceAsPaid(invoice.id);
       await markOrderAsPaid(invoice.order_id);
       await logOrderPaidEvent(invoice.order_id);
+
+      const currentOrder = ordersMap.get(invoice.order_id);
+
+      // Log User Action for History
+      await logUserAction({
+        userId: user.id,
+        action: 'Update Order Status', // Using generic action as per spec for payment updates
+        status: 'success',
+        orderId: currentOrder?.order_id ?? '',
+        details: {
+          payment_status: 'UNPAID → PAID',
+          payment_method: currentOrder?.payment_method || 'Unknown',
+          source: 'InvoicePage',
+          // We don't log status_from/to here because markOrderAsPaid doesn't necessarily change order status (e.g. if Delivering)
+          // If applyInvoiceRules changes it, it might be logged elsewhere or we miss it here. 
+          // But primarily this is a Payment update.
+        }
+      });
 
       setInvoices((prev) =>
         prev.map((inv) =>
@@ -330,11 +353,10 @@ export const InvoicePage: React.FC = () => {
         )
       );
 
-      const currentOrder = ordersMap.get(invoice.order_id);
       if (currentOrder) {
         setOrdersMap(prev =>
           new Map(prev).set(
-            invoice.order_id,
+            invoice.order_id!,
             { ...currentOrder, paid_at: (updatedInvoice as any).paid_at || new Date().toISOString() }
           )
         );

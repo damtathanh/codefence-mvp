@@ -9,12 +9,39 @@ import { useAuth } from '../../features/auth';
 import { formatToGMT7 } from '../../utils/formatTimezone';
 import type { History } from '../../types/supabase';
 import { mapStatusToLifecycle } from '../../utils/orderStatusHelpers';
+import { ORDER_STATUS } from '../../constants/orderStatus';
 
 interface HistoryWithFormatted extends History {
   date?: string;
   displayDate?: string;
   time?: string;
 }
+
+const getStatusLabel = (status: string) => {
+  switch (status) {
+    case ORDER_STATUS.PENDING_REVIEW:
+      return 'Pending Review';
+    case ORDER_STATUS.VERIFICATION_REQUIRED:
+      return 'Verification Required';
+    case ORDER_STATUS.ORDER_REJECTED:
+      return 'Order Rejected';
+    case ORDER_STATUS.ORDER_CONFIRMATION_SENT:
+      return 'Order Approved';
+    case ORDER_STATUS.CUSTOMER_CONFIRMED:
+      return 'Customer Confirmed';
+    case ORDER_STATUS.CUSTOMER_CANCELLED:
+      return 'Customer Cancelled';
+    case ORDER_STATUS.ORDER_PAID:
+      return 'Order Paid';
+    case ORDER_STATUS.DELIVERING:
+      return 'Delivering';
+    case ORDER_STATUS.COMPLETED:
+      return 'Completed';
+    default:
+      // fallback: vẫn dùng lifecycle hoặc trả raw
+      return mapStatusToLifecycle(status) || status;
+  }
+};
 
 export const HistoryPage: React.FC = () => {
   const { user } = useAuth();
@@ -169,8 +196,8 @@ export const HistoryPage: React.FC = () => {
                                 {/* Lifecycle Status Display */}
                                 {log.details.status_from && log.details.status_to && (
                                   <div className="text-sm font-medium text-purple-300 mb-1">
-                                    Status: {mapStatusToLifecycle(log.details.status_from)} →{' '}
-                                    {mapStatusToLifecycle(log.details.status_to)}
+                                    Status: {getStatusLabel(log.details.status_from as string)} →{' '}
+                                    {getStatusLabel(log.details.status_to as string)}
                                   </div>
                                 )}
 

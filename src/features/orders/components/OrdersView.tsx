@@ -169,10 +169,25 @@ export const OrdersView: React.FC = () => {
     const handleApproveOrder = async (order: Order) => {
         if (!user) return;
         try {
+            const previousStatus = order.status; // <-- DEFINE HERE
+
             const { error } = await supabase.rpc('approve_medium_risk_order', {
-                p_order_id: order.id
+                p_order_id: order.id,
             });
             if (error) throw error;
+
+            // Log history after RPC success
+            await logUserAction({
+                userId: user.id,
+                action: 'Approve Order',
+                status: 'success',
+                orderId: order.order_id ?? "",
+                details: {
+                    status_from: previousStatus,
+                    status_to: ORDER_STATUS.ORDER_CONFIRMATION_SENT,
+                },
+            });
+
             showSuccess('Order approved successfully');
             await refreshOrders();
             closeSidePanel();
@@ -200,13 +215,6 @@ export const OrdersView: React.FC = () => {
             setPendingConfirmOrder(order);
             setIsConfirmationModalOpen(true);
             closeSidePanel();
-
-            await logUserAction({
-                userId: user.id,
-                action: 'Customer Confirmed Order',
-                status: 'success',
-                orderId: order.order_id || order.id
-            });
         } catch (error) {
             showError('Failed to simulate confirmation');
         }
@@ -262,13 +270,6 @@ export const OrdersView: React.FC = () => {
             await updateOrderLocal(pendingConfirmOrder.id, {
                 status: ORDER_STATUS.CUSTOMER_CANCELLED,
                 cancel_reason: reason
-            });
-
-            await logUserAction({
-                userId: user.id,
-                action: 'Customer Cancelled Order',
-                status: 'success',
-                orderId: pendingConfirmOrder.order_id || pendingConfirmOrder.id
             });
 
             await refreshOrders();

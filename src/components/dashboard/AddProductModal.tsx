@@ -323,6 +323,24 @@ export const AddProductModal: React.FC<AddProductModalProps> = ({
 
       await fetchAll();
 
+      if (user && data) {
+        const logPromises = data.map(product =>
+          logUserAction({
+            userId: user.id,
+            action: 'Import Products',
+            status: 'success',
+            orderId: product.product_id ?? "",
+            details: {
+              source: 'excel_import',
+              file_name: file.name,
+              product_name: product.name,
+              category: product.category,
+            },
+          })
+        );
+        await Promise.all(logPromises);
+      }
+
       showSuccess(`Imported ${parsedProducts.length} products successfully.`);
       setUploadProgress('');
       if (onSuccess) await onSuccess();
