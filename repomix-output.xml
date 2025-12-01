@@ -306,6 +306,7 @@ supabase/
     20251128000001_add_analytics_view.sql
     20251128000002_inventory_rpcs.sql
     20251128000003_update_exchange_rpc.sql
+    20251201_orders_after_insert_sync.sql
     28112025_import_orders_bulk.sql
   README.md
 .eslintrc.cjs
@@ -327,6 +328,213 @@ vite.config.ts
 
 <files>
 This section contains the contents of the repository's files.
+
+<file path="supabase/migrations/20251201_orders_after_insert_sync.sql">
+-- ====================================================================
+-- SAFE COMBINED MIGRATION: Orders → History + Invoices (INSERT + UPDATE)
+--  - Không được phép làm fail import_orders_bulk
+-- ====================================================================
+
+-- 0. Đảm bảo mỗi (user_id, order_id) chỉ có 1 invoice
+CREATE UNIQUE INDEX IF NOT EXISTS invoices_user_id_order_id_key
+ON public.invoices (user_id, order_id);
+
+-- ====================================================================
+-- 1) FUNCTION: log History khi INSERT (có TRY/CATCH, không bao giờ làm fail)
+-- ====================================================================
+
+CREATE OR REPLACE FUNCTION public.orders_after_insert_sync()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  -- Nếu thiếu user_id hoặc status thì bỏ qua, tránh lỗi RLS / NOT NULL / ENUM
+  IF NEW.user_id IS NULL OR NEW.status IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  BEGIN
+    INSERT INTO public.order_events (user_id, order_id, event_type, payload_json)
+    VALUES (
+      NEW.user_id,
+      NEW.id,
+      NEW.status,  -- log đúng status, ví dụ "Customer Paid", "Order Approved"
+      jsonb_build_object(
+        'source', 'bulk_import',
+        'payment_method', COALESCE(NEW.payment_method, 'COD'),
+        'risk_level', NEW.risk_level,
+        'amount', NEW.amount
+      )
+    );
+  EXCEPTION
+    WHEN OTHERS THEN
+      -- Không raise, chỉ ghi NOTICE cho dev nếu muốn debug
+      RAISE NOTICE 'orders_after_insert_sync failed for order %: %', NEW.id, SQLERRM;
+  END;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS orders_after_insert_sync ON public.orders;
+
+CREATE TRIGGER orders_after_insert_sync
+AFTER INSERT ON public.orders
+FOR EACH ROW
+EXECUTE FUNCTION public.orders_after_insert_sync();
+
+-- ====================================================================
+-- 2) FUNCTION: sync Invoice (INSERT + UPDATE) theo rule (cũng có TRY/CATCH)
+-- ====================================================================
+
+CREATE OR REPLACE FUNCTION public.orders_invoice_status_sync()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_is_cod boolean;
+  v_risk text;
+BEGIN
+  -- Nếu thiếu user_id hoặc status thì bỏ qua, không chặn import
+  IF NEW.user_id IS NULL OR NEW.status IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  v_is_cod := (COALESCE(NEW.payment_method, 'COD') = 'COD');
+  v_risk := LOWER(COALESCE(NEW.risk_level, ''));
+
+  --------------------------------------------------------------------
+  -- ANY → Customer Paid → Invoice = Paid
+  -- (Giả định status "đã thanh toán" trong orders = 'Customer Paid')
+  -- Có thể thêm alias nếu m từng dùng 'Paid' hay 'Order Paid' cho data cũ
+  --------------------------------------------------------------------
+  IF NEW.status IN ('Customer Paid', 'Order Paid', 'ORDER_PAID', 'Paid') THEN
+    BEGIN
+      INSERT INTO public.invoices (
+        user_id,
+        order_id,
+        invoice_code,
+        status,
+        amount,
+        date
+      )
+      VALUES (
+        NEW.user_id,
+        NEW.id,
+        'INV-' || COALESCE(NEW.order_id, SUBSTR(NEW.id::text, 1, 8)),
+        'Paid',
+        COALESCE(NEW.amount, 0),
+        COALESCE(
+          NEW.order_date::date,
+          (NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date
+        )
+      )
+      ON CONFLICT (user_id, order_id)
+        DO UPDATE SET
+          status = 'Paid',
+          amount = EXCLUDED.amount,
+          date   = EXCLUDED.date;
+    EXCEPTION
+      WHEN OTHERS THEN
+        RAISE NOTICE 'orders_invoice_status_sync(PAID) failed for order %: %', NEW.id, SQLERRM;
+    END;
+
+    RETURN NEW;
+  END IF;
+
+  --------------------------------------------------------------------
+  -- Từ đây trở xuống: chỉ áp dụng cho COD & CHƯA PAID
+  --------------------------------------------------------------------
+  IF NOT v_is_cod THEN
+    RETURN NEW;
+  END IF;
+
+  --------------------------------------------------------------------
+  -- COD + LOW RISK → Order Approved → Pending
+  -- (status trong orders = 'Order Approved')
+  --------------------------------------------------------------------
+  IF v_risk = 'low'
+     AND NEW.status IN ('Order Approved') THEN
+
+    BEGIN
+      INSERT INTO public.invoices (
+        user_id,
+        order_id,
+        invoice_code,
+        status,
+        amount,
+        date
+      )
+      VALUES (
+        NEW.user_id,
+        NEW.id,
+        'INV-' || COALESCE(NEW.order_id, SUBSTR(NEW.id::text, 1, 8)),
+        'Pending',
+        COALESCE(NEW.amount, 0),
+        COALESCE(
+          NEW.order_date::date,
+          (NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date
+        )
+      )
+      ON CONFLICT (user_id, order_id)
+        DO NOTHING;
+    EXCEPTION
+      WHEN OTHERS THEN
+        RAISE NOTICE 'orders_invoice_status_sync(LOW/PENDING) failed for order %: %', NEW.id, SQLERRM;
+    END;
+
+    RETURN NEW;
+  END IF;
+
+  --------------------------------------------------------------------
+  -- COD + MED/HIGH → Customer Confirmed → Pending
+  -- (status trong orders = 'Customer Confirmed')
+  --------------------------------------------------------------------
+  IF v_risk IN ('medium', 'high')
+     AND NEW.status IN ('Customer Confirmed', 'CUSTOMER_CONFIRMED') THEN
+
+    BEGIN
+      INSERT INTO public.invoices (
+        user_id,
+        order_id,
+        invoice_code,
+        status,
+        amount,
+        date
+      )
+      VALUES (
+        NEW.user_id,
+        NEW.id,
+        'INV-' || COALESCE(NEW.order_id, SUBSTR(NEW.id::text, 1, 8)),
+        'Pending',
+        COALESCE(NEW.amount, 0),
+        COALESCE(
+          NEW.order_date::date,
+          (NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date
+        )
+      )
+      ON CONFLICT (user_id, order_id)
+        DO NOTHING;
+    EXCEPTION
+      WHEN OTHERS THEN
+        RAISE NOTICE 'orders_invoice_status_sync(MED/HIGH/PENDING) failed for order %: %', NEW.id, SQLERRM;
+    END;
+
+    RETURN NEW;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS orders_invoice_status_sync ON public.orders;
+
+CREATE TRIGGER orders_invoice_status_sync
+AFTER INSERT OR UPDATE OF status, risk_level, payment_method
+ON public.orders
+FOR EACH ROW
+EXECUTE FUNCTION public.orders_invoice_status_sync();
+</file>
 
 <file path="src/components/analytics/ChartCard.tsx">
 import React from 'react';
@@ -7420,6 +7628,12 @@ DECLARE
     success_count int := 0;
     fail_count int := 0;
     _user_id uuid;
+
+    -- THÊM BIẾN PHỤC VỤ LOGIC
+    _payment_method text;
+    _risk_score numeric;
+    _risk_level text;
+    _status text;
 BEGIN
     -- Lấy user hiện tại từ auth (an toàn, không phụ thuộc payload)
     _user_id := auth.uid();
@@ -7450,12 +7664,44 @@ BEGIN
                 CONTINUE;
             END IF;
 
-            -- UPSERT: insert mới hoặc update nếu trùng (user_id, order_id)
+            -- 1) TÍNH PAYMENT_METHOD + RISK_SCORE TỪ PAYLOAD
+            _payment_method := COALESCE(NULLIF(item->>'payment_method',''), 'COD');
+            _risk_score := COALESCE(NULLIF(item->>'risk_score','')::numeric, 0);
+
+            -- 1.1) MAP risk_level từ risk_score (CHỈ THÊM ĐOẠN NÀY)
+            IF UPPER(_payment_method) <> 'COD' THEN
+                _risk_level := 'none';
+            ELSE
+                IF _risk_score > 70 THEN
+                    _risk_level := 'high';
+                ELSIF _risk_score >= 30 THEN
+                    _risk_level := 'medium';
+                ELSE
+                    _risk_level := 'low';
+                END IF;
+            END IF;
+
+            -- 2) LOGIC STATUS GIỐNG FLOW CŨ — GIỮ NGUYÊN
+            IF UPPER(_payment_method) <> 'COD' THEN
+                _status := 'Order Paid';
+            ELSE
+                IF _risk_score > 70 THEN
+                    _status := 'Order Rejected';
+                ELSIF _risk_score >= 30 THEN
+                    _status := 'Pending Review';
+                ELSE
+                    _status := 'Order Approved';
+                END IF;
+            END IF;
+
+            -- 3) UPSERT: insert mới hoặc update nếu trùng (user_id, order_id)
             INSERT INTO public.orders (
                 user_id,
                 order_id,
                 customer_name,
                 phone,
+                gender,
+                birth_year,
                 address_detail,
                 ward,
                 district,
@@ -7464,6 +7710,7 @@ BEGIN
                 product_id,
                 product,
                 amount,
+                status,
                 payment_method,
                 discount_amount,
                 shipping_fee,
@@ -7472,6 +7719,7 @@ BEGIN
                 order_date,
                 zalo_exists,
                 risk_score,
+                risk_level,          -- 👈 THÊM
                 created_at,
                 updated_at
             )
@@ -7480,6 +7728,8 @@ BEGIN
                 item->>'order_id',
                 item->>'customer_name',
                 item->>'phone',
+                NULLIF(item->>'gender',''),
+                NULLIF(item->>'birth_year','')::int,
                 NULLIF(item->>'address_detail',''),
                 NULLIF(item->>'ward',''),
                 NULLIF(item->>'district',''),
@@ -7490,20 +7740,19 @@ BEGIN
                     NULLIF(item->>'district',''),
                     NULLIF(item->>'province','')
                 ),
-                -- product_id có thể null
                 NULLIF(item->>'product_id','')::uuid,
                 item->>'product',
-                -- amount bắt buộc, nếu parse fail sẽ ném lỗi và rơi vào EXCEPTION
                 (item->>'amount')::numeric,
-                item->>'payment_method',
+                _status,
+                _payment_method,
                 COALESCE(NULLIF(item->>'discount_amount','')::numeric, 0),
                 COALESCE(NULLIF(item->>'shipping_fee','')::numeric, 0),
                 NULLIF(item->>'channel',''),
                 NULLIF(item->>'source',''),
                 (item->>'order_date')::date,
                 COALESCE((item->>'zalo_exists')::boolean, false),
-                -- nếu column risk_score là numeric:
-                COALESCE(NULLIF(item->>'risk_score','')::numeric, 0),
+                _risk_score,
+                _risk_level,          -- 👈 THÊM
                 NOW(),
                 NOW()
             )
@@ -7511,6 +7760,8 @@ BEGIN
             DO UPDATE SET
                 customer_name   = EXCLUDED.customer_name,
                 phone           = EXCLUDED.phone,
+                gender          = EXCLUDED.gender,
+                birth_year      = EXCLUDED.birth_year,
                 address_detail  = EXCLUDED.address_detail,
                 ward            = EXCLUDED.ward,
                 district        = EXCLUDED.district,
@@ -7519,6 +7770,7 @@ BEGIN
                 product_id      = EXCLUDED.product_id,
                 product         = EXCLUDED.product,
                 amount          = EXCLUDED.amount,
+                status          = EXCLUDED.status,
                 payment_method  = EXCLUDED.payment_method,
                 discount_amount = EXCLUDED.discount_amount,
                 shipping_fee    = EXCLUDED.shipping_fee,
@@ -7527,6 +7779,7 @@ BEGIN
                 order_date      = EXCLUDED.order_date,
                 zalo_exists     = EXCLUDED.zalo_exists,
                 risk_score      = EXCLUDED.risk_score,
+                risk_level      = EXCLUDED.risk_level,   -- 👈 THÊM
                 updated_at      = NOW()
             RETURNING jsonb_build_object(
                 'id', id,
@@ -16618,6 +16871,7 @@ import { ORDER_STATUS } from "../../../constants/orderStatus";
 import type { RiskLevel } from "../../../utils/riskEngine";
 
 
+
 export interface CustomerStats {
   phone: string;
   fullName: string | null;
@@ -16661,6 +16915,7 @@ export async function fetchCustomerStatsForUser(userId: string) {
         "phone",
         "status",
         "risk_score",
+        "order_date",
         "created_at",
         "amount",
         "payment_method"
@@ -16720,10 +16975,11 @@ export async function fetchCustomerStatsForUser(userId: string) {
     let lastOrderAt: string | null = null;
     let fullName: string | null = null;
 
-    // First pass: basic stats and collect COD scores
     for (const order of orders) {
       const status = order.status;
-      const createdAt = order.created_at ?? null;
+
+      // Ưu tiên order_date, nếu null thì dùng created_at
+      const effectiveDate = order.order_date ?? order.created_at ?? null;
 
       if (SUCCESS_STATUSES.has(status)) {
         successCount += 1;
@@ -16731,17 +16987,18 @@ export async function fetchCustomerStatsForUser(userId: string) {
         failedCount += 1;
       }
 
-      // Only consider COD orders for base risk score calculation
-      const isCOD = !order.payment_method || order.payment_method.toUpperCase() === "COD";
+      const isCOD =
+        !order.payment_method || order.payment_method.toUpperCase() === "COD";
       if (isCOD && order.risk_score !== null && order.risk_score !== undefined) {
         codRiskScores.push(order.risk_score);
       }
 
-      if (!lastOrderAt || (createdAt && createdAt > lastOrderAt)) {
-        lastOrderAt = createdAt;
+      if (!lastOrderAt || (effectiveDate && effectiveDate > lastOrderAt)) {
+        lastOrderAt = effectiveDate;
         fullName = order.customer_name ?? null;
       }
     }
+
 
     // 1. Calculate Base Risk Score
     let baseRiskScore: number;
@@ -16755,8 +17012,18 @@ export async function fetchCustomerStatsForUser(userId: string) {
     // 2. Calculate Customer Risk Score (Learning Logic)
     // Sort orders chronologically (oldest first)
     const sortedOrders = [...orders].sort((a, b) => {
-      const tA = a.created_at ? new Date(a.created_at).getTime() : 0;
-      const tB = b.created_at ? new Date(b.created_at).getTime() : 0;
+      const tA = a.order_date
+        ? new Date(a.order_date).getTime()
+        : a.created_at
+          ? new Date(a.created_at).getTime()
+          : 0;
+
+      const tB = b.order_date
+        ? new Date(b.order_date).getTime()
+        : b.created_at
+          ? new Date(b.created_at).getTime()
+          : 0;
+
       return tA - tB;
     });
 
@@ -16766,7 +17033,7 @@ export async function fetchCustomerStatsForUser(userId: string) {
     for (const order of sortedOrders) {
       const status = order.status;
       const amount = order.amount || 0;
-      const createdAt = order.created_at || "";
+      const createdAt = order.order_date || order.created_at || "";
 
       let delta = 0;
 
@@ -16834,24 +17101,45 @@ export async function fetchCustomerBlacklist(userId: string) {
   const { data, error } = await supabase
     .from("customer_blacklist")
     .select("id, phone, reason, created_at")
-    .eq("user_id", userId)
-    .order("created_at", { ascending: false });
+    .eq("user_id", userId); // bỏ order() để tránh lỗi 400 lặt vặt
 
-  return { data: data ?? [], error };
+  const sorted =
+    data?.slice().sort((a, b) => {
+      const aa = a.created_at ?? "";
+      const bb = b.created_at ?? "";
+      return bb.localeCompare(aa);
+    }) ?? [];
+
+  return { data: sorted, error };
 }
 
-export async function addToBlacklist(userId: string, phone: string, reason?: string) {
+export async function addToBlacklist(
+  userId: string,
+  phone: string,
+  reason?: string
+) {
+  const trimmed = phone.trim();
+
   const { data, error } = await supabase
     .from("customer_blacklist")
-    .insert([{ user_id: userId, phone, reason: reason ?? null }])
+    .upsert(
+      {
+        user_id: userId,
+        phone: trimmed,
+        reason: reason ?? null,
+      },
+      {
+        onConflict: "user_id,phone", // 👈 để không bị 409
+      }
+    )
     .select()
     .single();
 
   if (!error) {
-    // Trigger risk re-evaluation for pending orders
-    await supabase.rpc('reevaluate_risk_for_phone', {
+    // Trigger risk re-evaluation cho các đơn Pending của số này
+    await supabase.rpc("reevaluate_risk_for_phone", {
       p_user_id: userId,
-      p_phone: phone
+      p_phone: trimmed,
     });
   }
 
@@ -16881,6 +17169,7 @@ export async function fetchCustomerOrdersForUser(userId: string, phone: string) 
         "phone",
         "status",
         "risk_score",
+        "order_date",      // 👈 THÊM DÒNG NÀY
         "created_at",
         "amount",
         "payment_method",
@@ -17509,6 +17798,8 @@ import {
 import { CustomerInsightPanel } from "../../features/customers/components/CustomerInsightPanel";
 import type { Order } from "../../types/supabase";
 import { Pagination } from "../../components/ui/Pagination";
+import { Button } from "../../components/ui/Button";
+import { useToast } from "../../components/ui/Toast";
 
 const formatDate = (iso: string | null) => {
   if (!iso) return "N/A";
@@ -17523,14 +17814,29 @@ const formatDate = (iso: string | null) => {
 
 export const CustomersPage: React.FC = () => {
   const { user } = useAuth();
+  const { showSuccess, showError } = useToast();
+
   const [stats, setStats] = useState<CustomerStats[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
+
   const [blacklistPhones, setBlacklistPhones] = useState<Set<string>>(new Set());
   const [loadingBlacklist, setLoadingBlacklist] = useState(false);
 
+  // filter All / Blacklisted / Not blacklisted
+  const [blacklistFilter, setBlacklistFilter] = useState<
+    "all" | "blacklisted" | "not_blacklisted"
+  >("all");
+
+  // modal Reason
+  const [blacklistModalPhone, setBlacklistModalPhone] = useState<string | null>(
+    null
+  );
+  const [blacklistReason, setBlacklistReason] = useState("");
+
   // Insight Panel State
-  const [selectedCustomer, setSelectedCustomer] = useState<CustomerStats | null>(null);
+  const [selectedCustomer, setSelectedCustomer] =
+    useState<CustomerStats | null>(null);
   const [customerOrders, setCustomerOrders] = useState<Order[]>([]);
   const [insightOpen, setInsightOpen] = useState(false);
   const [insightLoading, setInsightLoading] = useState(false);
@@ -17568,10 +17874,9 @@ export const CustomersPage: React.FC = () => {
     reloadBlacklist();
   }, [user]);
 
-  const handleAdd = async (phone: string) => {
-    if (!user) return;
-    await addToBlacklist(user.id, phone);
-    reloadBlacklist();
+  const handleAdd = (phone: string) => {
+    setBlacklistModalPhone(phone);
+    setBlacklistReason("");
   };
 
   const handleRemove = async (phone: string) => {
@@ -17586,7 +17891,10 @@ export const CustomersPage: React.FC = () => {
     setInsightOpen(true);
     setInsightLoading(true);
     try {
-      const { data, error } = await fetchCustomerOrdersForUser(user.id, customer.phone);
+      const { data, error } = await fetchCustomerOrdersForUser(
+        user.id,
+        customer.phone
+      );
       if (!error && data) {
         setCustomerOrders(data);
       } else {
@@ -17604,46 +17912,95 @@ export const CustomersPage: React.FC = () => {
     setCustomerOrders([]);
   };
 
-  // Search filter
-  const filtered = useMemo(() => {
+  // 1. Filter theo search
+  const filteredBySearch = useMemo(() => {
     const term = search.trim().toLowerCase();
     if (!term) return stats;
-    return stats.filter((c) =>
-      c.phone.toLowerCase().includes(term) ||
-      (c.fullName || "").toLowerCase().includes(term)
+    return stats.filter(
+      (c) =>
+        c.phone.toLowerCase().includes(term) ||
+        (c.fullName || "").toLowerCase().includes(term)
     );
   }, [stats, search]);
 
-  // Paginated list
+  // 2. Filter theo trạng thái blacklist
+  const blacklistFiltered = useMemo(() => {
+    if (blacklistFilter === "all") return filteredBySearch;
+
+    if (blacklistFilter === "blacklisted") {
+      return filteredBySearch.filter((c) => blacklistPhones.has(c.phone));
+    }
+
+    // not_blacklisted
+    return filteredBySearch.filter((c) => !blacklistPhones.has(c.phone));
+  }, [filteredBySearch, blacklistFilter, blacklistPhones]);
+
+  // 3. Paginated list
   const paginated = useMemo(() => {
     const startIndex = (page - 1) * PAGE_SIZE;
-    return filtered.slice(startIndex, startIndex + PAGE_SIZE);
-  }, [filtered, page]);
+    return blacklistFiltered.slice(startIndex, startIndex + PAGE_SIZE);
+  }, [blacklistFiltered, page]);
 
-  // Reset page when searching
+  // Reset page khi search hoặc đổi filter
   useEffect(() => {
     setPage(1);
-  }, [search]);
+  }, [search, blacklistFilter]);
 
   return (
     <div className="flex flex-col h-full min-h-0 p-6">
-      {/* Search */}
-      <Card className="shrink-0">
-        <CardHeader className="!pt-3 !pb-2 !px-4">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Search size={18} />
-            Search Customers
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="!pt-0 !px-4 !pb-3">
-          <Input
-            placeholder="Search by phone or customer name..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="h-10 !py-2"
-          />
-        </CardContent>
-      </Card>
+      {/* Search + Filters */}
+      <CardContent className="!pt-0 !px-4 !pb-3">
+        <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center">
+          {/* Search input giống Products */}
+          <div className="flex-1">
+            <Input
+              placeholder="Search by phone or customer name..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-10 !py-2 w-full"
+            />
+          </div>
+
+          {/* “Dropdown” filter Blacklist bên phải */}
+          <div className="flex gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setBlacklistFilter("all")}
+              className={`px-4 h-10 rounded-full border text-sm transition-all
+          ${blacklistFilter === "all"
+                  ? "bg-[#1F2937] border-[#4C1D95] text-white"
+                  : "bg-[#020617] border-[#1E293B] text-white/70 hover:bg-[#020617]/80"
+                }`}
+            >
+              All Customers
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setBlacklistFilter("blacklisted")}
+              className={`px-4 h-10 rounded-full border text-sm transition-all
+          ${blacklistFilter === "blacklisted"
+                  ? "bg-red-500/20 border-red-400 text-red-200"
+                  : "bg-[#020617] border-[#1E293B] text-white/70 hover:bg-[#020617]/80"
+                }`}
+            >
+              Blacklisted
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setBlacklistFilter("not_blacklisted")}
+              className={`px-4 h-10 rounded-full border text-sm transition-all
+          ${blacklistFilter === "not_blacklisted"
+                  ? "bg-emerald-500/20 border-emerald-400 text-emerald-200"
+                  : "bg-[#020617] border-[#1E293B] text-white/70 hover:bg-[#020617]/80"
+                }`}
+            >
+              Not blacklisted
+            </button>
+          </div>
+        </div>
+      </CardContent>
 
       {/* Table */}
       <Card className="flex-1 flex flex-col min-h-0 mt-6">
@@ -17652,7 +18009,7 @@ export const CustomersPage: React.FC = () => {
             <div className="flex items-center justify-center h-full">
               <p className="text-[var(--text-muted)]">Loading customers...</p>
             </div>
-          ) : filtered.length === 0 ? (
+          ) : blacklistFiltered.length === 0 ? (
             <div className="p-12 text-center text-[var(--text-muted)]">
               No customers found.
             </div>
@@ -17661,14 +18018,30 @@ export const CustomersPage: React.FC = () => {
               <table className="min-w-[1100px] w-full border-separate border-spacing-0">
                 <thead>
                   <tr className="border-b border-[#1E223D]">
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Phone</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">Name</th>
-                    <th className="px-6 py-3 text-center text-sm font-semibold text-[#E5E7EB]">Total Orders</th>
-                    <th className="px-6 py-3 text-center text-sm font-semibold text-[#E5E7EB]">Success</th>
-                    <th className="px-6 py-3 text-center text-sm font-semibold text-[#E5E7EB]">Failed</th>
-                    <th className="px-6 py-3 text-center text-sm font-semibold text-[#E5E7EB]">Customer Risk</th>
-                    <th className="px-6 py-3 text-center text-sm font-semibold text-[#E5E7EB]">Last Order</th>
-                    <th className="px-6 py-3 text-center text-sm font-semibold text-[#E5E7EB]">Blacklist</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">
+                      Phone
+                    </th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">
+                      Name
+                    </th>
+                    <th className="px-6 py-3 text-center text-sm font-semibold text-[#E5E7EB]">
+                      Total Orders
+                    </th>
+                    <th className="px-6 py-3 text-center text-sm font-semibold text-[#E5E7EB]">
+                      Success
+                    </th>
+                    <th className="px-6 py-3 text-center text-sm font-semibold text-[#E5E7EB]">
+                      Failed
+                    </th>
+                    <th className="px-6 py-3 text-center text-sm font-semibold text-[#E5E7EB]">
+                      Customer Risk
+                    </th>
+                    <th className="px-6 py-3 text-center text-sm font-semibold text-[#E5E7EB]">
+                      Last Order
+                    </th>
+                    <th className="px-6 py-3 text-center text-sm font-semibold text-[#E5E7EB]">
+                      Blacklist
+                    </th>
                   </tr>
                 </thead>
 
@@ -17679,11 +18052,21 @@ export const CustomersPage: React.FC = () => {
                       className="border-b border-[#1E223D] hover:bg-white/5 transition cursor-pointer"
                       onClick={() => handleRowClick(c)}
                     >
-                      <td className="px-6 py-4 text-sm text-[#E5E7EB]">{c.phone}</td>
-                      <td className="px-6 py-4 text-sm text-[#E5E7EB]">{c.fullName || "—"}</td>
-                      <td className="px-6 py-4 text-sm text-center">{c.totalOrders}</td>
-                      <td className="px-6 py-4 text-sm text-emerald-400 text-center">{c.successCount}</td>
-                      <td className="px-6 py-4 text-sm text-red-400 text-center">{c.failedCount}</td>
+                      <td className="px-6 py-4 text-sm text-[#E5E7EB]">
+                        {c.phone}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-[#E5E7EB]">
+                        {c.fullName || "—"}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-center">
+                        {c.totalOrders}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-emerald-400 text-center">
+                        {c.successCount}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-red-400 text-center">
+                        {c.failedCount}
+                      </td>
                       <td className="px-6 py-4 text-center">
                         <RiskBadge score={c.customerRiskScore} />
                       </td>
@@ -17727,7 +18110,7 @@ export const CustomersPage: React.FC = () => {
         {/* Pagination */}
         <Pagination
           currentPage={page}
-          totalItems={filtered.length}
+          totalItems={blacklistFiltered.length}
           pageSize={PAGE_SIZE}
           onPageChange={setPage}
         />
@@ -17740,6 +18123,75 @@ export const CustomersPage: React.FC = () => {
         isOpen={insightOpen}
         onClose={handleCloseInsight}
       />
+
+      {/* Modal nhập lý do blacklist */}
+      {blacklistModalPhone && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+          onClick={() => !loadingBlacklist && setBlacklistModalPhone(null)}
+        >
+          <div
+            className="bg-[#111827] border border-[#1F2937] rounded-xl p-6 max-w-md w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold text-white mb-2">
+              Add to blacklist
+            </h3>
+            <p className="text-sm text-gray-300 mb-4">
+              Phone number:{" "}
+              <span className="font-mono">{blacklistModalPhone}</span>
+            </p>
+
+            <label className="block text-sm text-gray-200 mb-2">Reason</label>
+            <textarea
+              className="w-full rounded-lg border border-white/10 bg-white/5 text-white text-sm p-3 resize-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
+              rows={4}
+              value={blacklistReason}
+              onChange={(e) => setBlacklistReason(e.target.value)}
+              placeholder="Input reason..."
+              disabled={loadingBlacklist}
+            />
+
+            <div className="flex justify-end gap-2 mt-4">
+              <Button
+                variant="outline"
+                onClick={() =>
+                  !loadingBlacklist && setBlacklistModalPhone(null)
+                }
+                disabled={loadingBlacklist}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={async () => {
+                  if (!user || !blacklistModalPhone) return;
+                  setLoadingBlacklist(true);
+                  const { error } = await addToBlacklist(
+                    user.id,
+                    blacklistModalPhone,
+                    blacklistReason.trim() || undefined
+                  );
+                  setLoadingBlacklist(false);
+
+                  if (error) {
+                    console.error("addToBlacklist error", error);
+                    showError("Thêm blacklist thất bại.");
+                    return;
+                  }
+
+                  showSuccess("Đã thêm vào blacklist.");
+                  setBlacklistModalPhone(null);
+                  setBlacklistReason("");
+                  reloadBlacklist();
+                }}
+                disabled={loadingBlacklist || !blacklistReason.trim()}
+              >
+                Confirm
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -26076,6 +26528,33 @@ export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
 
         // 4. CONFIRMATION SENT
         if (order.status === ORDER_STATUS.ORDER_CONFIRMATION_SENT) {
+            // 👉 LOW RISK COD: KHÔNG cần Customer Cancel/Confirm, chỉ cho Simulate Paid + Delivery
+            if (isLowRiskCOD) {
+                return (
+                    <div className="space-y-3">
+                        {!hasPaid && (
+                            <Button
+                                variant="outline"
+                                className="w-full h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#C4B5FD] hover:bg-[#8B5CF6]/20 transition-all active:scale-[0.98]"
+                                onClick={() => wrapAction(() => onSimulatePaid(order))}
+                                disabled={isProcessing}
+                            >
+                                <Banknote size={20} className="mr-2" /> Simulate QR Paid
+                            </Button>
+                        )}
+
+                        <Button
+                            className="w-full bg-blue-600 hover:bg-blue-700"
+                            onClick={() => wrapAction(() => onMarkDelivered(order))}
+                            disabled={isProcessing}
+                        >
+                            <Truck size={20} className="mr-2" /> Start Delivery
+                        </Button>
+                    </div>
+                );
+            }
+
+            // 👉 Medium / High risk: vẫn giữ flow Customer Cancel / Confirm như cũ
             return (
                 <div className="bg-blue-500/10 p-3 rounded-lg border border-blue-500/30">
                     <p className="text-xs text-blue-300 font-bold uppercase mb-2 text-center">

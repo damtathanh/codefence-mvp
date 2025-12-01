@@ -4,6 +4,7 @@ import { ORDER_STATUS } from "../../../constants/orderStatus";
 import type { RiskLevel } from "../../../utils/riskEngine";
 
 
+
 export interface CustomerStats {
   phone: string;
   fullName: string | null;
@@ -47,6 +48,7 @@ export async function fetchCustomerStatsForUser(userId: string) {
         "phone",
         "status",
         "risk_score",
+        "order_date",
         "created_at",
         "amount",
         "payment_method"
@@ -106,10 +108,11 @@ export async function fetchCustomerStatsForUser(userId: string) {
     let lastOrderAt: string | null = null;
     let fullName: string | null = null;
 
-    // First pass: basic stats and collect COD scores
     for (const order of orders) {
       const status = order.status;
-      const createdAt = order.created_at ?? null;
+
+      // Ưu tiên order_date, nếu null thì dùng created_at
+      const effectiveDate = order.order_date ?? order.created_at ?? null;
 
       if (SUCCESS_STATUSES.has(status)) {
         successCount += 1;
@@ -117,17 +120,18 @@ export async function fetchCustomerStatsForUser(userId: string) {
         failedCount += 1;
       }
 
-      // Only consider COD orders for base risk score calculation
-      const isCOD = !order.payment_method || order.payment_method.toUpperCase() === "COD";
+      const isCOD =
+        !order.payment_method || order.payment_method.toUpperCase() === "COD";
       if (isCOD && order.risk_score !== null && order.risk_score !== undefined) {
         codRiskScores.push(order.risk_score);
       }
 
-      if (!lastOrderAt || (createdAt && createdAt > lastOrderAt)) {
-        lastOrderAt = createdAt;
+      if (!lastOrderAt || (effectiveDate && effectiveDate > lastOrderAt)) {
+        lastOrderAt = effectiveDate;
         fullName = order.customer_name ?? null;
       }
     }
+
 
     // 1. Calculate Base Risk Score
     let baseRiskScore: number;
@@ -141,8 +145,18 @@ export async function fetchCustomerStatsForUser(userId: string) {
     // 2. Calculate Customer Risk Score (Learning Logic)
     // Sort orders chronologically (oldest first)
     const sortedOrders = [...orders].sort((a, b) => {
-      const tA = a.created_at ? new Date(a.created_at).getTime() : 0;
-      const tB = b.created_at ? new Date(b.created_at).getTime() : 0;
+      const tA = a.order_date
+        ? new Date(a.order_date).getTime()
+        : a.created_at
+          ? new Date(a.created_at).getTime()
+          : 0;
+
+      const tB = b.order_date
+        ? new Date(b.order_date).getTime()
+        : b.created_at
+          ? new Date(b.created_at).getTime()
+          : 0;
+
       return tA - tB;
     });
 
@@ -152,7 +166,7 @@ export async function fetchCustomerStatsForUser(userId: string) {
     for (const order of sortedOrders) {
       const status = order.status;
       const amount = order.amount || 0;
-      const createdAt = order.created_at || "";
+      const createdAt = order.order_date || order.created_at || "";
 
       let delta = 0;
 
@@ -220,24 +234,45 @@ export async function fetchCustomerBlacklist(userId: string) {
   const { data, error } = await supabase
     .from("customer_blacklist")
     .select("id, phone, reason, created_at")
-    .eq("user_id", userId)
-    .order("created_at", { ascending: false });
+    .eq("user_id", userId); // bỏ order() để tránh lỗi 400 lặt vặt
 
-  return { data: data ?? [], error };
+  const sorted =
+    data?.slice().sort((a, b) => {
+      const aa = a.created_at ?? "";
+      const bb = b.created_at ?? "";
+      return bb.localeCompare(aa);
+    }) ?? [];
+
+  return { data: sorted, error };
 }
 
-export async function addToBlacklist(userId: string, phone: string, reason?: string) {
+export async function addToBlacklist(
+  userId: string,
+  phone: string,
+  reason?: string
+) {
+  const trimmed = phone.trim();
+
   const { data, error } = await supabase
     .from("customer_blacklist")
-    .insert([{ user_id: userId, phone, reason: reason ?? null }])
+    .upsert(
+      {
+        user_id: userId,
+        phone: trimmed,
+        reason: reason ?? null,
+      },
+      {
+        onConflict: "user_id,phone", // 👈 để không bị 409
+      }
+    )
     .select()
     .single();
 
   if (!error) {
-    // Trigger risk re-evaluation for pending orders
-    await supabase.rpc('reevaluate_risk_for_phone', {
+    // Trigger risk re-evaluation cho các đơn Pending của số này
+    await supabase.rpc("reevaluate_risk_for_phone", {
       p_user_id: userId,
-      p_phone: phone
+      p_phone: trimmed,
     });
   }
 
@@ -267,6 +302,7 @@ export async function fetchCustomerOrdersForUser(userId: string, phone: string) 
         "phone",
         "status",
         "risk_score",
+        "order_date",      // 👈 THÊM DÒNG NÀY
         "created_at",
         "amount",
         "payment_method",
@@ -286,3 +322,4 @@ export async function fetchCustomerOrdersForUser(userId: string, phone: string) 
     error,
   };
 }
+

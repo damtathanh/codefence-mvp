@@ -198,6 +198,33 @@ export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
 
         // 4. CONFIRMATION SENT
         if (order.status === ORDER_STATUS.ORDER_CONFIRMATION_SENT) {
+            // 👉 LOW RISK COD: KHÔNG cần Customer Cancel/Confirm, chỉ cho Simulate Paid + Delivery
+            if (isLowRiskCOD) {
+                return (
+                    <div className="space-y-3">
+                        {!hasPaid && (
+                            <Button
+                                variant="outline"
+                                className="w-full h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#C4B5FD] hover:bg-[#8B5CF6]/20 transition-all active:scale-[0.98]"
+                                onClick={() => wrapAction(() => onSimulatePaid(order))}
+                                disabled={isProcessing}
+                            >
+                                <Banknote size={20} className="mr-2" /> Simulate QR Paid
+                            </Button>
+                        )}
+
+                        <Button
+                            className="w-full bg-blue-600 hover:bg-blue-700"
+                            onClick={() => wrapAction(() => onMarkDelivered(order))}
+                            disabled={isProcessing}
+                        >
+                            <Truck size={20} className="mr-2" /> Start Delivery
+                        </Button>
+                    </div>
+                );
+            }
+
+            // 👉 Medium / High risk: vẫn giữ flow Customer Cancel / Confirm như cũ
             return (
                 <div className="bg-blue-500/10 p-3 rounded-lg border border-blue-500/30">
                     <p className="text-xs text-blue-300 font-bold uppercase mb-2 text-center">
