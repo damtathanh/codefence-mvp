@@ -173,7 +173,6 @@ export const CustomersPage: React.FC = () => {
       {/* Search + Filters */}
       <CardContent className="!pt-0 !px-4 !pb-3">
         <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center">
-          {/* Search input giống Products */}
           <div className="flex-1">
             <Input
               placeholder="Search by phone or customer name..."

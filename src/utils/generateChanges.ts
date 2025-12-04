@@ -23,6 +23,10 @@ export function generateChanges(previous: Record<string, any>, current: Record<s
     phone: 'Phone',
     address: 'Address',
     product: 'Product',
+    address_detail: 'Address Detail',
+    ward: 'Ward',
+    district: 'District',
+    province: 'Province',
   };
 
   // Get all unique keys from both objects

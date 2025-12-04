@@ -18,6 +18,8 @@ import { downloadFileDirectly } from '../../features/invoices/utils/invoiceDownl
 import { OrderSidePanel } from '../../features/orders/components/OrderSidePanel';
 import { fetchCustomerBlacklist } from '../../features/customers/services/customersService';
 import { useToast } from '../../components/ui/Toast';
+import { generateChanges } from '../../utils/generateChanges';
+import { logOrderEvent } from '../../features/orders/services/orderEventsService';
 import { logUserAction } from '../../utils/logUserAction';
 
 interface InvoiceWithCustomer extends Invoice {
@@ -518,37 +520,63 @@ export const InvoicePage: React.FC = () => {
       .filter(Boolean)
       .map((s) => s.trim())
       .filter((s) => s.length > 0)
-      .join(', ');
+      .join(", ");
+
+    // Previous snapshot
+    const previous = {
+      address_detail: selectedOrder.address_detail,
+      ward: selectedOrder.ward,
+      district: selectedOrder.district,
+      province: selectedOrder.province,
+      address: selectedOrder.address,
+    };
+
+    const next = {
+      address_detail,
+      ward,
+      district,
+      province,
+      address: fullAddress,
+    };
 
     try {
       const { error } = await supabase
-        .from('orders')
-        .update({
-          address_detail,
-          ward,
-          district,
-          province,
-          address: fullAddress,
-        })
-        .eq('id', selectedOrder.id);
+        .from("orders")
+        .update(next)
+        .eq("id", selectedOrder.id);
 
       if (error) throw error;
 
-      showSuccess('Address updated successfully');
+      const changes = generateChanges(previous, next);
+
+      // Log order_events (để mở từ Invoices vẫn thấy trong SidePanel)
+      await logOrderEvent(
+        selectedOrder.id,
+        "ADDRESS_UPDATED",
+        changes,
+        "invoices_page_sidepanel"
+      );
+
+      // Log History page
+      await logUserAction({
+        userId: user.id,
+        action: "Update Order Address (Invoices)",
+        status: "success",
+        orderId: selectedOrder.order_id ?? "",
+        details: changes,
+      });
+
+      showSuccess("Address updated successfully");
       setIsAddressModified(false);
 
-      setSelectedOrder(prev =>
-        prev ? { ...prev, address_detail, ward, district, province, address: fullAddress } : null
+      setSelectedOrder((prev) =>
+        prev ? { ...prev, ...next } : null
       );
-      setOrdersMap(prev =>
-        new Map(prev).set(
-          selectedOrder.id,
-          { ...selectedOrder, address_detail, ward, district, province, address: fullAddress }
-        )
+      setOrdersMap((prev) =>
+        new Map(prev).set(selectedOrder.id, { ...selectedOrder, ...next })
       );
-
     } catch (err) {
-      showError('Failed to update address');
+      showError("Failed to update address");
     }
   };
 

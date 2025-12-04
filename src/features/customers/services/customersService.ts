@@ -2,8 +2,11 @@ import { supabase } from "../../../lib/supabaseClient";
 import type { Order } from "../../../types/supabase";
 import { ORDER_STATUS } from "../../../constants/orderStatus";
 import type { RiskLevel } from "../../../utils/riskEngine";
+import { logUserAction } from "../../../utils/logUserAction";
 
-
+// ==========================
+// Customer Stats
+// ==========================
 
 export interface CustomerStats {
   phone: string;
@@ -35,8 +38,6 @@ const CUSTOMER_FAIL_STATUSES = new Set<string>([
   ORDER_STATUS.ORDER_REJECTED,
 ]);
 
-// ⛔⛔⛔ CHỖ QUAN TRỌNG NHẤT
-// PHẢI CÓ EXPORT NÀY
 export async function fetchCustomerStatsForUser(userId: string) {
   // 1. Fetch orders
   const { data: ordersData, error: ordersError } = await supabase
@@ -51,7 +52,7 @@ export async function fetchCustomerStatsForUser(userId: string) {
         "order_date",
         "created_at",
         "amount",
-        "payment_method"
+        "payment_method",
       ].join(",")
     )
     .eq("user_id", userId)
@@ -74,9 +75,9 @@ export async function fetchCustomerStatsForUser(userId: string) {
   // Map phone -> earliest blacklist created_at
   const blacklistMap = new Map<string, string>(); // phone -> created_at
   if (blacklistData) {
-    blacklistData.forEach((b) => {
+    blacklistData.forEach((b: any) => {
       if (b.phone) {
-        const phone = b.phone.trim();
+        const phone = String(b.phone).trim();
         const existing = blacklistMap.get(phone);
         if (!existing || b.created_at < existing) {
           blacklistMap.set(phone, b.created_at);
@@ -85,6 +86,7 @@ export async function fetchCustomerStatsForUser(userId: string) {
     });
   }
 
+  // Group orders by phone
   const grouped = new Map<string, Order[]>();
 
   for (const row of ordersData as unknown as Order[]) {
@@ -122,8 +124,12 @@ export async function fetchCustomerStatsForUser(userId: string) {
 
       const isCOD =
         !order.payment_method || order.payment_method.toUpperCase() === "COD";
-      if (isCOD && order.risk_score !== null && order.risk_score !== undefined) {
-        codRiskScores.push(order.risk_score);
+      if (
+        isCOD &&
+        order.risk_score !== null &&
+        order.risk_score !== undefined
+      ) {
+        codRiskScores.push(order.risk_score as number);
       }
 
       if (!lastOrderAt || (effectiveDate && effectiveDate > lastOrderAt)) {
@@ -132,18 +138,16 @@ export async function fetchCustomerStatsForUser(userId: string) {
       }
     }
 
-
-    // 1. Calculate Base Risk Score
+    // 1. Base Risk Score (avg COD risk_score hoặc default 50)
     let baseRiskScore: number;
     if (codRiskScores.length > 0) {
       const sum = codRiskScores.reduce((acc, val) => acc + val, 0);
       baseRiskScore = sum / codRiskScores.length;
     } else {
-      baseRiskScore = 50; // Default if no COD risk scores
+      baseRiskScore = 50;
     }
 
-    // 2. Calculate Customer Risk Score (Learning Logic)
-    // Sort orders chronologically (oldest first)
+    // 2. Learning Logic theo timeline
     const sortedOrders = [...orders].sort((a, b) => {
       const tA = a.order_date
         ? new Date(a.order_date).getTime()
@@ -179,18 +183,20 @@ export async function fetchCustomerStatsForUser(userId: string) {
         delta = 20;
       }
 
-      // Check blacklist multiplier
-      // "If, at the time this order was created, the (user_id, phone) already exists in customer_blacklist"
-      // AND status is NOT REJECTED (shop ignored blacklist)
-      if (blacklistCreatedAt && createdAt > blacklistCreatedAt && status !== ORDER_STATUS.ORDER_REJECTED) {
-        // Double the effect
-        delta *= 2;
+      // Nếu tại thời điểm order này, phone đã nằm trong blacklist
+      // và shop vẫn ship (status != ORDER_REJECTED) → nhân đôi penalty/bonus
+      if (
+        blacklistCreatedAt &&
+        createdAt > blacklistCreatedAt &&
+        status !== ORDER_STATUS.ORDER_REJECTED
+      ) {
+        delta = delta * 2;
       }
 
       currentScore += delta;
     }
 
-    // Clamp final score
+    // Clamp final score 0–100
     const customerRiskScore = Math.max(0, Math.min(100, currentScore));
 
     // Map to level
@@ -209,11 +215,12 @@ export async function fetchCustomerStatsForUser(userId: string) {
     });
   });
 
+  // Sort by lastOrderAt desc
   customers.sort((a, b) => {
     if (!a.lastOrderAt && !b.lastOrderAt) return 0;
     if (!a.lastOrderAt) return 1;
     if (!b.lastOrderAt) return -1;
-    return a.lastOrderAt.localeCompare(b.lastOrderAt) * -1;
+    return b.lastOrderAt!.localeCompare(a.lastOrderAt!);
   });
 
   return { data: customers, error: null };
@@ -234,60 +241,101 @@ export async function fetchCustomerBlacklist(userId: string) {
   const { data, error } = await supabase
     .from("customer_blacklist")
     .select("id, phone, reason, created_at")
-    .eq("user_id", userId); // bỏ order() để tránh lỗi 400 lặt vặt
+    .eq("user_id", userId);
 
   const sorted =
-    data?.slice().sort((a, b) => {
+    data?.slice().sort((a: any, b: any) => {
       const aa = a.created_at ?? "";
       const bb = b.created_at ?? "";
       return bb.localeCompare(aa);
     }) ?? [];
 
-  return { data: sorted, error };
+  return { data: sorted as CustomerBlacklistEntry[], error };
 }
 
+/**
+ * Add phone to blacklist with optional reason.
+ * Return shape: { data, error } để CustomersPage destructure được.
+ */
 export async function addToBlacklist(
   userId: string,
   phone: string,
   reason?: string
-) {
-  const trimmed = phone.trim();
-
+): Promise<{ data: CustomerBlacklistEntry | null; error: any | null }> {
   const { data, error } = await supabase
     .from("customer_blacklist")
     .upsert(
       {
         user_id: userId,
-        phone: trimmed,
+        phone,
         reason: reason ?? null,
+        created_at: new Date().toISOString(),
       },
-      {
-        onConflict: "user_id,phone", // 👈 để không bị 409
-      }
+      { onConflict: "user_id,phone" }
     )
-    .select()
+    .select("id, phone, reason, created_at")
     .single();
 
   if (!error) {
-    // Trigger risk re-evaluation cho các đơn Pending của số này
-    await supabase.rpc("reevaluate_risk_for_phone", {
-      p_user_id: userId,
-      p_phone: trimmed,
+    const details: Record<string, string> = {
+      phone,
+    };
+    if (reason && reason.trim()) {
+      details.reason = reason.trim();
+    }
+
+    await logUserAction({
+      userId,
+      action: "Add to Blacklist",
+      status: "success",
+      orderId: "",
+      details,
     });
   }
 
-  return { data, error };
+  return {
+    data: (data as CustomerBlacklistEntry) ?? null,
+    error,
+  };
 }
 
-export async function removeFromBlacklist(userId: string, phone: string) {
-  return await supabase
+/**
+ * Remove phone from blacklist.
+ * Return shape: { data, error } cho đồng bộ.
+ */
+export async function removeFromBlacklist(
+  userId: string,
+  phone: string
+): Promise<{ data: boolean; error: any | null }> {
+  const { error } = await supabase
     .from("customer_blacklist")
     .delete()
     .eq("user_id", userId)
     .eq("phone", phone);
+
+  if (!error) {
+    const details: Record<string, string> = { phone };
+
+    await logUserAction({
+      userId,
+      action: "Remove from Blacklist",
+      status: "success",
+      orderId: "",
+      details,
+    });
+  }
+
+  return { data: !error, error };
 }
 
-export async function fetchCustomerOrdersForUser(userId: string, phone: string) {
+// ==========================
+// Orders for a customer
+// ==========================
+
+export async function fetchCustomerOrdersForUser(
+  userId: string,
+  phone: string
+) {
   const trimmed = phone.trim();
   if (!trimmed) {
     return { data: [] as Order[], error: null };
@@ -302,7 +350,7 @@ export async function fetchCustomerOrdersForUser(userId: string, phone: string) 
         "phone",
         "status",
         "risk_score",
-        "order_date",      // 👈 THÊM DÒNG NÀY
+        "order_date",
         "created_at",
         "amount",
         "payment_method",
@@ -322,4 +370,3 @@ export async function fetchCustomerOrdersForUser(userId: string, phone: string) 
     error,
   };
 }
-

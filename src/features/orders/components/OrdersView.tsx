@@ -19,6 +19,9 @@ import { fetchCustomerBlacklist } from '../../customers/services/customersServic
 import { useAuth } from '../../auth';
 import type { Order, OrderEvent } from '../../../types/supabase';
 import { ORDER_STATUS } from '../../../constants/orderStatus';
+import { generateChanges } from '../../../utils/generateChanges';
+import { logOrderEvent } from "../services/orderEventsService";
+import { logUserAction } from "../../../utils/logUserAction";
 
 export const OrdersView: React.FC = () => {
     const { user } = useAuth();
@@ -146,16 +149,62 @@ export const OrdersView: React.FC = () => {
 
     const handleSaveAddress = async () => {
         if (!selectedOrder || !user) return;
+
         const { address_detail, ward, district, province } = addressForm;
 
+        // 1️⃣ Build full address
+        const fullAddress = [address_detail, ward, district, province]
+            .filter(Boolean)
+            .map((s) => s.trim())
+            .filter((s) => s.length > 0)
+            .join(", ");
+
+        // 2️⃣ Previous snapshot (chỉ các field liên quan)
+        const previous = {
+            address_detail: selectedOrder.address_detail,
+            ward: selectedOrder.ward,
+            district: selectedOrder.district,
+            province: selectedOrder.province,
+            address: selectedOrder.address,
+        };
+
+        // 3️⃣ Next snapshot
+        const next = {
+            address_detail,
+            ward,
+            district,
+            province,
+            address: fullAddress,
+        };
+
         try {
-            await updateOrderLocal(selectedOrder.id, {
-                address_detail, ward, district, province,
+            // 4️⃣ Update DB + local state
+            await updateOrderLocal(selectedOrder.id, next);
+
+            // 5️⃣ Generate history payload đẹp
+            const changes = generateChanges(previous, next);
+
+            // 6️⃣ Log vào order_events để hiện trong OrderSidePanel
+            await logOrderEvent(
+                selectedOrder.id,
+                "ADDRESS_UPDATED",
+                changes,
+                "orders_page_sidepanel"
+            );
+
+            // 7️⃣ Log vào user_action_logs để hiện trong History page
+            await logUserAction({
+                userId: user.id,
+                action: "Update Order Address",
+                status: "success",
+                orderId: selectedOrder.order_id ?? "",
+                details: changes,
             });
-            showSuccess('Address updated successfully');
+
+            showSuccess("Address updated successfully");
             setIsAddressModified(false);
         } catch (err) {
-            showError('Failed to update address');
+            showError("Failed to update address");
         }
     };
 
