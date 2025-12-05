@@ -74,10 +74,25 @@ export const DashboardLayout: React.FC = () => {
   const { role } = useRole();
   const isAdmin = isAdminByEmail(user);
 
+  // ⬇️ NEW: xác định layout đặc biệt cho Dashboard + Analytics
+  const isAnalyticsLayout = useMemo(() => {
+    const path = location.pathname;
+    if (
+      path === '/dashboard' ||
+      path === '/admin/dashboard' ||
+      path.startsWith('/dashboard/analytics') ||
+      path.startsWith('/admin/analytics')
+    ) {
+      return true;
+    }
+    return false;
+  }, [location.pathname]);
+
   // Detect if current page is Message page (user or admin)
   const isMessagePage =
     location.pathname.startsWith("/dashboard/message") ||
     location.pathname.startsWith("/admin/message");
+
   const {
     data: supabaseNotifications,
     loading: notificationsLoading,
@@ -98,8 +113,6 @@ export const DashboardLayout: React.FC = () => {
     fetchAll: refetchProducts,
   } = useSupabaseTable<Product>({ tableName: 'products', enableRealtime: false });
 
-
-
   const openAddOrderModal = useCallback((options?: { order?: Order | null; onSuccess?: () => void }) => {
     setOrderModalEditingOrder(options?.order ?? null);
     orderModalSuccessRef.current = options?.onSuccess ?? null;
@@ -110,7 +123,6 @@ export const DashboardLayout: React.FC = () => {
     setIsOrderModalOpen(false);
     setOrderModalEditingOrder(null);
     orderModalSuccessRef.current = null;
-
   }, []);
 
   const handleOrderModalSuccess = useCallback(() => {
@@ -137,8 +149,6 @@ export const DashboardLayout: React.FC = () => {
     closeAddProductModal();
   }, [closeAddProductModal]);
 
-
-
   const outletContext = useMemo<DashboardOutletContext>(
     () => ({
       openAddOrderModal,
@@ -153,27 +163,26 @@ export const DashboardLayout: React.FC = () => {
   // Filter sidebar items based on role
   const filteredSidebarItems = useMemo(() => {
     if (isAdmin || role === 'admin') {
-      // Admin sees: Dashboard (admin), History, Message, Settings
-      return sidebarItems.filter(item =>
-        item.id === 'dashboard' ||
-        item.id === 'analytics' ||
-        item.id === 'message' ||
-        item.id === 'settings'
-      ).map(item => {
-        // Update paths for admin routes
-        if (item.id === 'dashboard') {
-          return { ...item, path: '/admin/dashboard', label: 'Dashboard' };
-        }
-        if (item.id === 'analytics') {
-          return { ...item, path: '/admin/analytics', label: 'Analytics' };
-        }
-        if (item.id === 'message') {
-          return { ...item, path: '/admin/message' };
-        }
-        return item;
-      });
+      return sidebarItems
+        .filter(item =>
+          item.id === 'dashboard' ||
+          item.id === 'analytics' ||
+          item.id === 'message' ||
+          item.id === 'settings'
+        )
+        .map(item => {
+          if (item.id === 'dashboard') {
+            return { ...item, path: '/admin/dashboard', label: 'Dashboard' };
+          }
+          if (item.id === 'analytics') {
+            return { ...item, path: '/admin/analytics', label: 'Analytics' };
+          }
+          if (item.id === 'message') {
+            return { ...item, path: '/admin/message' };
+          }
+          return item;
+        });
     }
-    // Regular users see all items
     return sidebarItems;
   }, [isAdmin, role]);
 
@@ -181,7 +190,6 @@ export const DashboardLayout: React.FC = () => {
   useEffect(() => {
     const handleResize = () => {
       setIsDesktop(window.innerWidth >= 1024);
-      // Reset hover state when switching between mobile and desktop
       if (window.innerWidth < 1024) {
         setIsHovered(false);
       }
@@ -212,7 +220,6 @@ export const DashboardLayout: React.FC = () => {
 
     fetchUnreadCount();
 
-    // Set up real-time subscription for unread messages
     const channel = supabase
       .channel('admin_unread_messages')
       .on(
@@ -233,6 +240,7 @@ export const DashboardLayout: React.FC = () => {
       supabase.removeChannel(channel);
     };
   }, [isAdmin, user]);
+
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showAllNotifications, setShowAllNotifications] = useState(false);
@@ -256,13 +264,12 @@ export const DashboardLayout: React.FC = () => {
     };
   }, [refreshProfile]);
 
-  // Reset scroll position when route changes
+  // Reset scroll position when route changes (chỉ cho layout có scroll)
   useEffect(() => {
-    // Only reset main content scroll (window doesn't scroll anymore)
-    if (mainContentRef.current) {
+    if (!isAnalyticsLayout && mainContentRef.current) {
       mainContentRef.current.scrollTop = 0;
     }
-  }, [location.pathname]);
+  }, [location.pathname, isAnalyticsLayout]);
 
   // Close notifications and profile menu when clicking outside
   useEffect(() => {
@@ -359,7 +366,6 @@ export const DashboardLayout: React.FC = () => {
 
   const handleNavigation = (path: string) => {
     navigate(path);
-    // Close sidebar on mobile after navigation
     if (window.innerWidth < 1024) {
       setSidebarOpen(false);
     }
@@ -369,15 +375,12 @@ export const DashboardLayout: React.FC = () => {
     setShowLogoutModal(true);
   };
 
-  // Page title and subtitle mapping - updates when profile or location changes
   const getPageInfo = () => {
     const path = location.pathname;
-    // Extract first name from full_name for personalized greeting
     const fullName = profile?.full_name || '';
     const firstName = fullName ? fullName.trim().split(' ')[0] : (user?.email?.split('@')[0] || '');
     const userName = firstName;
 
-    // Map paths to page info
     const pageMap: Record<string, { title: string; subtitle: string }> = {
       '/dashboard': {
         title: 'Dashboard',
@@ -391,15 +394,7 @@ export const DashboardLayout: React.FC = () => {
         title: 'Analytics',
         subtitle: 'Detailed insights and performance metrics'
       },
-      '/admin/analytics': {
-        title: 'Analytics',
-        subtitle: 'Detailed insights and performance metrics'
-      },
       '/dashboard/settings': {
-        title: 'Settings',
-        subtitle: 'Manage your account settings'
-      },
-      '/admin/settings': {
         title: 'Settings',
         subtitle: 'Manage your account settings'
       },
@@ -427,19 +422,13 @@ export const DashboardLayout: React.FC = () => {
         title: 'Message',
         subtitle: 'Chat with CodFence support team'
       },
-      '/admin/message': {
-        title: 'Message',
-        subtitle: 'Chat with CodFence support team'
-      }
     };
 
-    // Get page info or default
     const pageInfo = pageMap[path] || {
       title: path.split('/').pop()?.replace(/-/g, ' ') || 'Dashboard',
       subtitle: 'Dashboard overview'
     };
 
-    // Capitalize title
     pageInfo.title = pageInfo.title
       .split(' ')
       .map(word => word.charAt(0).toUpperCase() + word.slice(1))
@@ -451,14 +440,12 @@ export const DashboardLayout: React.FC = () => {
   const pageInfo = getPageInfo();
 
   const isActive = (path: string) => {
-    // Handle admin routes
     if (path === '/admin/dashboard') {
       return location.pathname === '/admin/dashboard';
     }
     if (path.startsWith('/admin/')) {
       return location.pathname.startsWith(path);
     }
-    // Handle regular dashboard routes
     if (path === '/dashboard') {
       return location.pathname === '/dashboard';
     }
@@ -467,15 +454,14 @@ export const DashboardLayout: React.FC = () => {
 
   const confirmLogout = async () => {
     try {
-      await logout(); // Calls Supabase signOut() from AuthContext
-      setShowLogoutModal(false); // Close modal
-      window.location.href = '/login'; // Redirect to login page
+      await logout();
+      setShowLogoutModal(false);
+      window.location.href = '/login';
     } catch (error) {
       console.error('Logout error:', error);
     }
   };
 
-  // Determine if sidebar is expanded
   const expanded = (isDesktop && isHovered) || sidebarOpen;
 
   return (
@@ -492,15 +478,9 @@ export const DashboardLayout: React.FC = () => {
       <aside
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
-        className={`fixed top-0 left-0 h-full z-[100] transition-[width,background,box-shadow] duration-300 ease-in-out flex flex-col ${
-          // Mobile: slide in/out
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
-          } ${
-          // Width: expanded on hover (desktop) or when open (mobile)
-          expanded ? 'w-[200px]' : 'w-20'
-          } ${
-          // Overlay styling when expanded on desktop
-          expanded && isDesktop
+        className={`fixed top-0 left-0 h-full z-[100] transition-[width,background,box-shadow] duration-300 ease-in-out flex flex-col ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+          } ${expanded ? 'w-[200px]' : 'w-20'
+          } ${expanded && isDesktop
             ? 'bg-[var(--bg-sidebar)]/95 backdrop-blur-md border-r border-[var(--border-subtle)] shadow-xl'
             : 'bg-[var(--bg-sidebar)] border-r border-[var(--border-subtle)]'
           }`}
@@ -590,7 +570,7 @@ export const DashboardLayout: React.FC = () => {
       <div className="flex-1 flex flex-col lg:ml-20 transition-all duration-300 min-h-0">
         {/* Topbar */}
         <header className="h-16 bg-[var(--bg-sidebar)] border-b border-[var(--border-subtle)] flex items-center justify-between px-6 sticky top-0 z-100">
-          {/* Left side: Mobile Menu Button + Breadcrumb */}
+          {/* Left side: Mobile Menu Button + Title */}
           <div className="flex items-center gap-4">
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -599,7 +579,6 @@ export const DashboardLayout: React.FC = () => {
               <Menu size={20} />
             </button>
 
-            {/* Page Title and Subtitle */}
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-semibold text-[var(--text-main)] tracking-wide">
                 {pageInfo.title}:
@@ -610,9 +589,8 @@ export const DashboardLayout: React.FC = () => {
             </div>
           </div>
 
-          {/* Right side: Back to Home Button + Notifications + Profile */}
+          {/* Right side */}
           <div className="flex items-center gap-3 ml-4">
-            {/* Back to Home Button */}
             <button
               onClick={() => navigate("/")}
               className="flex items-center gap-2 px-4 py-2 bg-[#8B5CF6]/20 border border-[#8B5CF6]/30 rounded-lg text-[var(--text-main)] hover:bg-[#8B5CF6]/30 transition whitespace-nowrap"
@@ -621,6 +599,7 @@ export const DashboardLayout: React.FC = () => {
               <span className="text-sm font-medium hidden md:inline">Back to Home</span>
               <span className="text-sm font-medium md:hidden">Home</span>
             </button>
+
             {/* Notifications */}
             <div className="relative" ref={notificationRef}>
               <button
@@ -633,10 +612,8 @@ export const DashboardLayout: React.FC = () => {
                 )}
               </button>
 
-              {/* Notification Popup */}
               {showNotifications && (
                 <div className="absolute right-0 top-12 w-80 md:w-96 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg shadow-2xl z-50 max-h-[500px] flex flex-col">
-                  {/* Header */}
                   <div className="flex items-center justify-between p-4 border-b border-[var(--border-subtle)]">
                     <h3 className="text-lg font-semibold text-[var(--text-main)]">Notifications</h3>
                     {unreadCount > 0 && (
@@ -649,7 +626,6 @@ export const DashboardLayout: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Notifications List */}
                   <div className="overflow-y-auto max-h-[400px]">
                     {notifications.length === 0 ? (
                       <div className="p-8 text-center">
@@ -690,7 +666,6 @@ export const DashboardLayout: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Footer */}
                   {notifications.length > 0 && (
                     <div className="p-3 border-t border-[var(--border-subtle)] text-center">
                       <button
@@ -722,7 +697,6 @@ export const DashboardLayout: React.FC = () => {
                 </span>
               </button>
 
-              {/* Profile Dropdown */}
               {showProfileMenu && (
                 <div className="absolute right-0 top-12 w-48 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg shadow-xl z-50 overflow-hidden py-1">
                   <button
@@ -754,15 +728,21 @@ export const DashboardLayout: React.FC = () => {
         {/* Page Content */}
         <main
           ref={mainContentRef}
-          className="flex-1 min-h-0 bg-[var(--bg-page)] overflow-y-auto"
+          className={`flex-1 min-h-0 bg-[var(--bg-page)] ${isAnalyticsLayout ? 'overflow-hidden' : 'overflow-y-auto'
+            }`}
         >
-          <div className="w-full h-[calc(100vh-4rem)] flex flex-col bg-[var(--bg-page)] 
-          px-0 pt-0 pb-0 lg:pb-1">
+          <div
+            className={`w-full flex flex-col bg-[var(--bg-page)] ${isAnalyticsLayout
+              ? 'h-[calc(100vh-4rem)] px-0 pt-0 pb-0' // full viewport, no scroll, không margin-top
+              : 'h-[calc(100vh-4rem)] px-0 pt-0 pb-0 lg:pb-1'
+              }`}
+          >
             <Outlet context={outletContext} />
           </div>
         </main>
       </div>
 
+      {/* AddOrderModal */}
       <AddOrderModal
         isOpen={isOrderModalOpen}
         onClose={closeAddOrderModal}
@@ -774,13 +754,13 @@ export const DashboardLayout: React.FC = () => {
         }}
       />
 
+      {/* AddProductModal */}
       <AddProductModal
         isOpen={isProductModalOpen}
         onClose={closeAddProductModal}
         onSuccess={handleProductModalSuccess}
         initialName={productModalInitialName}
       />
-
 
       {/* All Notifications Modal */}
       {showAllNotifications && (
@@ -930,4 +910,3 @@ export const DashboardLayout: React.FC = () => {
     </div>
   );
 };
-

@@ -102,16 +102,15 @@ src/
   features/
     analytics/
       components/
+        AnalyticsLayout.tsx
         AnalyticsTabsHeader.tsx
         ChannelsTab.tsx
         CodTab.tsx
         CustomersTab.tsx
-        FinancialTab.tsx
         FunnelTab.tsx
         GeoTab.tsx
         OperationsTab.tsx
         OrdersTab.tsx
-        ProductChannelTab.tsx
         ProductsTab.tsx
         RevenueTab.tsx
         RiskTab.tsx
@@ -329,27 +328,90 @@ vite.config.ts
 <files>
 This section contains the contents of the repository's files.
 
+<file path="src/features/analytics/components/AnalyticsLayout.tsx">
+import React from "react";
+
+interface AnalyticsLayoutProps {
+    /** 4 thẻ summary phía trên */
+    summaryCards: React.ReactNode[];
+
+    /** Tối đa 6 chart (2 hàng x 3) phía dưới */
+    charts: React.ReactNode[];
+
+    /** Chiều cao mỗi chart (px) – mặc định 200 */
+    chartHeight?: number;
+}
+
+/**
+ * Layout chuẩn cho tất cả tabs Analytics:
+ * - Hàng trên: 4 summary cards (1–4 tùy bạn, nhưng thường là 4)
+ * - Hàng dưới: grid 3 cột, tối đa 6 chart, mỗi chart có chiều cao cố định
+ */
+export const AnalyticsLayout: React.FC<AnalyticsLayoutProps> = ({
+    summaryCards,
+    charts,
+    chartHeight = 200,
+}) => {
+    return (
+        <div className="flex h-full min-h-0 flex-col gap-3">
+            {/* SUMMARY CARDS */}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                {summaryCards.map((card, idx) => (
+                    <div key={idx}>{card}</div>
+                ))}
+            </div>
+
+            {/* CHART GRID: 2 rows x 3 (trên màn hình rộng) */}
+            <div className="grid flex-1 min-h-0 grid-cols-1 gap-3 xl:grid-cols-3">
+                {charts.map((chart, idx) => (
+                    <div
+                        key={idx}
+                        className="h-[200px]"           // để Tailwind giữ đúng chiều cao cơ bản
+                        style={{ height: chartHeight }} // chartHeight có thể custom khi cần
+                    >
+                        {chart}
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+</file>
+
 <file path="src/components/analytics/ChartCard.tsx">
-import React from 'react';
+import React from "react";
 
 interface ChartCardProps {
     title: string;
     subtitle?: string;
     children: React.ReactNode;
+    compact?: boolean;
+    className?: string;
 }
 
-export const ChartCard: React.FC<ChartCardProps> = ({ title, subtitle, children }) => {
+export const ChartCard: React.FC<ChartCardProps> = ({
+    title,
+    subtitle,
+    children,
+    compact,
+    className,
+}) => {
+    const contentHeight = compact ? "h-[150px]" : "h-52 md:h-64";
+
     return (
-        <div className="rounded-2xl bg-[#020617] border border-white/10 p-4 h-full">
+        <div
+            className={
+                "rounded-2xl bg-[#020617] border border-white/20 shadow-[0_0_0_1px_rgba(148,163,184,0.25)] p-4 h-full " +
+                (className ?? "")
+            }
+        >
             <div className="mb-2">
                 <h3 className="text-sm font-medium text-white">{title}</h3>
                 {subtitle && (
                     <p className="text-xs text-white/50">{subtitle}</p>
                 )}
             </div>
-            <div className="h-52 md:h-64">
-                {children}
-            </div>
+            <div className={contentHeight}>{children}</div>
         </div>
     );
 };
@@ -449,7 +511,8 @@ const formatCurrency = (amount: number) => {
 </file>
 
 <file path="src/components/dashboard/DateRangeSelector.tsx">
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Calendar } from 'lucide-react';
 import type { DashboardDateRange } from '../../features/dashboard/useDashboardStats';
 
 interface DateRangeSelectorProps {
@@ -469,14 +532,38 @@ export const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({
     onChangeCustomFrom,
     onChangeCustomTo,
 }) => {
-    const handleClick = (range: DashboardDateRange) => {
-        onChange(range);
-    };
+    const [customOpen, setCustomOpen] = useState(false);
+    const containerRef = useRef<HTMLDivElement | null>(null);
 
     const isCustom = value === "custom";
 
+    const handleClick = (range: DashboardDateRange) => {
+        onChange(range);
+        if (range === "custom") {
+            setCustomOpen(true);
+        } else {
+            setCustomOpen(false);
+        }
+    };
+
+    // đóng popover khi click ra ngoài
+    useEffect(() => {
+        if (!customOpen) return;
+
+        const handler = (e: MouseEvent) => {
+            if (!containerRef.current) return;
+            if (!containerRef.current.contains(e.target as Node)) {
+                setCustomOpen(false);
+            }
+        };
+
+        document.addEventListener("mousedown", handler);
+        return () => document.removeEventListener("mousedown", handler);
+    }, [customOpen]);
+
     return (
-        <div className="flex items-center gap-3">
+        // relative để popover absolute mà không đẩy layout
+        <div ref={containerRef} className="relative flex items-center gap-3">
             <span className="text-xs font-medium uppercase tracking-wide text-white/60 hidden sm:inline-block">
                 Date Range
             </span>
@@ -487,8 +574,8 @@ export const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({
                     type="button"
                     onClick={() => handleClick("today")}
                     className={`px-3 py-1 rounded-full transition-all ${value === "today"
-                            ? "bg-[#8B5CF6] text-white shadow-md shadow-[#8B5CF6]/20"
-                            : "text-white/70 hover:text-white hover:bg-white/5"
+                        ? "bg-[#8B5CF6] text-white shadow-md shadow-[#8B5CF6]/20"
+                        : "text-white/70 hover:text-white hover:bg-white/5"
                         }`}
                 >
                     Today
@@ -497,8 +584,8 @@ export const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({
                     type="button"
                     onClick={() => handleClick("last_week")}
                     className={`px-3 py-1 rounded-full transition-all ${value === "last_week"
-                            ? "bg-[#8B5CF6] text-white shadow-md shadow-[#8B5CF6]/20"
-                            : "text-white/70 hover:text-white hover:bg-white/5"
+                        ? "bg-[#8B5CF6] text-white shadow-md shadow-[#8B5CF6]/20"
+                        : "text-white/70 hover:text-white hover:bg-white/5"
                         }`}
                 >
                     Last 7 Days
@@ -507,8 +594,8 @@ export const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({
                     type="button"
                     onClick={() => handleClick("last_month")}
                     className={`px-3 py-1 rounded-full transition-all ${value === "last_month"
-                            ? "bg-[#8B5CF6] text-white shadow-md shadow-[#8B5CF6]/20"
-                            : "text-white/70 hover:text-white hover:bg-white/5"
+                        ? "bg-[#8B5CF6] text-white shadow-md shadow-[#8B5CF6]/20"
+                        : "text-white/70 hover:text-white hover:bg-white/5"
                         }`}
                 >
                     Last 30 Days
@@ -516,33 +603,75 @@ export const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({
                 <button
                     type="button"
                     onClick={() => handleClick("custom")}
-                    className={`px-3 py-1 rounded-full transition-all ${value === "custom"
-                            ? "bg-[#8B5CF6] text-white shadow-md shadow-[#8B5CF6]/20"
-                            : "text-white/70 hover:text-white hover:bg-white/5"
+                    className={`px-3 py-1 rounded-full transition-all ${isCustom
+                        ? "bg-[#8B5CF6] text-white shadow-md shadow-[#8B5CF6]/20"
+                        : "text-white/70 hover:text-white hover:bg-white/5"
                         }`}
                 >
                     Custom
                 </button>
             </div>
 
-            {/* Custom range pickers */}
-            {isCustom && (
-                <div className="flex items-center gap-2 animate-in fade-in slide-in-from-right-4 duration-200">
-                    <input
-                        type="date"
-                        className="h-8 rounded-lg border border-white/10 bg-slate-950/80 px-2 text-xs text-white focus:outline-none focus:ring-2 focus:ring-[#8B5CF6] focus:border-transparent"
-                        value={customFrom ?? ""}
-                        onChange={(e) =>
-                            onChangeCustomFrom(e.target.value || undefined)
-                        }
-                    />
-                    <span className="text-xs text-white/50">→</span>
-                    <input
-                        type="date"
-                        className="h-8 rounded-lg border border-white/10 bg-slate-950/80 px-2 text-xs text-white focus:outline-none focus:ring-2 focus:ring-[#8B5CF6] focus:border-transparent"
-                        value={customTo ?? ""}
-                        onChange={(e) => onChangeCustomTo(e.target.value || undefined)}
-                    />
+            {/* Popover Custom – nổi bên dưới group, không đẩy header */}
+            {customOpen && (
+                <div className="absolute right-0 top-full mt-2 min-w-[260px] rounded-xl border border-white/10 bg-slate-950/95 shadow-xl shadow-black/40 backdrop-blur-xl p-3 z-50 animate-in fade-in slide-in-from-top-1">
+                    <div className="mb-2 text-xs font-medium text-white/70">
+                        Custom range
+                    </div>
+
+                    <div className="flex flex-col gap-2">
+                        {/* From */}
+                        <label className="flex items-center gap-2 text-[11px] text-white/60">
+                            <span className="w-10">From</span>
+                            <div className="relative flex-1">
+                                <input
+                                    type="date"
+                                    className="h-9 w-full rounded-lg border border-white/10 bg-slate-900/80 px-2 pr-7 text-xs text-white focus:outline-none focus:ring-2 focus:ring-[#8B5CF6] focus:border-transparent appearance-none"
+                                    value={customFrom ?? ""}
+                                    onChange={(e) =>
+                                        onChangeCustomFrom(e.target.value || undefined)
+                                    }
+                                />
+                                <Calendar className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/50" />
+                            </div>
+                        </label>
+
+                        {/* To */}
+                        <label className="flex items-center gap-2 text-[11px] text-white/60">
+                            <span className="w-10">To</span>
+                            <div className="relative flex-1">
+                                <input
+                                    type="date"
+                                    className="h-9 w-full rounded-lg border border-white/10 bg-slate-900/80 px-2 pr-7 text-xs text-white focus:outline-none focus:ring-2 focus:ring-[#8B5CF6] focus:border-transparent appearance-none"
+                                    value={customTo ?? ""}
+                                    onChange={(e) =>
+                                        onChangeCustomTo(e.target.value || undefined)
+                                    }
+                                />
+                                <Calendar className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/50" />
+                            </div>
+                        </label>
+                    </div>
+
+                    <div className="mt-3 flex justify-end gap-2">
+                        <button
+                            type="button"
+                            className="px-2 py-1 text-[11px] rounded-md text-white/60 hover:text-white hover:bg-white/5"
+                            onClick={() => {
+                                onChangeCustomFrom(undefined);
+                                onChangeCustomTo(undefined);
+                            }}
+                        >
+                            Clear
+                        </button>
+                        <button
+                            type="button"
+                            className="px-3 py-1 text-[11px] rounded-md bg-[#8B5CF6] text-white hover:bg-[#7C3AED]"
+                            onClick={() => setCustomOpen(false)}
+                        >
+                            Apply
+                        </button>
+                    </div>
                 </div>
             )}
         </div>
@@ -735,21 +864,21 @@ const RejectOrderModal: React.FC<RejectOrderModalProps> = ({
           >
             Cancel
           </Button>
-          <button
+          <Button
             type="button"
             onClick={onConfirm}
-            disabled={isConfirmDisabled}
-            className="px-6 py-3 rounded-xl font-semibold text-white transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[#0B0F28] disabled:opacity-50 disabled:cursor-not-allowed bg-[#8B5CF6] hover:bg-[#7C3AED] focus:ring-[#8B5CF6]"
+            disabled={isConfirmDisabled || loading}
+            className="w-full"
           >
             {loading ? (
-              <span className="flex items-center">
-                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2" />
+              <span className="flex items-center justify-center gap-2">
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 Processing...
               </span>
             ) : (
               'Confirm'
             )}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -1438,105 +1567,25 @@ export const OperationsTab: React.FC<OperationsTabProps> = ({ dateRange, customF
 };
 </file>
 
-<file path="src/features/analytics/components/ProductChannelTab.tsx">
-import React from 'react';
-import { Card, CardHeader, CardTitle, CardContent } from '../../../components/ui/Card';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { useProductChannelAnalytics } from '../hooks/useProductChannelAnalytics';
-import type { DashboardDateRange } from '../../dashboard/useDashboardStats';
-import { Loader2, Package } from 'lucide-react';
-
-interface ProductChannelTabProps {
-    dateRange: DashboardDateRange;
-    customFrom?: string;
-    customTo?: string;
-}
-
-export const ProductChannelTab: React.FC<ProductChannelTabProps> = ({ dateRange, customFrom, customTo }) => {
-    const { data, loading, error } = useProductChannelAnalytics({ dateRange, customFrom, customTo });
-
-    if (loading) {
-        return (
-            <div className="flex items-center justify-center h-[400px]">
-                <Loader2 className="w-8 h-8 animate-spin text-[#8B5CF6]" />
-            </div>
-        );
-    }
-
-    if (error || !data) {
-        return (
-            <div className="p-6 bg-red-500/10 border border-red-500/20 rounded-xl text-center text-red-400">
-                {error || "No data available"}
-            </div>
-        );
-    }
-
-    return (
-        <div className="space-y-6">
-            <Card>
-                <CardHeader>
-                    <CardTitle>Product Performance</CardTitle>
-                    <p className="text-sm text-[#E5E7EB]/70">Boom rate by product</p>
-                </CardHeader>
-                <CardContent>
-                    <div className="h-[400px] w-full">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart
-                                data={data.productStats.slice(0, 10)}
-                                margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
-                            >
-                                <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" vertical={false} />
-                                <XAxis dataKey="product_name" stroke="#E5E7EB" tick={{ fill: '#9CA3AF', fontSize: 12 }} tickLine={false} axisLine={false} />
-                                <YAxis yAxisId="left" stroke="#E5E7EB" tick={{ fill: '#9CA3AF', fontSize: 12 }} tickLine={false} axisLine={false} />
-                                <YAxis yAxisId="right" orientation="right" stroke="#EF4444" tick={{ fill: '#EF4444', fontSize: 12 }} tickLine={false} axisLine={false} unit="%" />
-                                <Tooltip
-                                    contentStyle={{ backgroundColor: '#12163A', borderColor: '#1E223D', color: '#fff' }}
-                                    cursor={{ fill: 'rgba(255,255,255,0.05)' }}
-                                />
-                                <Legend />
-                                <Bar yAxisId="left" dataKey="totalOrders" fill="#8B5CF6" name="Total Orders" radius={[4, 4, 0, 0]} />
-                                <Bar yAxisId="right" dataKey="boomRate" fill="#EF4444" name="Boom Rate (%)" radius={[4, 4, 0, 0]} />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </div>
-                </CardContent>
-            </Card>
-
-            {data.channelStats.length > 0 ? (
-                <Card>
-                    <CardHeader>
-                        <CardTitle>Channel Performance</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="h-[300px] w-full">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={data.channelStats}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" vertical={false} />
-                                    <XAxis dataKey="channel" stroke="#E5E7EB" />
-                                    <YAxis stroke="#E5E7EB" />
-                                    <Tooltip contentStyle={{ backgroundColor: '#12163A', borderColor: '#1E223D', color: '#fff' }} />
-                                    <Bar dataKey="totalOrders" fill="#8B5CF6" name="Orders" />
-                                    <Bar dataKey="boomRate" fill="#EF4444" name="Boom Rate %" />
-                                </BarChart>
-                            </ResponsiveContainer>
-                        </div>
-                    </CardContent>
-                </Card>
-            ) : (
-                <div className="p-6 border border-dashed border-white/10 rounded-xl text-center text-[#E5E7EB]/40">
-                    Channel data not available yet.
-                </div>
-            )}
-        </div>
-    );
-};
-</file>
-
 <file path="src/features/analytics/components/RevenueTab.tsx">
-import React, { useState, useMemo, useEffect } from 'react';
-import { StatCard } from '../../../components/analytics/StatCard';
-import { ChartCard } from '../../../components/analytics/ChartCard';
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, RadialBarChart, RadialBar } from 'recharts';
+import React, { useState, useMemo, useEffect } from "react";
+import { AnalyticsLayout } from "./AnalyticsLayout";
+import { StatCard } from "../../../components/analytics/StatCard";
+import { ChartCard } from "../../../components/analytics/ChartCard";
+import {
+    LineChart,
+    Line,
+    BarChart,
+    Bar,
+    XAxis,
+    YAxis,
+    CartesianGrid,
+    Tooltip,
+    Legend,
+    ResponsiveContainer,
+    RadialBarChart,
+    RadialBar,
+} from "recharts";
 import {
     REVENUE_KPI_TARGETS,
     REVENUE_KPI_LABELS,
@@ -1544,8 +1593,11 @@ import {
     calculateRevenueKpi,
     type RevenueKpiMode,
 } from "../config/revenueKpiConfig";
-import { DollarSign, TrendingUp, Users, Wallet } from 'lucide-react';
-import { useDashboardStats, type DashboardDateRange } from '../../dashboard/useDashboardStats';
+import { DollarSign, TrendingUp, Users, Wallet } from "lucide-react";
+import {
+    useDashboardStats,
+    type DashboardDateRange,
+} from "../../dashboard/useDashboardStats";
 
 interface RevenueTabProps {
     dateRange: DashboardDateRange;
@@ -1553,61 +1605,106 @@ interface RevenueTabProps {
     customTo?: string;
 }
 
-export const RevenueTab: React.FC<RevenueTabProps> = ({ dateRange, customFrom, customTo }) => {
-    const { loading, error, stats, revenueChart } = useDashboardStats(dateRange, customFrom, customTo);
+interface RevenueAggregationByYear {
+    years: number[];
+    byYear: Record<
+        number,
+        {
+            total: number;
+            byMonth: number[]; // 0–11
+            byQuarter: number[]; // 0–3
+        }
+    >;
+}
+
+export const RevenueTab: React.FC<RevenueTabProps> = ({
+    dateRange,
+    customFrom,
+    customTo,
+}) => {
+    const { loading, error, stats, revenueChart } = useDashboardStats(
+        dateRange,
+        customFrom,
+        customTo
+    );
+
+    // ================== KPI AGGREGATION ==================
+    const aggregation = useMemo(
+        () => buildRevenueAggregation(revenueChart),
+        [revenueChart]
+    );
+    const availableYears = aggregation.years;
+    const currentYear = new Date().getFullYear();
+
     const [kpiMode, setKpiMode] = useState<RevenueKpiMode>("month");
+    const [kpiPickerOpen, setKpiPickerOpen] = useState(false);
+    const [pickerMode, setPickerMode] = useState<RevenueKpiMode | null>(null);
     const [selectedChipIndex, setSelectedChipIndex] = useState<number | null>(null);
 
-    // Reset selected chip when mode changes
+    const openPicker = (mode: RevenueKpiMode) => {
+        setPickerMode(mode);
+        setKpiMode(mode);         // cập nhật luôn mode để gauge đổi target
+        setKpiPickerOpen(true);
+    };
+
+    const closePicker = () => {
+        setKpiPickerOpen(false);
+    };
+
+    // Reset chip khi đổi mode
     useEffect(() => {
-        const now = new Date();
-        if (kpiMode === 'month') {
-            setSelectedChipIndex(now.getMonth()); // 0-11
-        } else if (kpiMode === 'quarter') {
-            setSelectedChipIndex(Math.floor(now.getMonth() / 3)); // 0-3
-        } else {
-            setSelectedChipIndex(0); // Year mode
+        if (kpiMode === "month") {
+            setSelectedChipIndex(new Date().getMonth()); // tháng hiện tại
+        } else if (kpiMode === "quarter") {
+            setSelectedChipIndex(Math.floor(new Date().getMonth() / 3)); // quý hiện tại
+        } else if (kpiMode === "year") {
+            if (availableYears.length > 0) {
+                // chọn năm mới nhất có data
+                setSelectedChipIndex(availableYears.length - 1);
+            } else {
+                setSelectedChipIndex(null);
+            }
         }
-    }, [kpiMode]);
+    }, [kpiMode, availableYears]);
 
-    // Build yearly summary from revenue chart (or orders if available)
-    // Note: This relies on the current date range including the data. 
-    // If the global date range is small (e.g. "Today"), this will only show today's data.
-    const yearlySummary = useMemo(() => {
-        return buildYearlyRevenueSummary(revenueChart);
-    }, [revenueChart]);
-
-    // Calculate Target
     const target = REVENUE_KPI_TARGETS[kpiMode];
     const label = REVENUE_KPI_LABELS[kpiMode];
     const chips = REVENUE_KPI_CHIPS[kpiMode];
 
-    // Calculate Actual based on mode and selected chip
+    // ================== KPI ACTUAL ==================
     let actual = 0;
-    if (kpiMode === 'month' && selectedChipIndex !== null) {
-        actual = yearlySummary.thisYearByMonth[selectedChipIndex] || 0;
-    } else if (kpiMode === 'quarter' && selectedChipIndex !== null) {
-        actual = yearlySummary.thisYearByQuarter[selectedChipIndex] || 0;
-    } else if (kpiMode === 'year') {
-        actual = yearlySummary.thisYear;
+
+    if (kpiMode === "month" && selectedChipIndex !== null) {
+        const yearAgg = aggregation.byYear[currentYear];
+        if (yearAgg) {
+            actual = yearAgg.byMonth[selectedChipIndex] || 0;
+        }
+    } else if (kpiMode === "quarter" && selectedChipIndex !== null) {
+        const yearAgg = aggregation.byYear[currentYear];
+        if (yearAgg) {
+            actual = yearAgg.byQuarter[selectedChipIndex] || 0;
+        }
+    } else if (kpiMode === "year" && selectedChipIndex !== null) {
+        const year = availableYears[selectedChipIndex];
+        const yearAgg = aggregation.byYear[year];
+        if (yearAgg) {
+            actual = yearAgg.total;
+        }
     } else {
-        actual = stats.totalRevenue; // Fallback
+        actual = stats.totalRevenue; // fallback
     }
 
-    const { percent, clampedPercent, isOverTarget } = calculateRevenueKpi(actual, target);
+    const { percent } = calculateRevenueKpi(actual, target);
 
-    // Gauge color logic
-    let gaugeColor = "#facc15"; // amber (default/low < 80%)
-    if (percent >= 110) {
-        gaugeColor = "#10B981"; // green (over-achieved)
-    } else if (percent >= 80) {
-        gaugeColor = "#8B5CF6"; // purple (on track)
-    }
+    // Gauge color
+    let gaugeColor = "#facc15";
+    if (percent >= 110) gaugeColor = "#10B981";
+    else if (percent >= 80) gaugeColor = "#8B5CF6";
 
-    // Visual cap at 100% for the gauge arc
-    const visualPercent = Math.min(percent, 100);
-    const gaugeData = [{ name: "progress", value: visualPercent }];
+    // Gauge dùng 0–100
+    const gaugeData = [{ name: "progress", value: Math.min(percent, 100) }];
 
+    // ================== COD COLLECTION ==================
     const collectionRiskData = [
         {
             name: "Confirmed COD",
@@ -1622,11 +1719,8 @@ export const RevenueTab: React.FC<RevenueTabProps> = ({ dateRange, customFrom, c
     const { collectionDomain, collectionTicks } = useMemo(() => {
         const values = collectionRiskData.map((d) => d.value || 0);
         const maxValue = Math.max(...values, 0);
-
-        // Đơn vị 100M
         const step = 100_000_000;
-        const roundedMax =
-            maxValue === 0 ? step : Math.ceil(maxValue / step) * step;
+        const roundedMax = maxValue === 0 ? step : Math.ceil(maxValue / step) * step;
 
         const ticks: number[] = [];
         for (let v = 0; v <= roundedMax; v += step) {
@@ -1639,17 +1733,16 @@ export const RevenueTab: React.FC<RevenueTabProps> = ({ dateRange, customFrom, c
         };
     }, [stats.confirmedCodRevenue, stats.deliveredNotPaidRevenue]);
 
-    const formatCurrency = (value: number) => {
-        return new Intl.NumberFormat('vi-VN', {
-            style: 'currency',
-            currency: 'VND',
+    const formatCurrency = (value: number) =>
+        new Intl.NumberFormat("vi-VN", {
+            style: "currency",
+            currency: "VND",
             maximumFractionDigits: 0,
         }).format(value);
-    };
 
     if (loading) {
         return (
-            <div className="flex items-center justify-center h-64">
+            <div className="flex h-64 items-center justify-center">
                 <p className="text-white/60">Loading analytics...</p>
             </div>
         );
@@ -1657,284 +1750,486 @@ export const RevenueTab: React.FC<RevenueTabProps> = ({ dateRange, customFrom, c
 
     if (error) {
         return (
-            <div className="flex items-center justify-center h-64">
+            <div className="flex h-64 items-center justify-center">
                 <p className="text-red-400">Error loading analytics: {error}</p>
             </div>
         );
     }
 
+    // ======================================================
+    //                      RENDER
+    // ======================================================
     return (
-        <div className="space-y-4 min-h-0">
-            {/* Row 1: KPI Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <StatCard
-                    title="Total Revenue"
-                    value={formatCurrency(stats.totalRevenue)}
-                    subtitle="Gross revenue from paid orders"
-                    icon={<DollarSign className="w-5 h-5 text-green-400" />}
-                    valueColor="#4ade80"
-                />
-                <StatCard
-                    title="Converted Revenue"
-                    value={formatCurrency(stats.convertedRevenue)}
-                    subtitle="Revenue from COD orders"
-                    icon={<TrendingUp className="w-5 h-5 text-emerald-400" />}
-                    valueColor="#34d399"
-                />
-                <StatCard
-                    title="Average Order Value"
-                    value={formatCurrency(stats.avgOrderValue)}
-                    subtitle="Per paid order"
-                    icon={<Users className="w-5 h-5 text-blue-400" />}
-                    valueColor="#60a5fa"
-                />
-                <StatCard
-                    title="Pending Revenue"
-                    value={formatCurrency(stats.pendingRevenue)}
-                    subtitle="COD confirmed/delivering but not paid"
-                    icon={<Wallet className="w-5 h-5 text-[#8B5CF6]" />}
-                    valueColor="#8B5CF6"
-                />
-            </div>
+        <>
+            <AnalyticsLayout
+                summaryCards={[
+                    <StatCard
+                        key="total-revenue"
+                        className="px-4 py-2 h-[88px]"
+                        title="Total Revenue"
+                        titleClass="text-[11px]"
+                        valueClass="text-xl"
+                        value={formatCurrency(stats.totalRevenue)}
+                        subtitle="Gross revenue from paid orders"
+                        icon={<DollarSign className="h-4 w-4 text-[#4ade80]" />}
+                        valueColor="#4ade80"
+                    />,
+                    <StatCard
+                        key="converted-revenue"
+                        className="px-4 py-2 h-[88px]"
+                        title="Converted Revenue"
+                        titleClass="text-[11px]"
+                        valueClass="text-xl"
+                        value={formatCurrency(stats.convertedRevenue)}
+                        subtitle="Revenue from COD orders"
+                        icon={<TrendingUp className="h-4 w-4 text-[#8B5CF6]" />}
+                        valueColor="#8B5CF6"
+                    />,
+                    <StatCard
+                        key="aov"
+                        className="px-4 py-2 h-[88px]"
+                        title="Average Order Value"
+                        titleClass="text-[11px]"
+                        valueClass="text-xl"
+                        value={formatCurrency(stats.avgOrderValue)}
+                        subtitle="Per paid order"
+                        icon={<Users className="h-4 w-4 text-[#60a5fa]" />}
+                        valueColor="#60a5fa"
+                    />,
+                    <StatCard
+                        key="pending-revenue"
+                        className="px-4 py-2 h-[88px]"
+                        title="Pending Revenue"
+                        titleClass="text-[11px]"
+                        valueClass="text-xl"
+                        value={formatCurrency(stats.pendingRevenue)}
+                        subtitle="COD confirmed/delivering but not paid"
+                        icon={<Wallet className="h-4 w-4 text-[#facc15]" />}
+                        valueColor="#facc15"
+                    />,
+                ]}
+                charts={[
+                    // 1) KPI Gauge
+                    <ChartCard
+                        key="revenue-kpi"
+                        title="Revenue KPI"
+                        subtitle={`Progress vs ${label.toUpperCase()} target`}
+                        compact
+                        className="h-full"
+                    >
+                        <div className="flex items-center justify-between gap-6">
+                            {/* LEFT: Gauge + % + actual / target */}
+                            <div className="flex flex-1 flex-col items-center justify-center">
+                                {/* Gauge */}
+                                <div className="relative w-44 h-24 md:w-56 md:h-28">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <RadialBarChart
+                                            data={gaugeData}
+                                            innerRadius="72%"
+                                            outerRadius="100%"
+                                            startAngle={180}
+                                            endAngle={0}
+                                        >
+                                            <RadialBar
+                                                dataKey="value"
+                                                cornerRadius={10}
+                                                background={{ fill: "#111827" }}
+                                                fill={gaugeColor}
+                                            />
+                                        </RadialBarChart>
+                                    </ResponsiveContainer>
 
-            {/* Row 2: KPI & Risk Charts */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <ChartCard title="Revenue KPI" subtitle={`Progress vs ${label.toUpperCase()} Target`}>
-                    <div className="flex flex-col lg:flex-row items-center lg:items-stretch justify-between gap-6 h-full p-4">
-
-                        {/* Gauge bên trái */}
-                        <div className="flex flex-col items-center justify-center w-full lg:w-1/2">
-                            <div className="relative w-full h-64 max-w-[280px]">
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <RadialBarChart
-                                        data={gaugeData}
-                                        innerRadius="75%"
-                                        outerRadius="100%"
-                                        startAngle={180}
-                                        endAngle={0}
-                                    >
-                                        <RadialBar
-                                            dataKey="value"
-                                            cornerRadius={10}
-                                            background={{ fill: '#1F2937' }}
-                                            fill={gaugeColor}
-                                        />
-                                    </RadialBarChart>
-                                </ResponsiveContainer>
-
-                                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none pb-8">
-                                    <span className={`text-4xl font-bold ${percent >= 110 ? 'text-emerald-400' : 'text-white'}`}>
-                                        {percent}%
-                                    </span>
-                                    <div className="mt-3 text-sm text-white/60">
-                                        {formatCurrency(actual)} / {formatCurrency(target)}
+                                    {/* % nằm trong lòng gauge, sát phía dưới */}
+                                    <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center translate-y-2">
+                                        <span className="text-3xl font-semibold">
+                                            {percent}%
+                                        </span>
                                     </div>
                                 </div>
+
+                                {/* Actual / Target – sát ngay dưới gauge */}
+                                <div className="mt-2 text-xs text-white/65 text-center">
+                                    {formatCurrency(actual)} / {formatCurrency(target)}
+                                </div>
+                            </div>
+
+                            {/* RIGHT: 3 nút chọn mode */}
+                            <div className="flex w-32 flex-col justify-center gap-2">
+                                <button
+                                    onClick={() => openPicker("month")}
+                                    className={
+                                        "w-full rounded-full border px-3 py-1.5 text-xs font-medium transition-all " +
+                                        (kpiMode === "month"
+                                            ? "bg-[#8B5CF6] border-transparent text-white shadow"
+                                            : "bg-[#020617] border-white/25 text-white/80 hover:bg-[#111827] hover:border-white/40")
+                                    }
+                                >
+                                    Monthly
+                                </button>
+
+                                <button
+                                    onClick={() => openPicker("quarter")}
+                                    className={
+                                        "w-full rounded-full border px-3 py-1.5 text-xs font-medium transition-all " +
+                                        (kpiMode === "quarter"
+                                            ? "bg-[#8B5CF6] border-transparent text-white shadow"
+                                            : "bg-[#020617] border-white/25 text-white/80 hover:bg-[#111827] hover:border-white/40")
+                                    }
+                                >
+                                    Quarterly
+                                </button>
+
+                                <button
+                                    onClick={() => openPicker("year")}
+                                    className={
+                                        "w-full rounded-full border px-3 py-1.5 text-xs font-medium transition-all " +
+                                        (kpiMode === "year"
+                                            ? "bg-[#8B5CF6] border-transparent text-white shadow"
+                                            : "bg-[#020617] border-white/25 text-white/80 hover:bg-[#111827] hover:border-white/40")
+                                    }
+                                >
+                                    Yearly
+                                </button>
                             </div>
                         </div>
+                    </ChartCard>,
 
-                        {/* Selector + chips bên phải */}
-                        <div className="flex-1 flex flex-col gap-4">
+                    // 2) COD Collection Risk
+                    <ChartCard
+                        key="cod-collection-risk"
+                        title="COD Collection Risk"
+                        subtitle="COD confirmed vs not paid"
+                        compact
+                        className="h-full"
+                    >
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={collectionRiskData}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
+                                <XAxis
+                                    dataKey="name"
+                                    stroke="#E5E7EB"
+                                    tick={{ fill: "#E5E7EB", fontSize: 10 }}
+                                />
+                                <YAxis
+                                    stroke="#E5E7EB"
+                                    tick={{ fill: "#E5E7EB", fontSize: 10 }}
+                                    domain={collectionDomain}
+                                    ticks={collectionTicks}
+                                    tickFormatter={(v) =>
+                                        `${(v as number) / 1_000_000}M`
+                                    }
+                                />
+                                <Tooltip
+                                    contentStyle={{
+                                        backgroundColor: "#020617",
+                                        border: "1px solid rgba(255,255,255,0.1)",
+                                        borderRadius: 8,
+                                    }}
+                                    formatter={(v) => formatCurrency(v as number)}
+                                />
+                                <Bar dataKey="value" fill="#F59E0B" />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </ChartCard>,
 
-                            {/* Label */}
-                            <p className="text-[10px] font-bold text-white/30 uppercase tracking-widest pl-1">KPI Period</p>
+                    // 3) Sales Growth
+                    <ChartCard
+                        key="sales-growth"
+                        title="Sales Growth"
+                        subtitle="Daily revenue trend"
+                        compact
+                        className="h-full"
+                    >
+                        <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={revenueChart}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
+                                <XAxis
+                                    dataKey="date"
+                                    tick={{ fontSize: 10, fill: "#E5E7EB" }}
+                                />
+                                <YAxis
+                                    tick={{ fontSize: 10, fill: "#E5E7EB" }}
+                                    tickFormatter={(v) =>
+                                        `${(v as number / 1_000_000).toFixed(0)}M`
+                                    }
+                                />
+                                <Tooltip
+                                    contentStyle={{
+                                        backgroundColor: "#020617",
+                                        border: "1px solid rgba(255,255,255,0.1)",
+                                        borderRadius: 8,
+                                    }}
+                                    formatter={(v) => formatCurrency(v as number)}
+                                />
+                                <Line
+                                    type="monotone"
+                                    dataKey="totalRevenue"
+                                    stroke="#10B981"
+                                    strokeWidth={2}
+                                    dot={false}
+                                />
+                            </LineChart>
+                        </ResponsiveContainer>
+                    </ChartCard>,
 
-                            {/* Button Group */}
-                            <div className="inline-flex p-1 bg-transparent border border-white/10 rounded-lg w-fit">
-                                {(["month", "quarter", "year"] as RevenueKpiMode[]).map((mode) => (
+                    // 4) Revenue Breakdown
+                    <ChartCard
+                        key="revenue-breakdown"
+                        title="Revenue Breakdown"
+                        subtitle="Total vs Converted"
+                        compact
+                        className="h-full"
+                    >
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={revenueChart}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
+                                <XAxis
+                                    dataKey="date"
+                                    tick={{ fontSize: 10, fill: "#E5E7EB" }}
+                                />
+                                <YAxis
+                                    tick={{ fontSize: 10, fill: "#E5E7EB" }}
+                                    tickFormatter={(v) =>
+                                        `${(v as number / 1_000_000).toFixed(0)}M`
+                                    }
+                                />
+                                <Tooltip
+                                    contentStyle={{
+                                        backgroundColor: "#020617",
+                                        border: "1px solid rgba(255,255,255,0.1)",
+                                        borderRadius: 8,
+                                    }}
+                                    formatter={(v) => formatCurrency(v as number)}
+                                />
+                                <Legend wrapperStyle={{ color: "#E5E7EB" }} />
+                                <Bar dataKey="totalRevenue" fill="#8B5CF6" />
+                                <Bar dataKey="convertedRevenue" fill="#10B981" />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </ChartCard>,
+
+                    // 5) Revenue by Province
+                    <ChartCard
+                        key="revenue-by-province"
+                        title="Revenue by Province"
+                        subtitle="Top provinces"
+                        compact
+                        className="h-full"
+                    >
+                        <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={revenueChart}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
+                                <XAxis
+                                    dataKey="date"
+                                    tick={{ fontSize: 10, fill: "#E5E7EB" }}
+                                />
+                                <YAxis
+                                    tick={{ fontSize: 10, fill: "#E5E7EB" }}
+                                    tickFormatter={(v) =>
+                                        `${(v as number / 1_000_000).toFixed(0)}M`
+                                    }
+                                />
+                                <Tooltip
+                                    contentStyle={{
+                                        backgroundColor: "#020617",
+                                        border: "1px solid rgba(255,255,255,0.1)",
+                                        borderRadius: 8,
+                                    }}
+                                    formatter={(v) => formatCurrency(v as number)}
+                                />
+                                <Line
+                                    type="monotone"
+                                    dataKey="convertedRevenue"
+                                    stroke="#22C55E"
+                                    strokeWidth={2}
+                                    dot={false}
+                                />
+                            </LineChart>
+                        </ResponsiveContainer>
+                    </ChartCard>,
+
+                    // 6) Top Products
+                    <ChartCard
+                        key="top-products"
+                        title="Top Products"
+                        subtitle="Best sellers"
+                        compact
+                        className="h-full"
+                    >
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={revenueChart}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
+                                <XAxis
+                                    dataKey="date"
+                                    tick={{ fontSize: 10, fill: "#E5E7EB" }}
+                                />
+                                <YAxis
+                                    tick={{ fontSize: 10, fill: "#E5E7EB" }}
+                                    tickFormatter={(v) =>
+                                        `${(v as number / 1_000_000).toFixed(0)}M`
+                                    }
+                                />
+                                <Tooltip
+                                    contentStyle={{
+                                        backgroundColor: "#020617",
+                                        border: "1px solid rgba(255,255,255,0.1)",
+                                        borderRadius: 8,
+                                    }}
+                                    formatter={(v) => formatCurrency(v as number)}
+                                />
+                                <Bar dataKey="convertedRevenue" fill="#A855F7" />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </ChartCard>,
+                ]}
+                chartHeight={200}
+            />
+
+            {/* KPI Period Picker Modal – giữ như cũ */}
+            {kpiPickerOpen && pickerMode && (
+                <div
+                    className="fixed inset-0 z-40 flex items-center justify-center bg-black/40"
+                    onClick={closePicker}
+                >
+                    <div
+                        className="w-full max-w-lg rounded-2xl bg-[#050816] border border-[#6366F1]/40 p-4 shadow-2xl"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {/* Header */}
+                        <div className="mb-3 flex items-center justify-between">
+                            <div>
+                                <h3 className="text-sm font-semibold text-white">
+                                    Select {REVENUE_KPI_LABELS[pickerMode]}
+                                </h3>
+                                <p className="text-xs text-white/60">
+                                    Choose{" "}
+                                    {pickerMode === "year"
+                                        ? "year"
+                                        : pickerMode === "quarter"
+                                            ? "quarter"
+                                            : "month"}{" "}
+                                    for KPI calculation
+                                </p>
+                            </div>
+                            <button
+                                onClick={closePicker}
+                                className="rounded-full p-1 text-white/60 hover:bg-white/10 hover:text-white transition"
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        {/* Body: chips */}
+                        {pickerMode === "year" ? (
+                            <div className="flex justify-center">
+                                {availableYears.length === 0 ? (
+                                    <span className="text-[11px] text-white/40">
+                                        No yearly data
+                                    </span>
+                                ) : (
+                                    <div className="flex gap-2">
+                                        {availableYears.map((year, index) => (
+                                            <button
+                                                key={year}
+                                                onClick={() => setSelectedChipIndex(index)}
+                                                className={
+                                                    "inline-flex items-center justify-center rounded-full px-4 py-1.5 text-xs font-medium border transition-all " +
+                                                    (selectedChipIndex === index
+                                                        ? "bg-[#8B5CF6] border-transparent text-white shadow"
+                                                        : "bg-[#020617] border-white/25 text-white/70 hover:bg-[#111827] hover:border-white/40")
+                                                }
+                                            >
+                                                {year}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        ) : pickerMode === "quarter" ? (
+                            <div className="mx-auto grid w-full max-w-xs grid-cols-2 gap-2">
+                                {REVENUE_KPI_CHIPS.quarter.map((chip, index) => (
                                     <button
-                                        key={mode}
-                                        onClick={() => setKpiMode(mode)}
-                                        className={`
-                                            px-4 py-1.5 text-sm font-medium rounded-md transition-all duration-200
-                                            ${kpiMode === mode
-                                                ? "bg-[#8B5CF6] text-white shadow-md"
-                                                : "bg-transparent text-white/40 hover:bg-white/5 hover:text-white"
-                                            }
-                                        `}
+                                        key={chip}
+                                        onClick={() => setSelectedChipIndex(index)}
+                                        className={
+                                            "inline-flex items-center justify-center rounded-full px-4 py-1.5 text-xs font-medium border transition-all " +
+                                            (selectedChipIndex === index
+                                                ? "bg-[#8B5CF6] border-transparent text-white shadow"
+                                                : "bg-[#020617] border-white/25 text-white/70 hover:bg-[#111827] hover:border-white/40")
+                                        }
                                     >
-                                        {REVENUE_KPI_LABELS[mode]}
+                                        {chip}
                                     </button>
                                 ))}
                             </div>
-
-                            {/* Chips Grid */}
-                            {/* Chips Grid or Yearly Row */}
-                            {kpiMode === 'year' ? (
-                                <div className="mt-2 flex items-center justify-center gap-4">
-                                    <div className="text-sm text-white/60 flex flex-col items-end">
-                                        <span>Last Year: {yearlySummary.lastYear !== null ? formatCurrency(yearlySummary.lastYear) : 'N/A'}</span>
-                                        {yearlySummary.lastYear !== null && yearlySummary.lastYear > 0 && (
-                                            <span className={`text-xs ${actual >= yearlySummary.lastYear ? 'text-emerald-400' : 'text-red-400'}`}>
-                                                {actual >= yearlySummary.lastYear ? '+' : ''}
-                                                {((actual - yearlySummary.lastYear) / yearlySummary.lastYear * 100).toFixed(1)}%
-                                            </span>
-                                        )}
-                                    </div>
+                        ) : (
+                            <div className="mx-auto grid w-full max-w-md grid-cols-3 gap-2">
+                                {REVENUE_KPI_CHIPS.month.map((chip, index) => (
                                     <button
-                                        className="h-8 px-4 flex items-center justify-center rounded-full text-xs font-medium border border-transparent bg-[#8B5CF6] text-white shadow-md cursor-default"
+                                        key={chip}
+                                        onClick={() => setSelectedChipIndex(index)}
+                                        className={
+                                            "inline-flex items-center justify-center rounded-full px-4 py-1.5 text-xs font-medium border transition-all " +
+                                            (selectedChipIndex === index
+                                                ? "bg-[#8B5CF6] border-transparent text-white shadow"
+                                                : "bg-[#020617] border-white/25 text-white/70 hover:bg-[#111827] hover:border-white/40")
+                                        }
                                     >
-                                        This Year
+                                        {chip}
                                     </button>
-                                </div>
-                            ) : (
-                                <div className="grid gap-2 w-full mt-2 grid-cols-3 sm:grid-cols-4">
-                                    {chips.map((chip, index) => (
-                                        <button
-                                            key={chip}
-                                            onClick={() => setSelectedChipIndex(index)}
-                                            className={`
-                                                h-8 flex items-center justify-center rounded-full text-xs font-medium border transition-all duration-200
-                                                ${selectedChipIndex === index
-                                                    ? "bg-[#8B5CF6] border-transparent text-white shadow-md"
-                                                    : "bg-[#0B1020] border-white/10 text-white/40 hover:bg-[#1F2937] hover:border-white/20"
-                                                }
-                                                cursor-pointer
-                                            `}
-                                        >
-                                            {chip}
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
+                                ))}
+                            </div>
+                        )}
+
+                        {/* Footer */}
+                        <div className="mt-4 flex justify-end">
+                            <button
+                                onClick={closePicker}
+                                className="inline-flex items-center justify-center rounded-full bg-[#8B5CF6] px-5 py-1.5 text-xs font-medium text-white hover:bg-[#7C3AED] transition"
+                            >
+                                Apply
+                            </button>
                         </div>
                     </div>
-                </ChartCard>
-
-                <ChartCard title="COD Collection Risk" subtitle="Confirmed COD revenue vs Delivered but not paid">
-                    <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={collectionRiskData}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
-                            <XAxis
-                                dataKey="name"
-                                stroke="#E5E7EB"
-                                tick={{ fill: "#E5E7EB", fontSize: 12 }}
-                            />
-                            <YAxis
-                                stroke="#E5E7EB"
-                                tick={{ fill: "#E5E7EB", fontSize: 12 }}
-                                domain={collectionDomain}
-                                ticks={collectionTicks}
-                                tickFormatter={(value) =>
-                                    `${(value as number) / 1_000_000}M`
-                                }
-                            />
-                            <Tooltip
-                                contentStyle={{
-                                    backgroundColor: "#020617",
-                                    border: "1px solid rgba(255,255,255,0.1)",
-                                    borderRadius: 8,
-                                }}
-                                formatter={(v) => formatCurrency(v as number)}
-                            />
-                            <Bar dataKey="value" fill="#F59E0B" />
-                        </BarChart>
-                    </ResponsiveContainer>
-                </ChartCard>
-            </div>
-
-            {/* Row 3: Revenue Charts */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <ChartCard title="Sales Growth" subtitle="Daily revenue trend">
-                    <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={revenueChart}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
-                            <XAxis dataKey="date" stroke="#E5E7EB" tick={{ fill: '#E5E7EB', fontSize: 12 }} />
-                            <YAxis
-                                stroke="#E5E7EB"
-                                tick={{ fill: '#E5E7EB', fontSize: 12 }}
-                                tickFormatter={(value) => `${(value / 1000000).toFixed(0)}M`}
-                            />
-                            <Tooltip
-                                contentStyle={{
-                                    backgroundColor: '#12163A',
-                                    border: '1px solid #1E223D',
-                                    borderRadius: '8px',
-                                    color: '#E5E7EB'
-                                }}
-                                formatter={(value: number) => formatCurrency(value)}
-                            />
-                            <Line type="monotone" dataKey="totalRevenue" stroke="#10B981" strokeWidth={2} dot={{ fill: '#10B981', r: 4 }} name="Revenue" />
-                        </LineChart>
-                    </ResponsiveContainer>
-                </ChartCard>
-
-                <ChartCard title="Revenue Breakdown" subtitle="Total vs Converted">
-                    <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={revenueChart}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
-                            <XAxis dataKey="date" stroke="#E5E7EB" tick={{ fill: '#E5E7EB', fontSize: 12 }} />
-                            <YAxis
-                                stroke="#E5E7EB"
-                                tick={{ fill: '#E5E7EB', fontSize: 12 }}
-                                tickFormatter={(value) => `${(value / 1000000).toFixed(0)}M`}
-                            />
-                            <Tooltip
-                                contentStyle={{
-                                    backgroundColor: '#12163A',
-                                    border: '1px solid #1E223D',
-                                    borderRadius: '8px',
-                                    color: '#E5E7EB'
-                                }}
-                                formatter={(value: number) => formatCurrency(value)}
-                            />
-                            <Legend wrapperStyle={{ color: '#E5E7EB' }} />
-                            <Bar dataKey="totalRevenue" fill="#8B5CF6" name="Total Revenue" />
-                            <Bar dataKey="convertedRevenue" fill="#10B981" name="Converted Revenue" />
-                        </BarChart>
-                    </ResponsiveContainer>
-                </ChartCard>
-            </div>
-        </div>
+                </div>
+            )}
+        </>
     );
 };
 
-interface YearlyRevenueSummary {
-    thisYear: number;
-    lastYear: number | null;
-    thisYearByMonth: number[]; // 0-11
-    thisYearByQuarter: number[]; // 0-3
-}
+// ================== HELPER: AGGREGATION BY YEAR ==================
 
-function buildYearlyRevenueSummary(
+function buildRevenueAggregation(
     revenuePoints: { date: string; totalRevenue: number }[]
-): YearlyRevenueSummary {
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const lastYear = currentYear - 1;
-
-    const thisYearByMonth = new Array(12).fill(0);
-    const lastYearByMonth = new Array(12).fill(0);
-    let hasLastYearData = false;
+): RevenueAggregationByYear {
+    const byYear: RevenueAggregationByYear["byYear"] = {};
 
     for (const point of revenuePoints) {
         const d = new Date(point.date);
+        if (Number.isNaN(d.getTime())) continue;
+
         const y = d.getFullYear();
-        const m = d.getMonth(); // 0-11
+        const m = d.getMonth(); // 0–11
+        const q = Math.floor(m / 3); // 0–3
 
-        if (y === currentYear) {
-            thisYearByMonth[m] += point.totalRevenue;
-        } else if (y === lastYear) {
-            lastYearByMonth[m] += point.totalRevenue;
-            hasLastYearData = true;
+        if (!byYear[y]) {
+            byYear[y] = {
+                total: 0,
+                byMonth: new Array(12).fill(0),
+                byQuarter: [0, 0, 0, 0],
+            };
         }
+
+        byYear[y].total += point.totalRevenue;
+        byYear[y].byMonth[m] += point.totalRevenue;
+        byYear[y].byQuarter[q] += point.totalRevenue;
     }
 
-    const thisYear = thisYearByMonth.reduce((a, b) => a + b, 0);
-    const lastYearTotal = hasLastYearData ? lastYearByMonth.reduce((a, b) => a + b, 0) : null;
+    const years = Object.keys(byYear)
+        .map((s) => parseInt(s, 10))
+        .sort((a, b) => a - b);
 
-    const thisYearByQuarter = [0, 0, 0, 0];
-    for (let i = 0; i < 12; i++) {
-        const q = Math.floor(i / 3);
-        thisYearByQuarter[q] += thisYearByMonth[i];
-    }
-
-    return {
-        thisYear,
-        lastYear: lastYearTotal,
-        thisYearByMonth,
-        thisYearByQuarter,
-    };
+    return { years, byYear };
 }
 </file>
 
@@ -3566,6 +3861,7 @@ import { Button } from '../../../../components/ui/Button';
 import { Input } from '../../../../components/ui/Input';
 import { processRefund } from '../../services/ordersService';
 import type { Order } from '../../../../types/supabase';
+import { useAuth } from '../../../../features/auth'; // 👈 THÊM DÒNG NÀY
 
 interface RefundModalProps {
     isOpen: boolean;
@@ -3575,7 +3871,15 @@ interface RefundModalProps {
     title?: string;
 }
 
-export const RefundModal: React.FC<RefundModalProps> = ({ isOpen, onClose, order, onSuccess, title = 'Refund Order' }) => {
+export const RefundModal: React.FC<RefundModalProps> = ({
+    isOpen,
+    onClose,
+    order,
+    onSuccess,
+    title = 'Refund Order',
+}) => {
+    const { user } = useAuth(); // 👈 LẤY user TỪ AUTH
+
     const [amount, setAmount] = useState<string>('');
     const [note, setNote] = useState('');
     const [loading, setLoading] = useState(false);
@@ -3589,12 +3893,18 @@ export const RefundModal: React.FC<RefundModalProps> = ({ isOpen, onClose, order
         setError(null);
 
         try {
+            if (!user) {
+                throw new Error('User not authenticated');
+            }
+
             const refundAmount = parseInt(amount.replace(/[^0-9]/g, ''), 10);
             if (isNaN(refundAmount) || refundAmount <= 0) {
                 throw new Error('Invalid refund amount');
             }
 
-            await processRefund(order.id, refundAmount, note);
+            // 👇 TRUYỀN user.id VÀO processRefund THEO SIGNATURE MỚI
+            await processRefund(user.id, order.id, refundAmount, note);
+
             onSuccess();
             onClose();
         } catch (err: any) {
@@ -3625,7 +3935,9 @@ export const RefundModal: React.FC<RefundModalProps> = ({ isOpen, onClose, order
 
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
-                        <label className="block text-sm font-medium text-white/70 mb-1">Refund Amount (VND)</label>
+                        <label className="block text-sm font-medium text-white/70 mb-1">
+                            Refund Amount (VND)
+                        </label>
                         <Input
                             type="number"
                             value={amount}
@@ -3637,7 +3949,9 @@ export const RefundModal: React.FC<RefundModalProps> = ({ isOpen, onClose, order
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-white/70 mb-1">Reason / Note</label>
+                        <label className="block text-sm font-medium text-white/70 mb-1">
+                            Reason / Note
+                        </label>
                         <textarea
                             value={note}
                             onChange={(e) => setNote(e.target.value)}
@@ -3669,6 +3983,7 @@ import { Button } from '../../../../components/ui/Button';
 import { Input } from '../../../../components/ui/Input';
 import { processReturn } from '../../services/ordersService';
 import type { Order } from '../../../../types/supabase';
+import { useAuth } from '../../../../features/auth'; // 👈 THÊM DÒNG NÀY
 
 interface ReturnModalProps {
     isOpen: boolean;
@@ -3678,6 +3993,8 @@ interface ReturnModalProps {
 }
 
 export const ReturnModal: React.FC<ReturnModalProps> = ({ isOpen, onClose, order, onSuccess }) => {
+    const { user } = useAuth(); // 👈 LẤY user TỪ AUTH
+
     const [payer, setPayer] = useState<'customer' | 'shop'>('customer');
     const [customerAmount, setCustomerAmount] = useState<string>('25000');
     const [note, setNote] = useState('');
@@ -3686,55 +4003,32 @@ export const ReturnModal: React.FC<ReturnModalProps> = ({ isOpen, onClose, order
 
     if (!isOpen) return null;
 
-    // Derived shop amount: Total return cost is fixed at 20k (carrier) + potentially outbound if not paid?
-    // Wait, prompt says:
-    // "The shop’s deal with carrier = 20,000₫ per direction."
-    // "1A. Return – customer pays 25k return -> customer_shipping_paid = 25k, carrier_cost = 40k (20 outbound + 20 return)"
-    // The modal inputs: "Amount customer pays (prefilled 25k)", "Amount shop pays (derived)"
-    // Actually, "Amount shop pays" isn't strictly derived from a fixed total in the prompt's examples,
-    // but rather it seems to be what the shop absorbs.
-    // However, the prompt says "Amount shop pays (derived)".
-    // Let's look at the cases:
-    // 1A: Customer pays 25k. Shop pays? carrier_cost is 40k. shipping_profit = -15k.
-    // 1B: Shop pays return. Customer pays 0. carrier_cost 40k. shipping_profit -40k.
-    // It seems "Shop Amount" in `processReturn` (seller_paid) refers to what the SELLER explicitly pays/subsidizes?
-    // Or is it just for record keeping?
-    // In `processReturn`, we log `seller_paid`.
-    // In the prompt examples, `seller_paid` isn't explicitly listed in the "Write 3 things" section for the event payload,
-    // but it IS in the `orders.seller_shipping_paid` update.
-    // Let's assume for now `seller_paid` is 0 unless explicitly specified, or maybe it's the carrier cost?
-    // No, `carrier_cost` is separate.
-    // Let's stick to the input: "Amount customer pays".
-    // If customer pays 25k, `customer_shipping_paid` += 25k.
-    // If shop pays return, customer pays 0.
-    // The "Amount shop pays (derived)" might just be for display or if there's a specific "seller penalty" field,
-    // but `orders.seller_shipping_paid` usually tracks what the seller *contributes* to shipping (like free shipping subsidy).
-    // For now, I'll calculate `shopAmount` as 0 or maybe `20000` if shop pays?
-    // Actually, let's keep it simple: Input for Customer Amount. Shop Amount can be 0 for now unless we want to track subsidy.
-    // I'll leave Shop Amount as 0 in the call for now, or maybe allow editing if needed, but prompt says "derived".
-    // I will assume Shop Amount = 0 for this specific flow unless we want to track the cost as "paid by seller".
-    // Wait, if "Shop pays return", it means Customer pays 0. The cost is real (carrier_cost).
-    // So `seller_shipping_paid` might be 0.
-    // I'll just pass 0 for shopAmount for now to avoid confusion, as the prompt focuses on `customer_shipping_paid`.
-
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
         setError(null);
 
         try {
+            if (!user) {
+                throw new Error('User not authenticated');
+            }
+
             const custAmount = parseInt(customerAmount.replace(/[^0-9]/g, ''), 10) || 0;
 
-            // If shop pays, customer pays 0 (override input if user selected 'shop' but left amount?)
-            // The UI has a toggle "Who pays shipping?".
-            // If 'shop' is selected, we should probably force customer amount to 0 or just ignore it.
-            // But the prompt says "Amount customer pays (prefilled 25k)".
-            // If user selects 'Shop', we should probably set customer amount to 0.
-
+            // Nếu shop trả, customerAmount luôn = 0
             const finalCustomerAmount = payer === 'shop' ? 0 : custAmount;
-            const finalShopAmount = 0; // See logic above
+            const finalShopAmount = 0; // vẫn giữ logic hiện tại của ông
 
-            await processReturn(order.id, payer === 'customer', finalCustomerAmount, finalShopAmount, note);
+            // 👇 TRUYỀN user.id VÀO THEO SIGNATURE MỚI: (userId, orderId, ...)
+            await processReturn(
+                user.id,
+                order.id,
+                payer === 'customer',
+                finalCustomerAmount,
+                finalShopAmount,
+                note
+            );
+
             onSuccess();
             onClose();
         } catch (err: any) {
@@ -3774,7 +4068,9 @@ export const ReturnModal: React.FC<ReturnModalProps> = ({ isOpen, onClose, order
 
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
-                        <label className="block text-sm font-medium text-white/70 mb-2">Who pays return shipping?</label>
+                        <label className="block text-sm font-medium text-white/70 mb-2">
+                            Who pays return shipping?
+                        </label>
                         <div className="grid grid-cols-2 gap-3">
                             <button
                                 type="button"
@@ -5347,69 +5643,6 @@ export function formatTimeToGMT7(utcTimestamp: string | Date): string {
   const date = new Date(utcTimestamp);
   const optionsTime = { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Bangkok' } as const;
   return date.toLocaleTimeString('en-US', optionsTime);
-}
-</file>
-
-<file path="src/utils/generateChanges.ts">
-/**
- * Generates a changes object by comparing previous and current data.
- * Returns an object where keys are changed field names and values are formatted as "oldValue → newValue".
- * 
- * @param previous - The previous state/object
- * @param current - The current/updated state/object
- * @returns Object with changed fields and their formatted change strings
- */
-export function generateChanges(previous: Record<string, any>, current: Record<string, any>): Record<string, string> {
-  const changes: Record<string, string> = {};
-
-  // Field name mapping for better display
-  const fieldNameMap: Record<string, string> = {
-    product_id: 'Product ID',
-    order_id: 'Order ID',
-    name: 'Name',
-    category: 'Category',
-    price: 'Price',
-    amount: 'Amount',
-    stock: 'Stock',
-    status: 'Status',
-    customer_name: 'Customer Name',
-    phone: 'Phone',
-    address: 'Address',
-    product: 'Product',
-    address_detail: 'Address Detail',
-    ward: 'Ward',
-    district: 'District',
-    province: 'Province',
-  };
-
-  // Get all unique keys from both objects
-  const allKeys = new Set([...Object.keys(previous), ...Object.keys(current)]);
-
-  for (const key of allKeys) {
-    const oldValue = previous[key];
-    const newValue = current[key];
-
-    // Skip if values are the same
-    if (oldValue === newValue) continue;
-
-    // Handle null/undefined
-    const oldStr = oldValue === null || oldValue === undefined ? 'N/A' : String(oldValue);
-    const newStr = newValue === null || newValue === undefined ? 'N/A' : String(newValue);
-
-    // Format numbers with locale formatting
-    let formattedChange: string;
-    if (typeof oldValue === 'number' && typeof newValue === 'number') {
-      formattedChange = `${oldValue.toLocaleString('vi-VN')} → ${newValue.toLocaleString('vi-VN')}`;
-    } else {
-      formattedChange = `${oldStr} → ${newStr}`;
-    }
-
-    // Use friendly field name if available
-    const displayKey = fieldNameMap[key] || key;
-    changes[displayKey] = formattedChange;
-  }
-
-  return changes;
 }
 </file>
 
@@ -8386,7 +8619,7 @@ export default defineConfig({
 </file>
 
 <file path="src/components/analytics/StatCard.tsx">
-import React from 'react';
+import React from "react";
 
 interface StatCardProps {
     title: string;
@@ -8394,29 +8627,52 @@ interface StatCardProps {
     subtitle?: string;
     icon?: React.ReactNode;
     valueColor?: string;
+    className?: string;
+    titleClass?: string;
+    valueClass?: string;
 }
 
-export const StatCard: React.FC<StatCardProps> = ({ title, value, subtitle, icon, valueColor }) => {
+export const StatCard: React.FC<StatCardProps> = ({
+    title,
+    value,
+    subtitle,
+    icon,
+    valueColor,
+    className,
+    titleClass,
+    valueClass,
+}) => {
     return (
-        <div className="rounded-2xl bg-[#020617] border border-white/10 p-4 flex items-start justify-between">
+        <div
+            className={
+                "rounded-2xl bg-[#020617] border border-white/20 shadow-[0_0_0_1px_rgba(148,163,184,0.25)] p-4 flex items-start justify-between " +
+                (className ?? "")
+            }
+        >
             <div className="flex-1">
-                <h3 className="text-xs font-medium text-white/60 uppercase tracking-wide">
+                <h3
+                    className={
+                        "text-xs font-medium text-white/60 uppercase tracking-wide " +
+                        (titleClass ?? "")
+                    }
+                >
                     {title}
                 </h3>
                 <p
-                    className="mt-1 text-2xl font-semibold drop-shadow-sm"
+                    className={
+                        "mt-1 text-2xl font-semibold drop-shadow-sm " +
+                        (valueClass ?? "")
+                    }
                     style={{ color: valueColor ?? "#FFFFFF" }}
                 >
                     {value}
                 </p>
                 {subtitle && (
-                    <p className="mt-1 text-xs text-white/50">
-                        {subtitle}
-                    </p>
+                    <p className="mt-1 text-xs text-white/50">{subtitle}</p>
                 )}
             </div>
             {icon && (
-                <div className="flex-shrink-0 rounded-xl bg-white/5 p-2 ml-3">
+                <div className="ml-3 flex-shrink-0 rounded-xl bg-white/5 p-2">
                     {icon}
                 </div>
             )}
@@ -9065,7 +9321,7 @@ interface PageLayoutProps {
 
 export const PageLayout: React.FC<PageLayoutProps> = ({ title, subtitle, children, actions }) => {
     return (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4 p-6 h-full min-h-0">
             {(title || actions) && (
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                     {title && (
@@ -9078,8 +9334,7 @@ export const PageLayout: React.FC<PageLayoutProps> = ({ title, subtitle, childre
                 </div>
             )}
 
-            {/* Bỏ min-h-[calc(100vh-200px)] đi, cho nó co giãn theo content */}
-            <div className="flex-1">
+            <div className="flex-1 min-h-0">
                 {children}
             </div>
         </div>
@@ -10086,27 +10341,30 @@ const tabs: { key: AnalyticsTabKey; label: string }[] = [
     { key: "operations", label: "Operations" },
 ];
 
-export const AnalyticsTabsHeader: React.FC<AnalyticsTabsHeaderProps> = ({ activeTab, onChange }) => {
+export const AnalyticsTabsHeader: React.FC<AnalyticsTabsHeaderProps> = ({
+    activeTab,
+    onChange,
+}) => {
     return (
-        <div className="border-b border-white/10 overflow-x-auto">
+        <nav className="overflow-x-auto">
             <div className="flex gap-6 min-w-max">
                 {tabs.map((tab) => (
                     <button
                         key={tab.key}
                         onClick={() => onChange(tab.key)}
-                        className={`pb-4 text-sm font-medium transition-all relative whitespace-nowrap ${activeTab === tab.key
-                            ? "text-[#8B5CF6]"
-                            : "text-[#E5E7EB]/60 hover:text-white"
+                        className={`relative whitespace-nowrap text-sm font-medium transition-all py-2 ${activeTab === tab.key
+                                ? "text-[#8B5CF6]"
+                                : "text-[#E5E7EB]/60 hover:text-white"
                             }`}
                     >
                         {tab.label}
                         {activeTab === tab.key && (
-                            <span className="absolute bottom-0 left-0 w-full h-0.5 bg-[#8B5CF6] rounded-t-full" />
+                            <span className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-[#8B5CF6] rounded-t-full" />
                         )}
                     </button>
                 ))}
             </div>
-        </div>
+        </nav>
     );
 };
 </file>
@@ -10396,7 +10654,13 @@ interface ExchangeModalProps {
     isPaid: boolean;
 }
 
-export const ExchangeModal: React.FC<ExchangeModalProps> = ({ isOpen, onClose, order, onSuccess, isPaid }) => {
+export const ExchangeModal: React.FC<ExchangeModalProps> = ({
+    isOpen,
+    onClose,
+    order,
+    onSuccess,
+    isPaid,
+}) => {
     const { user } = useAuth();
     const [payer, setPayer] = useState<'customer' | 'shop'>('customer');
     const [customerAmount, setCustomerAmount] = useState<string>('50000');
@@ -10427,7 +10691,7 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({ isOpen, onClose, o
                 .catch(err => console.error('Failed to fetch products', err))
                 .finally(() => setLoadingProducts(false));
         }
-    }, [isOpen, user, order.product_id]);
+    }, [isOpen, user, order.product_id, selectedProductId]);
 
     if (!isOpen) return null;
 
@@ -10446,6 +10710,10 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({ isOpen, onClose, o
         setError(null);
 
         try {
+            if (!user) {
+                throw new Error('User not authenticated');
+            }
+
             const custAmount = parseInt(customerAmount.replace(/[^0-9]/g, ''), 10) || 0;
             const finalShopAmount = 0;
 
@@ -10454,11 +10722,21 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({ isOpen, onClose, o
                 if (isNaN(refundVal) || refundVal <= 0) {
                     throw new Error('Invalid refund amount');
                 }
-                await processRefund(order.id, refundVal, `Refund for Exchange: ${note}`);
+
+                // 👇 DÙNG user.id THEO SIGNATURE MỚI processRefund(userId, orderId, ...)
+                await processRefund(user.id, order.id, refundVal, `Refund for Exchange: ${note}`);
             }
 
-            // Pass selectedProductId to processExchange
-            await processExchange(order.id, payer === 'customer', custAmount, finalShopAmount, note, selectedProductId);
+            // processExchange hiện tại vẫn dùng signature cũ: (orderId, ...)
+            await processExchange(
+                order.id,
+                payer === 'customer',
+                custAmount,
+                finalShopAmount,
+                note,
+                selectedProductId
+            );
+
             onSuccess();
             onClose();
         } catch (err: any) {
@@ -10489,13 +10767,15 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({ isOpen, onClose, o
 
                 <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg text-blue-300 text-xs">
                     This will create a new order and record shipping costs.
-                    {isPaid && " The original order will be refunded."}
+                    {isPaid && ' The original order will be refunded.'}
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-4">
                     {/* Product Selection */}
                     <div>
-                        <label className="block text-sm font-medium text-white/70 mb-1">Exchange For Product</label>
+                        <label className="block text-sm font-medium text-white/70 mb-1">
+                            Exchange For Product
+                        </label>
                         <select
                             value={selectedProductId}
                             onChange={(e) => setSelectedProductId(e.target.value)}
@@ -10503,10 +10783,16 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({ isOpen, onClose, o
                             required
                             disabled={loadingProducts}
                         >
-                            <option value="" disabled>Select a product</option>
-                            {products.map(p => (
+                            <option value="" disabled>
+                                Select a product
+                            </option>
+                            {products.map((p) => (
                                 <option key={p.id} value={p.id}>
-                                    {p.name} - {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(p.price)}
+                                    {p.name} -{' '}
+                                    {new Intl.NumberFormat('vi-VN', {
+                                        style: 'currency',
+                                        currency: 'VND',
+                                    }).format(p.price)}
                                 </option>
                             ))}
                         </select>
@@ -10514,7 +10800,9 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({ isOpen, onClose, o
 
                     {isPaid && (
                         <div>
-                            <label className="block text-sm font-medium text-white/70 mb-1">Refund Amount (VND)</label>
+                            <label className="block text-sm font-medium text-white/70 mb-1">
+                                Refund Amount (VND)
+                            </label>
                             <Input
                                 type="number"
                                 value={refundAmount}
@@ -10529,14 +10817,16 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({ isOpen, onClose, o
                     )}
 
                     <div>
-                        <label className="block text-sm font-medium text-white/70 mb-2">Who pays return shipping?</label>
+                        <label className="block text-sm font-medium text-white/70 mb-2">
+                            Who pays return shipping?
+                        </label>
                         <div className="grid grid-cols-2 gap-3">
                             <button
                                 type="button"
                                 onClick={() => handlePayerChange('customer')}
                                 className={`p-3 rounded-lg border text-sm font-medium transition-all ${payer === 'customer'
-                                    ? 'bg-[#8B5CF6]/20 border-[#8B5CF6] text-white'
-                                    : 'bg-white/5 border-white/10 text-white/50 hover:bg-white/10'
+                                        ? 'bg-[#8B5CF6]/20 border-[#8B5CF6] text-white'
+                                        : 'bg-white/5 border-white/10 text-white/50 hover:bg-white/10'
                                     }`}
                             >
                                 Customer
@@ -10545,8 +10835,8 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({ isOpen, onClose, o
                                 type="button"
                                 onClick={() => handlePayerChange('shop')}
                                 className={`p-3 rounded-lg border text-sm font-medium transition-all ${payer === 'shop'
-                                    ? 'bg-[#8B5CF6]/20 border-[#8B5CF6] text-white'
-                                    : 'bg-white/5 border-white/10 text-white/50 hover:bg-white/10'
+                                        ? 'bg-[#8B5CF6]/20 border-[#8B5CF6] text-white'
+                                        : 'bg-white/5 border-white/10 text-white/50 hover:bg-white/10'
                                     }`}
                             >
                                 Shop (Free Return)
@@ -10555,7 +10845,9 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({ isOpen, onClose, o
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-white/70 mb-1">Customer Pays (VND)</label>
+                        <label className="block text-sm font-medium text-white/70 mb-1">
+                            Customer Pays (VND)
+                        </label>
                         <Input
                             type="number"
                             value={customerAmount}
@@ -10570,7 +10862,9 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({ isOpen, onClose, o
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-white/70 mb-1">Reason / Note</label>
+                        <label className="block text-sm font-medium text-white/70 mb-1">
+                            Reason / Note
+                        </label>
                         <textarea
                             value={note}
                             onChange={(e) => setNote(e.target.value)}
@@ -10877,6 +11171,69 @@ export const NotFound: React.FC = () => {
     </div>
   );
 };
+</file>
+
+<file path="src/utils/generateChanges.ts">
+/**
+ * Generates a changes object by comparing previous and current data.
+ * Returns an object where keys are changed field names and values are formatted as "oldValue → newValue".
+ * 
+ * @param previous - The previous state/object
+ * @param current - The current/updated state/object
+ * @returns Object with changed fields and their formatted change strings
+ */
+export function generateChanges(previous: Record<string, any>, current: Record<string, any>): Record<string, string> {
+  const changes: Record<string, string> = {};
+
+  // Field name mapping for better display
+  const fieldNameMap: Record<string, string> = {
+    product_id: 'Product ID',
+    order_id: 'Order ID',
+    name: 'Name',
+    category: 'Category',
+    price: 'Price',
+    amount: 'Amount',
+    stock: 'Stock',
+    status: 'Status',
+    customer_name: 'Customer Name',
+    phone: 'Phone',
+    address: 'Address',
+    product: 'Product',
+    address_detail: 'Address Detail',
+    ward: 'Ward',
+    district: 'District',
+    province: 'Province',
+  };
+
+  // Get all unique keys from both objects
+  const allKeys = new Set([...Object.keys(previous), ...Object.keys(current)]);
+
+  for (const key of allKeys) {
+    const oldValue = previous[key];
+    const newValue = current[key];
+
+    // Skip if values are the same
+    if (oldValue === newValue) continue;
+
+    // Handle null/undefined
+    const oldStr = oldValue === null || oldValue === undefined ? 'N/A' : String(oldValue);
+    const newStr = newValue === null || newValue === undefined ? 'N/A' : String(newValue);
+
+    // Format numbers with locale formatting
+    let formattedChange: string;
+    if (typeof oldValue === 'number' && typeof newValue === 'number') {
+      formattedChange = `${oldValue.toLocaleString('vi-VN')} → ${newValue.toLocaleString('vi-VN')}`;
+    } else {
+      formattedChange = `${oldStr} → ${newStr}`;
+    }
+
+    // Use friendly field name if available
+    const displayKey = fieldNameMap[key] || key;
+    changes[displayKey] = formattedChange;
+  }
+
+  return changes;
+}
 </file>
 
 <file path="src/utils/orderStatusHelpers.ts">
@@ -12672,138 +13029,6 @@ export const CustomersTab: React.FC<CustomersTabProps> = ({ dateRange, customFro
 };
 </file>
 
-<file path="src/features/analytics/components/FinancialTab.tsx">
-import React from 'react';
-import { StatCard } from '../../../components/analytics/StatCard';
-import { ChartCard } from '../../../components/analytics/ChartCard';
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { DollarSign, TrendingUp, Users, Wallet } from 'lucide-react';
-import { useDashboardStats, type DashboardDateRange } from '../../dashboard/useDashboardStats';
-
-interface FinancialTabProps {
-    dateRange: DashboardDateRange;
-    customFrom?: string;
-    customTo?: string;
-}
-
-export const FinancialTab: React.FC<FinancialTabProps> = ({ dateRange, customFrom, customTo }) => {
-    const { loading, error, stats, revenueChart } = useDashboardStats(dateRange, customFrom, customTo);
-
-    const formatCurrency = (value: number) => {
-        return new Intl.NumberFormat('vi-VN', {
-            style: 'currency',
-            currency: 'VND',
-            maximumFractionDigits: 0,
-        }).format(value);
-    };
-
-    if (loading) {
-        return (
-            <div className="flex items-center justify-center h-64">
-                <p className="text-white/60">Loading analytics...</p>
-            </div>
-        );
-    }
-
-    if (error) {
-        return (
-            <div className="flex items-center justify-center h-64">
-                <p className="text-red-400">Error loading analytics: {error}</p>
-            </div>
-        );
-    }
-
-    return (
-        <div className="space-y-4 min-h-0">
-            {/* Row 1: KPI Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <StatCard
-                    title="Total Revenue"
-                    value={formatCurrency(stats.totalRevenue)}
-                    subtitle="Gross revenue from paid orders"
-                    icon={<DollarSign className="w-5 h-5 text-green-400" />}
-                    valueColor="#4ade80"
-                />
-                <StatCard
-                    title="Converted Revenue"
-                    value={formatCurrency(stats.convertedRevenue)}
-                    subtitle="Revenue from COD orders"
-                    icon={<TrendingUp className="w-5 h-5 text-emerald-400" />}
-                    valueColor="#34d399"
-                />
-                <StatCard
-                    title="Average Order Value"
-                    value={formatCurrency(stats.avgOrderValue)}
-                    subtitle="Per paid order"
-                    icon={<Users className="w-5 h-5 text-blue-400" />}
-                    valueColor="#60a5fa"
-                />
-                <StatCard
-                    title="Pending Revenue"
-                    value="–"
-                    subtitle="Orders pending verification"
-                    icon={<Wallet className="w-5 h-5 text-[#8B5CF6]" />}
-                    valueColor="#8B5CF6"
-                />
-            </div>
-
-            {/* Row 2: Charts */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <ChartCard title="Sales Growth" subtitle="Daily revenue trend">
-                    <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={revenueChart}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
-                            <XAxis dataKey="date" stroke="#E5E7EB" tick={{ fill: '#E5E7EB', fontSize: 12 }} />
-                            <YAxis
-                                stroke="#E5E7EB"
-                                tick={{ fill: '#E5E7EB', fontSize: 12 }}
-                                tickFormatter={(value) => `${(value / 1000000).toFixed(0)}M`}
-                            />
-                            <Tooltip
-                                contentStyle={{
-                                    backgroundColor: '#12163A',
-                                    border: '1px solid #1E223D',
-                                    borderRadius: '8px',
-                                    color: '#E5E7EB'
-                                }}
-                                formatter={(value: number) => formatCurrency(value)}
-                            />
-                            <Line type="monotone" dataKey="totalRevenue" stroke="#10B981" strokeWidth={2} dot={{ fill: '#10B981', r: 4 }} name="Revenue" />
-                        </LineChart>
-                    </ResponsiveContainer>
-                </ChartCard>
-
-                <ChartCard title="Revenue Breakdown" subtitle="Total vs Converted">
-                    <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={revenueChart}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
-                            <XAxis dataKey="date" stroke="#E5E7EB" tick={{ fill: '#E5E7EB', fontSize: 12 }} />
-                            <YAxis
-                                stroke="#E5E7EB"
-                                tick={{ fill: '#E5E7EB', fontSize: 12 }}
-                                tickFormatter={(value) => `${(value / 1000000).toFixed(0)}M`}
-                            />
-                            <Tooltip
-                                contentStyle={{
-                                    backgroundColor: '#12163A',
-                                    border: '1px solid #1E223D',
-                                    borderRadius: '8px',
-                                    color: '#E5E7EB'
-                                }}
-                                formatter={(value: number) => formatCurrency(value)}
-                            />
-                            <Legend wrapperStyle={{ color: '#E5E7EB' }} />
-                            <Bar dataKey="totalRevenue" fill="#8B5CF6" name="Total Revenue" />
-                            <Bar dataKey="convertedRevenue" fill="#10B981" name="Converted Revenue" />
-                        </BarChart>
-                    </ResponsiveContainer>
-                </ChartCard>
-            </div>
-        </div>
-    );
-};
-</file>
-
 <file path="src/features/analytics/components/FunnelTab.tsx">
 import React from 'react';
 import { StatCard } from '../../../components/analytics/StatCard';
@@ -13027,7 +13252,7 @@ import React from 'react';
 import { StatCard } from '../../../components/analytics/StatCard';
 import { ChartCard } from '../../../components/analytics/ChartCard';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Package, DollarSign, Percent, XCircle } from 'lucide-react';
+import { Package, DollarSign, XCircle, MessageCircle, Clock } from 'lucide-react';
 import { useDashboardStats, type DashboardDateRange } from '../../dashboard/useDashboardStats';
 
 interface OrdersTabProps {
@@ -13071,28 +13296,28 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({ dateRange, customFrom, cus
                     title="Total Orders"
                     value={stats.totalOrders}
                     subtitle={`${stats.codOrders} COD / ${stats.prepaidOrders} Prepaid`}
-                    icon={<Package className="w-5 h-5 text-[#8B5CF6]" />}
-                    valueColor="#8B5CF6"
-                />
-                <StatCard
-                    title="Avg Order Value"
-                    value={formatCurrency(stats.avgOrderValue)}
-                    subtitle="Based on paid orders"
-                    icon={<DollarSign className="w-5 h-5 text-green-400" />}
+                    icon={<Package className="w-5 h-5 text-[#4ade80]" />}
                     valueColor="#4ade80"
                 />
                 <StatCard
-                    title="COD / Prepaid Ratio"
-                    value={`${stats.totalOrders > 0 ? Math.round((stats.codOrders / stats.totalOrders) * 100) : 0}%`}
-                    subtitle="Orders are COD"
-                    icon={<Percent className="w-5 h-5 text-yellow-400" />}
+                    title="Customer Responses"
+                    value={stats.customerResponses}
+                    subtitle={`${stats.codConfirmed} confirmed / ${stats.codCancelled} cancelled`}
+                    icon={<MessageCircle className="w-5 h-5 text-blue-400" />}
+                    valueColor="#60a5fa"
+                />
+                <StatCard
+                    title="Pending Verification"
+                    value={stats.pendingVerification}
+                    subtitle="COD orders waiting for processing"
+                    icon={<Clock className="w-5 h-5 text-[#facc15]" />}
                     valueColor="#facc15"
                 />
                 <StatCard
                     title="Cancellation Rate"
                     value={`${stats.cancelRate}%`}
                     subtitle="of processed COD orders"
-                    icon={<XCircle className="w-5 h-5 text-red-400" />}
+                    icon={<XCircle className="w-5 h-5 text-[#f87171]" />}
                     valueColor="#f87171"
                 />
             </div>
@@ -13118,7 +13343,7 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({ dateRange, customFrom, cus
                     </ResponsiveContainer>
                 </ChartCard>
 
-                <ChartCard title="Order Status Breakdown" subtitle="Confirmed, Cancelled, Pending">
+                <ChartCard title="Status Breakdown of COD Orders" subtitle="Confirmed, Cancelled, Pending">
                     <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={ordersChart}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
@@ -17360,7 +17585,6 @@ export const useUserProfile = () => {
 
 <file path="src/pages/dashboard/AnalyticsPage.tsx">
 import React, { useState } from 'react';
-import { PageLayout } from '../../components/layout/PageLayout';
 import { DateRangeSelector } from '../../components/dashboard/DateRangeSelector';
 import { AnalyticsTabsHeader, type AnalyticsTabKey } from '../../features/analytics/components/AnalyticsTabsHeader';
 import { RevenueTab } from '../../features/analytics/components/RevenueTab';
@@ -17388,34 +17612,35 @@ export const AnalyticsPage: React.FC = () => {
   } = useAnalyticsDateRangeStore();
 
   return (
-    <PageLayout>
-      {/* Header row: title + date range on right */}
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-xl font-semibold text-white">Analytics</h2>
-          <p className="text-sm text-white/60">
-            Key insights about your orders, risk and performance.
-          </p>
-        </div>
+    // ⬇️ Layout riêng cho Analytics: full height, KHÔNG padding top
+    <div className="flex flex-col h-full min-h-0 px-6 pt-0 pb-4">
+      {/* Hàng Tabs + DateRange cùng 1 row, dính sát topbar */}
+      <div className="border-b border-slate-800">
+        <div className="flex flex-col gap-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+          {/* Tabs bên trái, có scroll ngang nếu 10 tabs nhiều */}
+          <div className="flex-1 overflow-x-auto">
+            <AnalyticsTabsHeader
+              activeTab={activeTab}
+              onChange={setActiveTab}
+            />
+          </div>
 
-        <DateRangeSelector
-          value={dateRange}
-          onChange={setDateRange}
-          customFrom={customFrom}
-          customTo={customTo}
-          onChangeCustomFrom={setCustomFrom}
-          onChangeCustomTo={setCustomTo}
-        />
+          {/* Date range sát bên phải */}
+          <div className="shrink-0">
+            <DateRangeSelector
+              value={dateRange}
+              onChange={setDateRange}
+              customFrom={customFrom}
+              customTo={customTo}
+              onChangeCustomFrom={setCustomFrom}
+              onChangeCustomTo={setCustomTo}
+            />
+          </div>
+        </div>
       </div>
 
-      {/* Tab bar */}
-      <AnalyticsTabsHeader
-        activeTab={activeTab}
-        onChange={setActiveTab}
-      />
-
-      {/* Tab content */}
-      <div className="mt-3 min-h-0 h-full overflow-visible">
+      {/* Tab content chiếm phần còn lại của viewport */}
+      <div className="mt-3 min-h-0 flex-1 overflow-hidden">
         {activeTab === "revenue" && (
           <RevenueTab dateRange={dateRange} customFrom={customFrom} customTo={customTo} />
         )}
@@ -17447,7 +17672,7 @@ export const AnalyticsPage: React.FC = () => {
           <FunnelTab dateRange={dateRange} customFrom={customFrom} customTo={customTo} />
         )}
       </div>
-    </PageLayout>
+    </div>
   );
 };
 </file>
@@ -17491,13 +17716,6 @@ export const DashboardPage: React.FC = () => {
     <PageLayout>
       {/* Header */}
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-xl font-semibold text-white">Overview</h2>
-          <p className="text-sm text-white/60">
-            Overview of orders, verification, risk and revenue.
-          </p>
-        </div>
-
         <DateRangeSelector
           value={dateRange}
           onChange={setDateRange}
@@ -18051,381 +18269,6 @@ export const Login: React.FC = () => {
 };
 </file>
 
-<file path="src/features/customers/services/customersService.ts">
-import { supabase } from "../../../lib/supabaseClient";
-import type { Order } from "../../../types/supabase";
-import { ORDER_STATUS } from "../../../constants/orderStatus";
-import type { RiskLevel } from "../../../utils/riskEngine";
-import { logUserAction } from "../../../utils/logUserAction";
-
-// ==========================
-// Customer Stats
-// ==========================
-
-export interface CustomerStats {
-  phone: string;
-  fullName: string | null;
-  totalOrders: number;
-  successCount: number;
-  failedCount: number;
-  baseRiskScore: number | null;
-  customerRiskScore: number | null;
-  customerRiskLevel: RiskLevel;
-  lastOrderAt: string | null;
-}
-
-function mapScoreToLevel(score: number | null): RiskLevel {
-  if (score === null) return "none";
-  if (score <= 30) return "low";
-  if (score <= 70) return "medium";
-  return "high";
-}
-
-const SUCCESS_STATUSES = new Set<string>([
-  ORDER_STATUS.ORDER_PAID,
-  ORDER_STATUS.COMPLETED,
-]);
-
-const CUSTOMER_FAIL_STATUSES = new Set<string>([
-  ORDER_STATUS.CUSTOMER_CANCELLED,
-  ORDER_STATUS.CUSTOMER_UNREACHABLE,
-  ORDER_STATUS.ORDER_REJECTED,
-]);
-
-export async function fetchCustomerStatsForUser(userId: string) {
-  // 1. Fetch orders
-  const { data: ordersData, error: ordersError } = await supabase
-    .from("orders")
-    .select(
-      [
-        "order_id",
-        "customer_name",
-        "phone",
-        "status",
-        "risk_score",
-        "order_date",
-        "created_at",
-        "amount",
-        "payment_method",
-      ].join(",")
-    )
-    .eq("user_id", userId)
-    .order("created_at", { ascending: false });
-
-  if (ordersError || !ordersData) {
-    return { data: [] as CustomerStats[], error: ordersError };
-  }
-
-  // 2. Fetch blacklist for this user
-  const { data: blacklistData, error: blacklistError } = await supabase
-    .from("customer_blacklist")
-    .select("phone, created_at")
-    .eq("user_id", userId);
-
-  if (blacklistError) {
-    console.error("Error fetching blacklist in customer stats:", blacklistError);
-  }
-
-  // Map phone -> earliest blacklist created_at
-  const blacklistMap = new Map<string, string>(); // phone -> created_at
-  if (blacklistData) {
-    blacklistData.forEach((b: any) => {
-      if (b.phone) {
-        const phone = String(b.phone).trim();
-        const existing = blacklistMap.get(phone);
-        if (!existing || b.created_at < existing) {
-          blacklistMap.set(phone, b.created_at);
-        }
-      }
-    });
-  }
-
-  // Group orders by phone
-  const grouped = new Map<string, Order[]>();
-
-  for (const row of ordersData as unknown as Order[]) {
-    const phone = (row.phone || "").trim();
-    if (!phone) continue;
-    const list = grouped.get(phone) ?? [];
-    list.push(row);
-    grouped.set(phone, list);
-  }
-
-  const customers: CustomerStats[] = [];
-
-  grouped.forEach((orders, phone) => {
-    if (orders.length === 0) return;
-
-    const totalOrders = orders.length;
-    let successCount = 0;
-    let failedCount = 0;
-    const codRiskScores: number[] = [];
-
-    let lastOrderAt: string | null = null;
-    let fullName: string | null = null;
-
-    for (const order of orders) {
-      const status = order.status;
-
-      // Ưu tiên order_date, nếu null thì dùng created_at
-      const effectiveDate = order.order_date ?? order.created_at ?? null;
-
-      if (SUCCESS_STATUSES.has(status)) {
-        successCount += 1;
-      } else if (CUSTOMER_FAIL_STATUSES.has(status)) {
-        failedCount += 1;
-      }
-
-      const isCOD =
-        !order.payment_method || order.payment_method.toUpperCase() === "COD";
-      if (
-        isCOD &&
-        order.risk_score !== null &&
-        order.risk_score !== undefined
-      ) {
-        codRiskScores.push(order.risk_score as number);
-      }
-
-      if (!lastOrderAt || (effectiveDate && effectiveDate > lastOrderAt)) {
-        lastOrderAt = effectiveDate;
-        fullName = order.customer_name ?? null;
-      }
-    }
-
-    // 1. Base Risk Score (avg COD risk_score hoặc default 50)
-    let baseRiskScore: number;
-    if (codRiskScores.length > 0) {
-      const sum = codRiskScores.reduce((acc, val) => acc + val, 0);
-      baseRiskScore = sum / codRiskScores.length;
-    } else {
-      baseRiskScore = 50;
-    }
-
-    // 2. Learning Logic theo timeline
-    const sortedOrders = [...orders].sort((a, b) => {
-      const tA = a.order_date
-        ? new Date(a.order_date).getTime()
-        : a.created_at
-          ? new Date(a.created_at).getTime()
-          : 0;
-
-      const tB = b.order_date
-        ? new Date(b.order_date).getTime()
-        : b.created_at
-          ? new Date(b.created_at).getTime()
-          : 0;
-
-      return tA - tB;
-    });
-
-    let currentScore = baseRiskScore;
-    const blacklistCreatedAt = blacklistMap.get(phone);
-
-    for (const order of sortedOrders) {
-      const status = order.status;
-      const amount = order.amount || 0;
-      const createdAt = order.order_date || order.created_at || "";
-
-      let delta = 0;
-
-      if (SUCCESS_STATUSES.has(status)) {
-        delta = -5;
-        if (amount >= 1_000_000) {
-          delta = -10;
-        }
-      } else if (CUSTOMER_FAIL_STATUSES.has(status)) {
-        delta = 20;
-      }
-
-      // Nếu tại thời điểm order này, phone đã nằm trong blacklist
-      // và shop vẫn ship (status != ORDER_REJECTED) → nhân đôi penalty/bonus
-      if (
-        blacklistCreatedAt &&
-        createdAt > blacklistCreatedAt &&
-        status !== ORDER_STATUS.ORDER_REJECTED
-      ) {
-        delta = delta * 2;
-      }
-
-      currentScore += delta;
-    }
-
-    // Clamp final score 0–100
-    const customerRiskScore = Math.max(0, Math.min(100, currentScore));
-
-    // Map to level
-    const customerRiskLevel = mapScoreToLevel(customerRiskScore);
-
-    customers.push({
-      phone,
-      fullName,
-      totalOrders,
-      successCount,
-      failedCount,
-      baseRiskScore: codRiskScores.length > 0 ? baseRiskScore : null,
-      customerRiskScore,
-      customerRiskLevel,
-      lastOrderAt,
-    });
-  });
-
-  // Sort by lastOrderAt desc
-  customers.sort((a, b) => {
-    if (!a.lastOrderAt && !b.lastOrderAt) return 0;
-    if (!a.lastOrderAt) return 1;
-    if (!b.lastOrderAt) return -1;
-    return b.lastOrderAt!.localeCompare(a.lastOrderAt!);
-  });
-
-  return { data: customers, error: null };
-}
-
-// ==========================
-// Customer Blacklist
-// ==========================
-
-export interface CustomerBlacklistEntry {
-  id: string;
-  phone: string;
-  reason: string | null;
-  created_at: string;
-}
-
-export async function fetchCustomerBlacklist(userId: string) {
-  const { data, error } = await supabase
-    .from("customer_blacklist")
-    .select("id, phone, reason, created_at")
-    .eq("user_id", userId);
-
-  const sorted =
-    data?.slice().sort((a: any, b: any) => {
-      const aa = a.created_at ?? "";
-      const bb = b.created_at ?? "";
-      return bb.localeCompare(aa);
-    }) ?? [];
-
-  return { data: sorted as CustomerBlacklistEntry[], error };
-}
-
-/**
- * Add phone to blacklist with optional reason.
- * Return shape: { data, error } để CustomersPage destructure được.
- */
-export async function addToBlacklist(
-  userId: string,
-  phone: string,
-  reason?: string
-): Promise<{ data: CustomerBlacklistEntry | null; error: any | null }> {
-  const { data, error } = await supabase
-    .from("customer_blacklist")
-    .upsert(
-      {
-        user_id: userId,
-        phone,
-        reason: reason ?? null,
-        created_at: new Date().toISOString(),
-      },
-      { onConflict: "user_id,phone" }
-    )
-    .select("id, phone, reason, created_at")
-    .single();
-
-  if (!error) {
-    const details: Record<string, string> = {
-      phone,
-    };
-    if (reason && reason.trim()) {
-      details.reason = reason.trim();
-    }
-
-    await logUserAction({
-      userId,
-      action: "Add to Blacklist",
-      status: "success",
-      orderId: "",
-      details,
-    });
-  }
-
-  return {
-    data: (data as CustomerBlacklistEntry) ?? null,
-    error,
-  };
-}
-
-/**
- * Remove phone from blacklist.
- * Return shape: { data, error } cho đồng bộ.
- */
-export async function removeFromBlacklist(
-  userId: string,
-  phone: string
-): Promise<{ data: boolean; error: any | null }> {
-  const { error } = await supabase
-    .from("customer_blacklist")
-    .delete()
-    .eq("user_id", userId)
-    .eq("phone", phone);
-
-  if (!error) {
-    const details: Record<string, string> = { phone };
-
-    await logUserAction({
-      userId,
-      action: "Remove from Blacklist",
-      status: "success",
-      orderId: "",
-      details,
-    });
-  }
-
-  return { data: !error, error };
-}
-
-// ==========================
-// Orders for a customer
-// ==========================
-
-export async function fetchCustomerOrdersForUser(
-  userId: string,
-  phone: string
-) {
-  const trimmed = phone.trim();
-  if (!trimmed) {
-    return { data: [] as Order[], error: null };
-  }
-
-  const { data, error } = await supabase
-    .from("orders")
-    .select(
-      [
-        "order_id",
-        "customer_name",
-        "phone",
-        "status",
-        "risk_score",
-        "order_date",
-        "created_at",
-        "amount",
-        "payment_method",
-        "address",
-        "address_detail",
-        "ward",
-        "district",
-        "province",
-      ].join(",")
-    )
-    .eq("user_id", userId)
-    .eq("phone", trimmed)
-    .order("created_at", { ascending: false });
-
-  return {
-    data: (data || []) as unknown as Order[],
-    error,
-  };
-}
-</file>
-
 <file path="src/features/dashboard/useDashboardStats.ts">
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
@@ -18616,7 +18459,9 @@ export function useDashboardStats(
                             "created_at",
                             "refunded_amount",
                             "customer_shipping_paid",
-                            "seller_shipping_paid"
+                            "seller_shipping_paid",
+                            "paid_at",
+                            "customer_confirmed_at"
                         ].join(",")
                     )
                     .eq("user_id", user.id)
@@ -18791,39 +18636,37 @@ function isCOD(order: Order): boolean {
 
 // New Helper: Order has ever been paid
 function hasBeenPaid(order: Order): boolean {
-    // If we have an explicit paid_at timestamp, it's paid.
+    // 1. Nếu DB đã có paid_at → coi như đã thanh toán
     if (order.paid_at) return true;
 
+    // 2. Đơn PREPAID (non-COD)
     if (!isCOD(order)) {
-        // Non-COD (Prepaid):
-        // Considered paid if status is PAID, DELIVERING, or COMPLETED
-        // (Assuming prepaid orders are paid before delivery)
+        // Với prepaid: chỉ cần đơn đã tới các stage này thì coi như đã nhận tiền rồi
         return (
             order.status === ORDER_STATUS.ORDER_PAID ||
             order.status === ORDER_STATUS.DELIVERING ||
             order.status === ORDER_STATUS.COMPLETED
         );
-    } else {
-        // COD:
-        // Only considered paid if explicitly PAID status (or paid_at above)
-        return order.status === ORDER_STATUS.ORDER_PAID;
     }
+
+    // 3. Đơn COD
+    // COD chỉ được coi là paid khi đã qua stage ORDER_PAID
+    return order.status === ORDER_STATUS.ORDER_PAID;
 }
 
 // New Helper: Customer has confirmed (for COD)
 function hasBeenCustomerConfirmed(order: Order): boolean {
+    // Chỉ xét COD Medium/High
+    const level = order.risk_level?.toLowerCase();
     if (!isCOD(order)) return false;
+    if (level !== "medium" && level !== "high") return false;
 
-    // Explicit timestamp
-    if (order.customer_confirmed_at) return true;
-
-    // Or status implies confirmation
+    // Khách THỰC SỰ bấm Confirm
     return (
+        !!order.customer_confirmed_at ||
         order.status === ORDER_STATUS.CUSTOMER_CONFIRMED ||
-        order.status === ORDER_STATUS.ORDER_APPROVED ||
         order.status === ORDER_STATUS.DELIVERING ||
-        order.status === ORDER_STATUS.COMPLETED ||
-        order.status === ORDER_STATUS.ORDER_PAID
+        order.status === ORDER_STATUS.COMPLETED
     );
 }
 
@@ -18831,14 +18674,31 @@ function hasBeenCustomerConfirmed(order: Order): boolean {
 // COD confirmed/delivering/completed but NOT paid
 function isCodPaymentPending(order: Order): boolean {
     if (!isCOD(order)) return false;
+
+    const risk = (order.risk_level || "").toLowerCase();
+
+    // Nếu đã trả tiền rồi thì không còn pending
     if (hasBeenPaid(order)) return false;
 
-    return (
-        order.status === ORDER_STATUS.CUSTOMER_CONFIRMED ||
-        order.status === ORDER_STATUS.ORDER_APPROVED ||
-        order.status === ORDER_STATUS.DELIVERING ||
-        order.status === ORDER_STATUS.COMPLETED
-    );
+    // Nếu là các trạng thái đã “chết” thì không pending nữa
+    const isCancelledOrFailed =
+        order.status === ORDER_STATUS.CUSTOMER_CANCELLED ||
+        order.status === ORDER_STATUS.ORDER_REJECTED ||
+        order.status === ORDER_STATUS.CUSTOMER_UNREACHABLE;
+
+    if (isCancelledOrFailed) return false;
+
+    // 1) LOW RISK — tất cả đơn COD low, chưa huỷ, chưa trả tiền => pending
+    if (risk === "low" || !risk) {
+        return true;
+    }
+
+    // 2) MEDIUM/HIGH RISK — chỉ pending nếu khách đã Confirm (hoặc các stage sau đó)
+    if (risk === "medium" || risk === "high") {
+        return hasBeenCustomerConfirmed(order);
+    }
+
+    return false;
 }
 
 function computeStats(orders: Order[]): DashboardStats {
@@ -18984,7 +18844,7 @@ function computeStats(orders: Order[]): DashboardStats {
         (o) =>
             isCOD(o) &&
             o.status === ORDER_STATUS.COMPLETED &&
-            !hasBeenPaid(o)
+            !o.paid_at
     );
 
     const deliveredNotPaidRevenue = deliveredNotPaidOrders.reduce(
@@ -18998,7 +18858,7 @@ function computeStats(orders: Order[]): DashboardStats {
     ).length;
 
     const codConfirmed = orders.filter(
-        (o) => isCOD(o) && verifiedPositiveStatuses.has(o.status)
+        (o) => isCOD(o) && hasBeenCustomerConfirmed(o)
     ).length;
 
     const customerResponses = codCancelled + codConfirmed;
@@ -19433,7 +19293,7 @@ function buildOrdersDashboard(orders: Order[], aggregation: AggregationMode): Or
         if (!isCOD(o)) continue;
 
         if (pendingStatuses.has(o.status)) row.codPending += 1;
-        else if (confirmedStatuses.has(o.status)) row.codConfirmed += 1;
+        else if (hasBeenCustomerConfirmed(o)) row.codConfirmed += 1;
         else if (cancelledStatuses.has(o.status)) row.codCancelled += 1;
     }
 
@@ -20538,427 +20398,6 @@ export const AdminDashboard: React.FC = () => {
 };
 </file>
 
-<file path="src/pages/dashboard/CustomersPage.tsx">
-import React, { useEffect, useMemo, useState } from "react";
-import { useAuth } from "../../features/auth";
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
-} from "../../components/ui/Card";
-import { Input } from "../../components/ui/Input";
-import { Search } from "lucide-react";
-import { RiskBadge } from "../../components/dashboard/RiskBadge";
-import {
-  fetchCustomerStatsForUser,
-  fetchCustomerBlacklist,
-  addToBlacklist,
-  removeFromBlacklist,
-  type CustomerStats,
-  fetchCustomerOrdersForUser,
-} from "../../features/customers/services/customersService";
-import { CustomerInsightPanel } from "../../features/customers/components/CustomerInsightPanel";
-import type { Order } from "../../types/supabase";
-import { Pagination } from "../../components/ui/Pagination";
-import { Button } from "../../components/ui/Button";
-import { useToast } from "../../components/ui/Toast";
-
-const formatDate = (iso: string | null) => {
-  if (!iso) return "N/A";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "N/A";
-  return d.toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "2-digit",
-  });
-};
-
-export const CustomersPage: React.FC = () => {
-  const { user } = useAuth();
-  const { showSuccess, showError } = useToast();
-
-  const [stats, setStats] = useState<CustomerStats[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [search, setSearch] = useState("");
-
-  const [blacklistPhones, setBlacklistPhones] = useState<Set<string>>(new Set());
-  const [loadingBlacklist, setLoadingBlacklist] = useState(false);
-
-  // filter All / Blacklisted / Not blacklisted
-  const [blacklistFilter, setBlacklistFilter] = useState<
-    "all" | "blacklisted" | "not_blacklisted"
-  >("all");
-
-  // modal Reason
-  const [blacklistModalPhone, setBlacklistModalPhone] = useState<string | null>(
-    null
-  );
-  const [blacklistReason, setBlacklistReason] = useState("");
-
-  // Insight Panel State
-  const [selectedCustomer, setSelectedCustomer] =
-    useState<CustomerStats | null>(null);
-  const [customerOrders, setCustomerOrders] = useState<Order[]>([]);
-  const [insightOpen, setInsightOpen] = useState(false);
-  const [insightLoading, setInsightLoading] = useState(false);
-
-  // Pagination
-  const [page, setPage] = useState(1);
-  const PAGE_SIZE = 200;
-
-  // Load customer stats
-  useEffect(() => {
-    if (!user) return;
-
-    const load = async () => {
-      setLoading(true);
-      const { data, error } = await fetchCustomerStatsForUser(user.id);
-      if (!error && data) setStats(data);
-      setLoading(false);
-    };
-
-    load();
-  }, [user]);
-
-  // Load blacklist
-  const reloadBlacklist = async () => {
-    if (!user) return;
-    setLoadingBlacklist(true);
-
-    const { data } = await fetchCustomerBlacklist(user.id);
-    setBlacklistPhones(new Set(data.map((b: any) => b.phone)));
-
-    setLoadingBlacklist(false);
-  };
-
-  useEffect(() => {
-    reloadBlacklist();
-  }, [user]);
-
-  const handleAdd = (phone: string) => {
-    setBlacklistModalPhone(phone);
-    setBlacklistReason("");
-  };
-
-  const handleRemove = async (phone: string) => {
-    if (!user) return;
-    await removeFromBlacklist(user.id, phone);
-    reloadBlacklist();
-  };
-
-  const handleRowClick = async (customer: CustomerStats) => {
-    if (!user) return;
-    setSelectedCustomer(customer);
-    setInsightOpen(true);
-    setInsightLoading(true);
-    try {
-      const { data, error } = await fetchCustomerOrdersForUser(
-        user.id,
-        customer.phone
-      );
-      if (!error && data) {
-        setCustomerOrders(data);
-      } else {
-        setCustomerOrders([]);
-        console.error("Error loading customer orders:", error);
-      }
-    } finally {
-      setInsightLoading(false);
-    }
-  };
-
-  const handleCloseInsight = () => {
-    setInsightOpen(false);
-    setSelectedCustomer(null);
-    setCustomerOrders([]);
-  };
-
-  // 1. Filter theo search
-  const filteredBySearch = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    if (!term) return stats;
-    return stats.filter(
-      (c) =>
-        c.phone.toLowerCase().includes(term) ||
-        (c.fullName || "").toLowerCase().includes(term)
-    );
-  }, [stats, search]);
-
-  // 2. Filter theo trạng thái blacklist
-  const blacklistFiltered = useMemo(() => {
-    if (blacklistFilter === "all") return filteredBySearch;
-
-    if (blacklistFilter === "blacklisted") {
-      return filteredBySearch.filter((c) => blacklistPhones.has(c.phone));
-    }
-
-    // not_blacklisted
-    return filteredBySearch.filter((c) => !blacklistPhones.has(c.phone));
-  }, [filteredBySearch, blacklistFilter, blacklistPhones]);
-
-  // 3. Paginated list
-  const paginated = useMemo(() => {
-    const startIndex = (page - 1) * PAGE_SIZE;
-    return blacklistFiltered.slice(startIndex, startIndex + PAGE_SIZE);
-  }, [blacklistFiltered, page]);
-
-  // Reset page khi search hoặc đổi filter
-  useEffect(() => {
-    setPage(1);
-  }, [search, blacklistFilter]);
-
-  return (
-    <div className="flex flex-col h-full min-h-0 p-6">
-      {/* Search + Filters */}
-      <CardContent className="!pt-0 !px-4 !pb-3">
-        <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center">
-          <div className="flex-1">
-            <Input
-              placeholder="Search by phone or customer name..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="h-10 !py-2 w-full"
-            />
-          </div>
-
-          {/* “Dropdown” filter Blacklist bên phải */}
-          <div className="flex gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => setBlacklistFilter("all")}
-              className={`px-4 h-10 rounded-full border text-sm transition-all
-          ${blacklistFilter === "all"
-                  ? "bg-[#1F2937] border-[#4C1D95] text-white"
-                  : "bg-[#020617] border-[#1E293B] text-white/70 hover:bg-[#020617]/80"
-                }`}
-            >
-              All Customers
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setBlacklistFilter("blacklisted")}
-              className={`px-4 h-10 rounded-full border text-sm transition-all
-          ${blacklistFilter === "blacklisted"
-                  ? "bg-red-500/20 border-red-400 text-red-200"
-                  : "bg-[#020617] border-[#1E293B] text-white/70 hover:bg-[#020617]/80"
-                }`}
-            >
-              Blacklisted
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setBlacklistFilter("not_blacklisted")}
-              className={`px-4 h-10 rounded-full border text-sm transition-all
-          ${blacklistFilter === "not_blacklisted"
-                  ? "bg-emerald-500/20 border-emerald-400 text-emerald-200"
-                  : "bg-[#020617] border-[#1E293B] text-white/70 hover:bg-[#020617]/80"
-                }`}
-            >
-              Not blacklisted
-            </button>
-          </div>
-        </div>
-      </CardContent>
-
-      {/* Table */}
-      <Card className="flex-1 flex flex-col min-h-0 mt-6">
-        <CardContent className="flex-1 min-h-0 overflow-y-auto p-0">
-          {loading ? (
-            <div className="flex items-center justify-center h-full">
-              <p className="text-[var(--text-muted)]">Loading customers...</p>
-            </div>
-          ) : blacklistFiltered.length === 0 ? (
-            <div className="p-12 text-center text-[var(--text-muted)]">
-              No customers found.
-            </div>
-          ) : (
-            <div className="w-full max-w-full overflow-x-auto">
-              <table className="min-w-[1100px] w-full border-separate border-spacing-0">
-                <thead>
-                  <tr className="border-b border-[#1E223D]">
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">
-                      Phone
-                    </th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">
-                      Name
-                    </th>
-                    <th className="px-6 py-3 text-center text-sm font-semibold text-[#E5E7EB]">
-                      Total Orders
-                    </th>
-                    <th className="px-6 py-3 text-center text-sm font-semibold text-[#E5E7EB]">
-                      Success
-                    </th>
-                    <th className="px-6 py-3 text-center text-sm font-semibold text-[#E5E7EB]">
-                      Failed
-                    </th>
-                    <th className="px-6 py-3 text-center text-sm font-semibold text-[#E5E7EB]">
-                      Customer Risk
-                    </th>
-                    <th className="px-6 py-3 text-center text-sm font-semibold text-[#E5E7EB]">
-                      Last Order
-                    </th>
-                    <th className="px-6 py-3 text-center text-sm font-semibold text-[#E5E7EB]">
-                      Blacklist
-                    </th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {paginated.map((c) => (
-                    <tr
-                      key={c.phone}
-                      className="border-b border-[#1E223D] hover:bg-white/5 transition cursor-pointer"
-                      onClick={() => handleRowClick(c)}
-                    >
-                      <td className="px-6 py-4 text-sm text-[#E5E7EB]">
-                        {c.phone}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-[#E5E7EB]">
-                        {c.fullName || "—"}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-center">
-                        {c.totalOrders}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-emerald-400 text-center">
-                        {c.successCount}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-red-400 text-center">
-                        {c.failedCount}
-                      </td>
-                      <td className="px-6 py-4 text-center">
-                        <RiskBadge score={c.customerRiskScore} />
-                      </td>
-                      <td className="px-6 py-4 text-sm text-center">
-                        {formatDate(c.lastOrderAt)}
-                      </td>
-
-                      <td className="px-6 py-4 text-center">
-                        {blacklistPhones.has(c.phone) ? (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleRemove(c.phone);
-                            }}
-                            disabled={loadingBlacklist}
-                            className="px-3 py-1 text-xs bg-red-600/30 text-red-300 border border-red-400/50 rounded"
-                          >
-                            Unblacklist
-                          </button>
-                        ) : (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleAdd(c.phone);
-                            }}
-                            disabled={loadingBlacklist}
-                            className="px-3 py-1 text-xs bg-purple-600/30 text-purple-300 border border-purple-400/50 rounded"
-                          >
-                            Blacklist
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-
-        {/* Pagination */}
-        <Pagination
-          currentPage={page}
-          totalItems={blacklistFiltered.length}
-          pageSize={PAGE_SIZE}
-          onPageChange={setPage}
-        />
-      </Card>
-
-      {/* Customer Insight Panel */}
-      <CustomerInsightPanel
-        customer={selectedCustomer}
-        orders={customerOrders}
-        isOpen={insightOpen}
-        onClose={handleCloseInsight}
-      />
-
-      {/* Modal nhập lý do blacklist */}
-      {blacklistModalPhone && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
-          onClick={() => !loadingBlacklist && setBlacklistModalPhone(null)}
-        >
-          <div
-            className="bg-[#111827] border border-[#1F2937] rounded-xl p-6 max-w-md w-full"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-lg font-semibold text-white mb-2">
-              Add to blacklist
-            </h3>
-            <p className="text-sm text-gray-300 mb-4">
-              Phone number:{" "}
-              <span className="font-mono">{blacklistModalPhone}</span>
-            </p>
-
-            <label className="block text-sm text-gray-200 mb-2">Reason</label>
-            <textarea
-              className="w-full rounded-lg border border-white/10 bg-white/5 text-white text-sm p-3 resize-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
-              rows={4}
-              value={blacklistReason}
-              onChange={(e) => setBlacklistReason(e.target.value)}
-              placeholder="Input reason..."
-              disabled={loadingBlacklist}
-            />
-
-            <div className="flex justify-end gap-2 mt-4">
-              <Button
-                variant="outline"
-                onClick={() =>
-                  !loadingBlacklist && setBlacklistModalPhone(null)
-                }
-                disabled={loadingBlacklist}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={async () => {
-                  if (!user || !blacklistModalPhone) return;
-                  setLoadingBlacklist(true);
-                  const { error } = await addToBlacklist(
-                    user.id,
-                    blacklistModalPhone,
-                    blacklistReason.trim() || undefined
-                  );
-                  setLoadingBlacklist(false);
-
-                  if (error) {
-                    console.error("addToBlacklist error", error);
-                    showError("Thêm blacklist thất bại.");
-                    return;
-                  }
-
-                  showSuccess("Đã thêm vào blacklist.");
-                  setBlacklistModalPhone(null);
-                  setBlacklistReason("");
-                  reloadBlacklist();
-                }}
-                disabled={loadingBlacklist || !blacklistReason.trim()}
-              >
-                Confirm
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-</file>
-
 <file path="src/main.tsx">
 import React from 'react'
 import ReactDOM from 'react-dom/client'
@@ -21756,6 +21195,802 @@ export const Register: React.FC = () => {
           </div>
         </div>
       </div>
+    </div>
+  );
+};
+</file>
+
+<file path="src/features/customers/services/customersService.ts">
+import { supabase } from "../../../lib/supabaseClient";
+import type { Order } from "../../../types/supabase";
+import { ORDER_STATUS } from "../../../constants/orderStatus";
+import type { RiskLevel } from "../../../utils/riskEngine";
+import { logUserAction } from "../../../utils/logUserAction";
+
+// ==========================
+// Customer Stats
+// ==========================
+
+export interface CustomerStats {
+  phone: string;
+  fullName: string | null;
+  totalOrders: number;
+  successCount: number;
+  failedCount: number;
+  baseRiskScore: number | null;
+  customerRiskScore: number | null;
+  customerRiskLevel: RiskLevel;
+  lastOrderAt: string | null;
+}
+
+function mapScoreToLevel(score: number | null): RiskLevel {
+  if (score === null) return "none";
+  if (score <= 30) return "low";
+  if (score <= 70) return "medium";
+  return "high";
+}
+
+const SUCCESS_STATUSES = new Set<string>([
+  ORDER_STATUS.ORDER_PAID,
+  ORDER_STATUS.COMPLETED,
+]);
+
+const CUSTOMER_FAIL_STATUSES = new Set<string>([
+  ORDER_STATUS.CUSTOMER_CANCELLED,
+  ORDER_STATUS.CUSTOMER_UNREACHABLE,
+  ORDER_STATUS.ORDER_REJECTED,
+]);
+
+export async function fetchCustomerStatsForUser(userId: string) {
+  // 1. Fetch orders
+  const { data: ordersData, error: ordersError } = await supabase
+    .from("orders")
+    .select(
+      [
+        "order_id",
+        "customer_name",
+        "phone",
+        "status",
+        "risk_score",
+        "order_date",
+        "created_at",
+        "amount",
+        "payment_method",
+      ].join(",")
+    )
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+
+  if (ordersError || !ordersData) {
+    return { data: [] as CustomerStats[], error: ordersError };
+  }
+
+  // 2. Fetch blacklist for this user
+  const { data: blacklistData, error: blacklistError } = await supabase
+    .from("customer_blacklist")
+    .select("phone, created_at")
+    .eq("user_id", userId);
+
+  if (blacklistError) {
+    console.error("Error fetching blacklist in customer stats:", blacklistError);
+  }
+
+  // Map phone -> earliest blacklist created_at
+  const blacklistMap = new Map<string, string>(); // phone -> created_at
+  if (blacklistData) {
+    blacklistData.forEach((b: any) => {
+      if (b.phone) {
+        const phone = String(b.phone).trim();
+        const existing = blacklistMap.get(phone);
+        if (!existing || b.created_at < existing) {
+          blacklistMap.set(phone, b.created_at);
+        }
+      }
+    });
+  }
+
+  // Group orders by phone
+  const grouped = new Map<string, Order[]>();
+
+  for (const row of ordersData as unknown as Order[]) {
+    const phone = (row.phone || "").trim();
+    if (!phone) continue;
+    const list = grouped.get(phone) ?? [];
+    list.push(row);
+    grouped.set(phone, list);
+  }
+
+  const customers: CustomerStats[] = [];
+
+  grouped.forEach((orders, phone) => {
+    if (orders.length === 0) return;
+
+    const totalOrders = orders.length;
+    let successCount = 0;
+    let failedCount = 0;
+    const codRiskScores: number[] = [];
+
+    let lastOrderAt: string | null = null;
+    let fullName: string | null = null;
+
+    for (const order of orders) {
+      const status = order.status;
+
+      // Ưu tiên order_date, nếu null thì dùng created_at
+      const effectiveDate = order.order_date ?? order.created_at ?? null;
+
+      if (SUCCESS_STATUSES.has(status)) {
+        successCount += 1;
+      } else if (CUSTOMER_FAIL_STATUSES.has(status)) {
+        failedCount += 1;
+      }
+
+      const isCOD =
+        !order.payment_method || order.payment_method.toUpperCase() === "COD";
+      if (
+        isCOD &&
+        order.risk_score !== null &&
+        order.risk_score !== undefined
+      ) {
+        codRiskScores.push(order.risk_score as number);
+      }
+
+      if (!lastOrderAt || (effectiveDate && effectiveDate > lastOrderAt)) {
+        lastOrderAt = effectiveDate;
+        fullName = order.customer_name ?? null;
+      }
+    }
+
+    // 1. Base Risk Score (avg COD risk_score hoặc default 50)
+    let baseRiskScore: number;
+    if (codRiskScores.length > 0) {
+      const sum = codRiskScores.reduce((acc, val) => acc + val, 0);
+      baseRiskScore = sum / codRiskScores.length;
+    } else {
+      baseRiskScore = 50;
+    }
+
+    // 2. Learning Logic theo timeline
+    const sortedOrders = [...orders].sort((a, b) => {
+      const tA = a.order_date
+        ? new Date(a.order_date).getTime()
+        : a.created_at
+          ? new Date(a.created_at).getTime()
+          : 0;
+
+      const tB = b.order_date
+        ? new Date(b.order_date).getTime()
+        : b.created_at
+          ? new Date(b.created_at).getTime()
+          : 0;
+
+      return tA - tB;
+    });
+
+    let currentScore = baseRiskScore;
+    const blacklistCreatedAt = blacklistMap.get(phone);
+
+    for (const order of sortedOrders) {
+      const status = order.status;
+      const amount = order.amount || 0;
+      const createdAt = order.order_date || order.created_at || "";
+
+      let delta = 0;
+
+      if (SUCCESS_STATUSES.has(status)) {
+        delta = -5;
+        if (amount >= 1_000_000) {
+          delta = -10;
+        }
+      } else if (CUSTOMER_FAIL_STATUSES.has(status)) {
+        delta = 20;
+      }
+
+      // Nếu tại thời điểm order này, phone đã nằm trong blacklist
+      // và shop vẫn ship (status != ORDER_REJECTED) → nhân đôi penalty/bonus
+      if (
+        blacklistCreatedAt &&
+        createdAt > blacklistCreatedAt &&
+        status !== ORDER_STATUS.ORDER_REJECTED
+      ) {
+        delta = delta * 2;
+      }
+
+      currentScore += delta;
+    }
+
+    // Clamp final score 0–100
+    const customerRiskScore = Math.max(0, Math.min(100, currentScore));
+
+    // Map to level
+    const customerRiskLevel = mapScoreToLevel(customerRiskScore);
+
+    customers.push({
+      phone,
+      fullName,
+      totalOrders,
+      successCount,
+      failedCount,
+      baseRiskScore: codRiskScores.length > 0 ? baseRiskScore : null,
+      customerRiskScore,
+      customerRiskLevel,
+      lastOrderAt,
+    });
+  });
+
+  // Sort by lastOrderAt desc
+  customers.sort((a, b) => {
+    if (!a.lastOrderAt && !b.lastOrderAt) return 0;
+    if (!a.lastOrderAt) return 1;
+    if (!b.lastOrderAt) return -1;
+    return b.lastOrderAt!.localeCompare(a.lastOrderAt!);
+  });
+
+  return { data: customers, error: null };
+}
+
+// ==========================
+// Customer Blacklist
+// ==========================
+
+export interface CustomerBlacklistEntry {
+  id: string;
+  phone: string;
+  reason: string | null;
+  created_at: string;
+}
+
+export async function fetchCustomerBlacklist(userId: string) {
+  const { data, error } = await supabase
+    .from("customer_blacklist")
+    .select("id, phone, reason, created_at")
+    .eq("user_id", userId);
+
+  const sorted =
+    data?.slice().sort((a: any, b: any) => {
+      const aa = a.created_at ?? "";
+      const bb = b.created_at ?? "";
+      return bb.localeCompare(aa);
+    }) ?? [];
+
+  return { data: sorted as CustomerBlacklistEntry[], error };
+}
+
+/**
+ * Add phone to blacklist with optional reason.
+ * Return shape: { data, error } để CustomersPage destructure được.
+ */
+export async function addToBlacklist(
+  userId: string,
+  phone: string,
+  reason?: string
+): Promise<{ data: CustomerBlacklistEntry | null; error: any | null }> {
+  const { data, error } = await supabase
+    .from("customer_blacklist")
+    .upsert(
+      {
+        user_id: userId,
+        phone,
+        reason: reason ?? null,
+        created_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id,phone" }
+    )
+    .select("id, phone, reason, created_at")
+    .single();
+
+  if (!error) {
+    const details: Record<string, string> = {
+      phone,
+    };
+    if (reason && reason.trim()) {
+      details.reason = reason.trim();
+    }
+
+    await logUserAction({
+      userId,
+      action: "Add to Blacklist",
+      status: "success",
+      orderId: "",
+      details,
+    });
+  }
+
+  return {
+    data: (data as CustomerBlacklistEntry) ?? null,
+    error,
+  };
+}
+
+/**
+ * Remove phone from blacklist.
+ * Return shape: { data, error } cho đồng bộ.
+ */
+export async function removeFromBlacklist(
+  userId: string,
+  phone: string
+): Promise<{ data: boolean; error: any | null }> {
+  const { error } = await supabase
+    .from("customer_blacklist")
+    .delete()
+    .eq("user_id", userId)
+    .eq("phone", phone);
+
+  if (!error) {
+    const details: Record<string, string> = { phone };
+
+    await logUserAction({
+      userId,
+      action: "Remove from Blacklist",
+      status: "success",
+      orderId: "",
+      details,
+    });
+  }
+
+  return { data: !error, error };
+}
+
+// ==========================
+// Orders for a customer
+// ==========================
+
+export async function fetchCustomerOrdersForUser(
+  userId: string,
+  phone: string
+) {
+  const trimmed = phone.trim();
+  if (!trimmed) {
+    return { data: [] as Order[], error: null };
+  }
+
+  const { data, error } = await supabase
+    .from("orders")
+    .select(
+      [
+        "order_id",
+        "customer_name",
+        "phone",
+        "status",
+        "risk_score",
+        "order_date",
+        "created_at",
+        "amount",
+        "payment_method",
+        "address",
+        "address_detail",
+        "ward",
+        "district",
+        "province",
+      ].join(",")
+    )
+    .eq("user_id", userId)
+    .eq("phone", trimmed)
+    .order("created_at", { ascending: false });
+
+  return {
+    data: (data || []) as unknown as Order[],
+    error,
+  };
+}
+</file>
+
+<file path="src/pages/dashboard/CustomersPage.tsx">
+import React, { useEffect, useMemo, useState } from "react";
+import { useAuth } from "../../features/auth";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+} from "../../components/ui/Card";
+import { Input } from "../../components/ui/Input";
+import { Search } from "lucide-react";
+import { RiskBadge } from "../../components/dashboard/RiskBadge";
+import {
+  fetchCustomerStatsForUser,
+  fetchCustomerBlacklist,
+  addToBlacklist,
+  removeFromBlacklist,
+  type CustomerStats,
+  fetchCustomerOrdersForUser,
+} from "../../features/customers/services/customersService";
+import { CustomerInsightPanel } from "../../features/customers/components/CustomerInsightPanel";
+import type { Order } from "../../types/supabase";
+import { Pagination } from "../../components/ui/Pagination";
+import { Button } from "../../components/ui/Button";
+import { useToast } from "../../components/ui/Toast";
+
+const formatDate = (iso: string | null) => {
+  if (!iso) return "N/A";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "N/A";
+  return d.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+  });
+};
+
+export const CustomersPage: React.FC = () => {
+  const { user } = useAuth();
+  const { showSuccess, showError } = useToast();
+
+  const [stats, setStats] = useState<CustomerStats[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const [blacklistPhones, setBlacklistPhones] = useState<Set<string>>(new Set());
+  const [loadingBlacklist, setLoadingBlacklist] = useState(false);
+
+  // filter All / Blacklisted / Not blacklisted
+  const [blacklistFilter, setBlacklistFilter] = useState<
+    "all" | "blacklisted" | "not_blacklisted"
+  >("all");
+
+  // modal Reason
+  const [blacklistModalPhone, setBlacklistModalPhone] = useState<string | null>(
+    null
+  );
+  const [blacklistReason, setBlacklistReason] = useState("");
+
+  // Insight Panel State
+  const [selectedCustomer, setSelectedCustomer] =
+    useState<CustomerStats | null>(null);
+  const [customerOrders, setCustomerOrders] = useState<Order[]>([]);
+  const [insightOpen, setInsightOpen] = useState(false);
+  const [insightLoading, setInsightLoading] = useState(false);
+
+  // Pagination
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 200;
+
+  // Load customer stats
+  useEffect(() => {
+    if (!user) return;
+
+    const load = async () => {
+      setLoading(true);
+      const { data, error } = await fetchCustomerStatsForUser(user.id);
+      if (!error && data) setStats(data);
+      setLoading(false);
+    };
+
+    load();
+  }, [user]);
+
+  // Load blacklist
+  const reloadBlacklist = async () => {
+    if (!user) return;
+    setLoadingBlacklist(true);
+
+    const { data } = await fetchCustomerBlacklist(user.id);
+    setBlacklistPhones(new Set(data.map((b: any) => b.phone)));
+
+    setLoadingBlacklist(false);
+  };
+
+  useEffect(() => {
+    reloadBlacklist();
+  }, [user]);
+
+  const handleAdd = (phone: string) => {
+    setBlacklistModalPhone(phone);
+    setBlacklistReason("");
+  };
+
+  const handleRemove = async (phone: string) => {
+    if (!user) return;
+    await removeFromBlacklist(user.id, phone);
+    reloadBlacklist();
+  };
+
+  const handleRowClick = async (customer: CustomerStats) => {
+    if (!user) return;
+    setSelectedCustomer(customer);
+    setInsightOpen(true);
+    setInsightLoading(true);
+    try {
+      const { data, error } = await fetchCustomerOrdersForUser(
+        user.id,
+        customer.phone
+      );
+      if (!error && data) {
+        setCustomerOrders(data);
+      } else {
+        setCustomerOrders([]);
+        console.error("Error loading customer orders:", error);
+      }
+    } finally {
+      setInsightLoading(false);
+    }
+  };
+
+  const handleCloseInsight = () => {
+    setInsightOpen(false);
+    setSelectedCustomer(null);
+    setCustomerOrders([]);
+  };
+
+  // 1. Filter theo search
+  const filteredBySearch = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    if (!term) return stats;
+    return stats.filter(
+      (c) =>
+        c.phone.toLowerCase().includes(term) ||
+        (c.fullName || "").toLowerCase().includes(term)
+    );
+  }, [stats, search]);
+
+  // 2. Filter theo trạng thái blacklist
+  const blacklistFiltered = useMemo(() => {
+    if (blacklistFilter === "all") return filteredBySearch;
+
+    if (blacklistFilter === "blacklisted") {
+      return filteredBySearch.filter((c) => blacklistPhones.has(c.phone));
+    }
+
+    // not_blacklisted
+    return filteredBySearch.filter((c) => !blacklistPhones.has(c.phone));
+  }, [filteredBySearch, blacklistFilter, blacklistPhones]);
+
+  // 3. Paginated list
+  const paginated = useMemo(() => {
+    const startIndex = (page - 1) * PAGE_SIZE;
+    return blacklistFiltered.slice(startIndex, startIndex + PAGE_SIZE);
+  }, [blacklistFiltered, page]);
+
+  // Reset page khi search hoặc đổi filter
+  useEffect(() => {
+    setPage(1);
+  }, [search, blacklistFilter]);
+
+  return (
+    <div className="flex flex-col h-full min-h-0 p-6">
+      {/* Search + Filters */}
+      <CardContent className="!pt-0 !px-4 !pb-3">
+        <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center">
+          <div className="flex-1">
+            <Input
+              placeholder="Search by phone or customer name..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-10 !py-2 w-full"
+            />
+          </div>
+
+          {/* “Dropdown” filter Blacklist bên phải */}
+          <div className="flex gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setBlacklistFilter("all")}
+              className={`px-4 h-10 rounded-full border text-sm transition-all
+          ${blacklistFilter === "all"
+                  ? "bg-[#1F2937] border-[#4C1D95] text-white"
+                  : "bg-[#020617] border-[#1E293B] text-white/70 hover:bg-[#020617]/80"
+                }`}
+            >
+              All Customers
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setBlacklistFilter("blacklisted")}
+              className={`px-4 h-10 rounded-full border text-sm transition-all
+          ${blacklistFilter === "blacklisted"
+                  ? "bg-red-500/20 border-red-400 text-red-200"
+                  : "bg-[#020617] border-[#1E293B] text-white/70 hover:bg-[#020617]/80"
+                }`}
+            >
+              Blacklisted
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setBlacklistFilter("not_blacklisted")}
+              className={`px-4 h-10 rounded-full border text-sm transition-all
+          ${blacklistFilter === "not_blacklisted"
+                  ? "bg-emerald-500/20 border-emerald-400 text-emerald-200"
+                  : "bg-[#020617] border-[#1E293B] text-white/70 hover:bg-[#020617]/80"
+                }`}
+            >
+              Not blacklisted
+            </button>
+          </div>
+        </div>
+      </CardContent>
+
+      {/* Table */}
+      <Card className="flex-1 flex flex-col min-h-0 mt-6">
+        <CardContent className="flex-1 min-h-0 overflow-y-auto p-0">
+          {loading ? (
+            <div className="flex items-center justify-center h-full">
+              <p className="text-[var(--text-muted)]">Loading customers...</p>
+            </div>
+          ) : blacklistFiltered.length === 0 ? (
+            <div className="p-12 text-center text-[var(--text-muted)]">
+              No customers found.
+            </div>
+          ) : (
+            <div className="w-full max-w-full overflow-x-auto">
+              <table className="min-w-[1100px] w-full border-separate border-spacing-0">
+                <thead>
+                  <tr className="border-b border-[#1E223D]">
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">
+                      Phone
+                    </th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-[#E5E7EB]">
+                      Name
+                    </th>
+                    <th className="px-6 py-3 text-center text-sm font-semibold text-[#E5E7EB]">
+                      Total Orders
+                    </th>
+                    <th className="px-6 py-3 text-center text-sm font-semibold text-[#E5E7EB]">
+                      Success
+                    </th>
+                    <th className="px-6 py-3 text-center text-sm font-semibold text-[#E5E7EB]">
+                      Failed
+                    </th>
+                    <th className="px-6 py-3 text-center text-sm font-semibold text-[#E5E7EB]">
+                      Customer Risk
+                    </th>
+                    <th className="px-6 py-3 text-center text-sm font-semibold text-[#E5E7EB]">
+                      Last Order
+                    </th>
+                    <th className="px-6 py-3 text-center text-sm font-semibold text-[#E5E7EB]">
+                      Blacklist
+                    </th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {paginated.map((c) => (
+                    <tr
+                      key={c.phone}
+                      className="border-b border-[#1E223D] hover:bg-white/5 transition cursor-pointer"
+                      onClick={() => handleRowClick(c)}
+                    >
+                      <td className="px-6 py-4 text-sm text-[#E5E7EB]">
+                        {c.phone}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-[#E5E7EB]">
+                        {c.fullName || "—"}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-center">
+                        {c.totalOrders}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-emerald-400 text-center">
+                        {c.successCount}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-red-400 text-center">
+                        {c.failedCount}
+                      </td>
+                      <td className="px-6 py-4 text-center">
+                        <RiskBadge score={c.customerRiskScore} />
+                      </td>
+                      <td className="px-6 py-4 text-sm text-center">
+                        {formatDate(c.lastOrderAt)}
+                      </td>
+
+                      <td className="px-6 py-4 text-center">
+                        {blacklistPhones.has(c.phone) ? (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRemove(c.phone);
+                            }}
+                            disabled={loadingBlacklist}
+                            className="px-3 py-1 text-xs bg-red-600/30 text-red-300 border border-red-400/50 rounded"
+                          >
+                            Unblacklist
+                          </button>
+                        ) : (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleAdd(c.phone);
+                            }}
+                            disabled={loadingBlacklist}
+                            className="px-3 py-1 text-xs bg-purple-600/30 text-purple-300 border border-purple-400/50 rounded"
+                          >
+                            Blacklist
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+
+        {/* Pagination */}
+        <Pagination
+          currentPage={page}
+          totalItems={blacklistFiltered.length}
+          pageSize={PAGE_SIZE}
+          onPageChange={setPage}
+        />
+      </Card>
+
+      {/* Customer Insight Panel */}
+      <CustomerInsightPanel
+        customer={selectedCustomer}
+        orders={customerOrders}
+        isOpen={insightOpen}
+        onClose={handleCloseInsight}
+      />
+
+      {/* Modal nhập lý do blacklist */}
+      {blacklistModalPhone && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+          onClick={() => !loadingBlacklist && setBlacklistModalPhone(null)}
+        >
+          <div
+            className="bg-[#111827] border border-[#1F2937] rounded-xl p-6 max-w-md w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold text-white mb-2">
+              Add to blacklist
+            </h3>
+            <p className="text-sm text-gray-300 mb-4">
+              Phone number:{" "}
+              <span className="font-mono">{blacklistModalPhone}</span>
+            </p>
+
+            <label className="block text-sm text-gray-200 mb-2">Reason</label>
+            <textarea
+              className="w-full rounded-lg border border-white/10 bg-white/5 text-white text-sm p-3 resize-none focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
+              rows={4}
+              value={blacklistReason}
+              onChange={(e) => setBlacklistReason(e.target.value)}
+              placeholder="Input reason..."
+              disabled={loadingBlacklist}
+            />
+
+            <div className="flex justify-end gap-2 mt-4">
+              <Button
+                variant="outline"
+                onClick={() =>
+                  !loadingBlacklist && setBlacklistModalPhone(null)
+                }
+                disabled={loadingBlacklist}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={async () => {
+                  if (!user || !blacklistModalPhone) return;
+                  setLoadingBlacklist(true);
+                  const { error } = await addToBlacklist(
+                    user.id,
+                    blacklistModalPhone,
+                    blacklistReason.trim() || undefined
+                  );
+                  setLoadingBlacklist(false);
+
+                  if (error) {
+                    console.error("addToBlacklist error", error);
+                    showError("Thêm blacklist thất bại.");
+                    return;
+                  }
+
+                  showSuccess("Đã thêm vào blacklist.");
+                  setBlacklistModalPhone(null);
+                  setBlacklistReason("");
+                  reloadBlacklist();
+                }}
+                disabled={loadingBlacklist || !blacklistReason.trim()}
+              >
+                Confirm
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -23539,7 +23774,7 @@ import { logUserAction } from '../../../utils/logUserAction';
 import { generateChanges } from '../../../utils/generateChanges';
 import { logOrderEvent } from '../services/orderEventsService';
 import { deleteOrders } from '../services/ordersService';
-import { deleteInvoicesByOrderIds, ensurePendingInvoiceForOrder, markInvoicePaidForOrder } from '../../invoices/services/invoiceService';
+import { ensurePendingInvoiceForOrder, markInvoicePaidForOrder } from '../../invoices/services/invoiceService';
 import { ORDER_STATUS } from '../../../constants/orderStatus';
 
 export const useOrderActions = (
@@ -23907,11 +24142,12 @@ export const useOrderActions = (
             const { error: deleteError } = await deleteOrders(user.id, orderIds);
             if (deleteError) throw deleteError;
 
-            try {
-                await deleteInvoicesByOrderIds(user.id, orderIds);
-            } catch (invoiceError) {
-                console.error("Failed to delete related invoices", invoiceError);
-            }
+            // ❌ Không cần xoá invoices ở FE nữa – BE đã làm rồi
+            // try {
+            //     await deleteInvoicesByOrderIds(user.id, orderIds);
+            // } catch (invoiceError) {
+            //     console.error("Failed to delete related invoices", invoiceError);
+            // }
 
             const logPromises = ordersToDelete.map(order =>
                 logUserAction({
@@ -25809,13 +26045,6 @@ export async function applyInvoiceRules(order: Order) {
   const paymentMethod = (order.payment_method || "COD").toUpperCase(); // Default COD
   const isCOD = paymentMethod === "COD";
 
-  // 1. PAID logic (mọi payment method)
-  // => Chỉ khi status là 1 trong các trạng thái "đã thanh toán" RÕ RÀNG
-  //    (Simulate Paid, QR callback, non-COD prepaid...)
-  const paidStatuses = [
-    ORDER_STATUS.ORDER_PAID,
-  ];
-
   if (status === ORDER_STATUS.ORDER_PAID) {
     // Order đã ở trạng thái đã thanh toán -> đảm bảo Invoice = Paid
     await markInvoicePaidForOrder(order);
@@ -25887,6 +26116,7 @@ export interface InsertOrderPayload {
 }
 
 export interface UpdateOrderPayload {
+  refunded_amount?: number | null;
   status?: string;
   risk_score?: number | null;
   risk_level?: string | null;
@@ -26042,6 +26272,7 @@ export async function fetchPastOrdersByPhones(
  * @param note - Reason/note for the refund
  */
 export async function processRefund(
+  userId: string,
   orderId: string,
   refundAmount: number,
   note: string
@@ -26086,7 +26317,7 @@ export async function processRefund(
     // UpdateOrderPayload doesn't have refunded_amount. We need to add it or cast.
     // Let's check UpdateOrderPayload definition above. It doesn't have it.
     // We should update the interface.
-  } as any);
+  });
 
   if (error) throw error;
 
@@ -26098,14 +26329,15 @@ export async function processRefund(
 
 /**
  * Process a Return (Return to Seller) - MVP SPEC.
- * 
+ *
  * MVP BEHAVIOR:
  * - Updates shipping fields: customer_shipping_paid, seller_shipping_paid
  * - Adds shipping cost entry (return direction)
  * - Logs "RETURN" event
  * - Marks order status as RETURNED (MVP now updates status when processing a return)
  * - Does NOT change invoice status
- * 
+ *
+ * @param userId - Current user ID
  * @param orderId - Order UUID
  * @param customerPays - Whether customer pays return shipping
  * @param customerAmount - Amount customer pays for return shipping
@@ -26113,6 +26345,7 @@ export async function processRefund(
  * @param note - Reason/note for the return
  */
 export async function processReturn(
+  userId: string,
   orderId: string,
   customerPays: boolean,
   customerAmount: number,
@@ -26136,57 +26369,64 @@ export async function processReturn(
   await addShippingCost(orderId, "return", SHIPPING_COST.RETURN_ONE_WAY);
 
   // 3. Fetch current shipping amounts to accumulate
-  // TODO: In a future refactor, pass userId explicitly instead of reading auth state here.
-  const { data: authData, error: authError } = await supabase.auth.getUser();
-  if (authError) {
-    console.error("processReturn: auth error", authError);
-    throw authError;
-  }
-  const user = authData?.user;
-  if (!user) throw new Error('User not authenticated');
-
-  const { data: currentOrder, error: fetchError } = await OrdersRepository.fetchOrderById(orderId, user.id);
+  const { data: currentOrder, error: fetchError } =
+    await OrdersRepository.fetchOrderById(orderId, userId);
 
   if (fetchError) throw fetchError;
+  if (!currentOrder) {
+    throw new Error("Order not found");
+  }
 
   // 4. Calculate new accumulated shipping amounts
-  const newCustomerPaid = (currentOrder.customer_shipping_paid || 0) + customerAmount;
-  const newSellerPaid = (currentOrder.seller_shipping_paid || 0) + shopAmount;
+  const newCustomerPaid =
+    (currentOrder.customer_shipping_paid || 0) + customerAmount;
+  const newSellerPaid =
+    (currentOrder.seller_shipping_paid || 0) + shopAmount;
 
   // 5. Update order with new shipping amounts AND status
-  const { data, error } = await OrdersRepository.updateOrder(orderId, user.id, {
+  const { data, error } = await OrdersRepository.updateOrder(orderId, userId, {
     customer_shipping_paid: newCustomerPaid,
     seller_shipping_paid: newSellerPaid,
     status: ORDER_STATUS.RETURNED,
-    // returned_at: new Date().toISOString(), // Optional, add if schema supports
+    // returned_at: new Date().toISOString(), // Optional, nếu schema có
   } as any);
 
   if (error) throw error;
 
-  // P3: Increment Stock (Inventory Flow)
+  // 6. Increment Stock (Inventory Flow)
   if ((currentOrder as any).product_id) {
-    // Assuming quantity is 1 as it's not in Order type
-    const quantity = 1;
-    const { error: stockError } = await supabase.rpc('increment_stock', {
+    const quantity = 1; // hiện tại giả định 1
+    const { error: stockError } = await supabase.rpc("increment_stock", {
       p_product_id: (currentOrder as any).product_id,
-      p_quantity: quantity
+      p_quantity: quantity,
     });
 
     if (stockError) {
-      console.error('[processReturn] Failed to increment stock:', stockError);
-      // We don't throw here to avoid rolling back the return logic, but we log it.
-      // Ideally we should use a transaction or notify user.
+      console.error("[processReturn] Failed to increment stock:", stockError);
+      // Không throw để tránh rollback return; chỉ log lại.
     }
   }
 
-  // P2: Record Ledger Entries for Return
+  // 7. Record Ledger Entries for Return
   if (customerAmount > 0) {
     // Customer pays -> Inflow (Return Fee)
-    await LedgerService.recordReturnFee(user.id, orderId, customerAmount, `Customer paid return shipping: ${note}`);
+    await LedgerService.recordReturnFee(
+      userId,
+      orderId,
+      customerAmount,
+      `Customer paid return shipping: ${note}`
+    );
   }
   if (shopAmount > 0) {
     // Shop pays -> Outflow (Shipping Cost)
-    await LedgerService.recordTransaction(user.id, orderId, 'shipping_cost', shopAmount, 'outflow', { note: `Shop paid return shipping: ${note}` });
+    await LedgerService.recordTransaction(
+      userId,
+      orderId,
+      "shipping_cost",
+      shopAmount,
+      "outflow",
+      { note: `Shop paid return shipping: ${note}` }
+    );
   }
 
   return data;
@@ -29302,10 +29542,25 @@ export const DashboardLayout: React.FC = () => {
   const { role } = useRole();
   const isAdmin = isAdminByEmail(user);
 
+  // ⬇️ NEW: xác định layout đặc biệt cho Dashboard + Analytics
+  const isAnalyticsLayout = useMemo(() => {
+    const path = location.pathname;
+    if (
+      path === '/dashboard' ||
+      path === '/admin/dashboard' ||
+      path.startsWith('/dashboard/analytics') ||
+      path.startsWith('/admin/analytics')
+    ) {
+      return true;
+    }
+    return false;
+  }, [location.pathname]);
+
   // Detect if current page is Message page (user or admin)
   const isMessagePage =
     location.pathname.startsWith("/dashboard/message") ||
     location.pathname.startsWith("/admin/message");
+
   const {
     data: supabaseNotifications,
     loading: notificationsLoading,
@@ -29326,8 +29581,6 @@ export const DashboardLayout: React.FC = () => {
     fetchAll: refetchProducts,
   } = useSupabaseTable<Product>({ tableName: 'products', enableRealtime: false });
 
-
-
   const openAddOrderModal = useCallback((options?: { order?: Order | null; onSuccess?: () => void }) => {
     setOrderModalEditingOrder(options?.order ?? null);
     orderModalSuccessRef.current = options?.onSuccess ?? null;
@@ -29338,7 +29591,6 @@ export const DashboardLayout: React.FC = () => {
     setIsOrderModalOpen(false);
     setOrderModalEditingOrder(null);
     orderModalSuccessRef.current = null;
-
   }, []);
 
   const handleOrderModalSuccess = useCallback(() => {
@@ -29365,8 +29617,6 @@ export const DashboardLayout: React.FC = () => {
     closeAddProductModal();
   }, [closeAddProductModal]);
 
-
-
   const outletContext = useMemo<DashboardOutletContext>(
     () => ({
       openAddOrderModal,
@@ -29381,27 +29631,26 @@ export const DashboardLayout: React.FC = () => {
   // Filter sidebar items based on role
   const filteredSidebarItems = useMemo(() => {
     if (isAdmin || role === 'admin') {
-      // Admin sees: Dashboard (admin), History, Message, Settings
-      return sidebarItems.filter(item =>
-        item.id === 'dashboard' ||
-        item.id === 'analytics' ||
-        item.id === 'message' ||
-        item.id === 'settings'
-      ).map(item => {
-        // Update paths for admin routes
-        if (item.id === 'dashboard') {
-          return { ...item, path: '/admin/dashboard', label: 'Dashboard' };
-        }
-        if (item.id === 'analytics') {
-          return { ...item, path: '/admin/analytics', label: 'Analytics' };
-        }
-        if (item.id === 'message') {
-          return { ...item, path: '/admin/message' };
-        }
-        return item;
-      });
+      return sidebarItems
+        .filter(item =>
+          item.id === 'dashboard' ||
+          item.id === 'analytics' ||
+          item.id === 'message' ||
+          item.id === 'settings'
+        )
+        .map(item => {
+          if (item.id === 'dashboard') {
+            return { ...item, path: '/admin/dashboard', label: 'Dashboard' };
+          }
+          if (item.id === 'analytics') {
+            return { ...item, path: '/admin/analytics', label: 'Analytics' };
+          }
+          if (item.id === 'message') {
+            return { ...item, path: '/admin/message' };
+          }
+          return item;
+        });
     }
-    // Regular users see all items
     return sidebarItems;
   }, [isAdmin, role]);
 
@@ -29409,7 +29658,6 @@ export const DashboardLayout: React.FC = () => {
   useEffect(() => {
     const handleResize = () => {
       setIsDesktop(window.innerWidth >= 1024);
-      // Reset hover state when switching between mobile and desktop
       if (window.innerWidth < 1024) {
         setIsHovered(false);
       }
@@ -29440,7 +29688,6 @@ export const DashboardLayout: React.FC = () => {
 
     fetchUnreadCount();
 
-    // Set up real-time subscription for unread messages
     const channel = supabase
       .channel('admin_unread_messages')
       .on(
@@ -29461,6 +29708,7 @@ export const DashboardLayout: React.FC = () => {
       supabase.removeChannel(channel);
     };
   }, [isAdmin, user]);
+
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showAllNotifications, setShowAllNotifications] = useState(false);
@@ -29484,13 +29732,12 @@ export const DashboardLayout: React.FC = () => {
     };
   }, [refreshProfile]);
 
-  // Reset scroll position when route changes
+  // Reset scroll position when route changes (chỉ cho layout có scroll)
   useEffect(() => {
-    // Only reset main content scroll (window doesn't scroll anymore)
-    if (mainContentRef.current) {
+    if (!isAnalyticsLayout && mainContentRef.current) {
       mainContentRef.current.scrollTop = 0;
     }
-  }, [location.pathname]);
+  }, [location.pathname, isAnalyticsLayout]);
 
   // Close notifications and profile menu when clicking outside
   useEffect(() => {
@@ -29587,7 +29834,6 @@ export const DashboardLayout: React.FC = () => {
 
   const handleNavigation = (path: string) => {
     navigate(path);
-    // Close sidebar on mobile after navigation
     if (window.innerWidth < 1024) {
       setSidebarOpen(false);
     }
@@ -29597,15 +29843,12 @@ export const DashboardLayout: React.FC = () => {
     setShowLogoutModal(true);
   };
 
-  // Page title and subtitle mapping - updates when profile or location changes
   const getPageInfo = () => {
     const path = location.pathname;
-    // Extract first name from full_name for personalized greeting
     const fullName = profile?.full_name || '';
     const firstName = fullName ? fullName.trim().split(' ')[0] : (user?.email?.split('@')[0] || '');
     const userName = firstName;
 
-    // Map paths to page info
     const pageMap: Record<string, { title: string; subtitle: string }> = {
       '/dashboard': {
         title: 'Dashboard',
@@ -29619,15 +29862,7 @@ export const DashboardLayout: React.FC = () => {
         title: 'Analytics',
         subtitle: 'Detailed insights and performance metrics'
       },
-      '/admin/analytics': {
-        title: 'Analytics',
-        subtitle: 'Detailed insights and performance metrics'
-      },
       '/dashboard/settings': {
-        title: 'Settings',
-        subtitle: 'Manage your account settings'
-      },
-      '/admin/settings': {
         title: 'Settings',
         subtitle: 'Manage your account settings'
       },
@@ -29655,19 +29890,13 @@ export const DashboardLayout: React.FC = () => {
         title: 'Message',
         subtitle: 'Chat with CodFence support team'
       },
-      '/admin/message': {
-        title: 'Message',
-        subtitle: 'Chat with CodFence support team'
-      }
     };
 
-    // Get page info or default
     const pageInfo = pageMap[path] || {
       title: path.split('/').pop()?.replace(/-/g, ' ') || 'Dashboard',
       subtitle: 'Dashboard overview'
     };
 
-    // Capitalize title
     pageInfo.title = pageInfo.title
       .split(' ')
       .map(word => word.charAt(0).toUpperCase() + word.slice(1))
@@ -29679,14 +29908,12 @@ export const DashboardLayout: React.FC = () => {
   const pageInfo = getPageInfo();
 
   const isActive = (path: string) => {
-    // Handle admin routes
     if (path === '/admin/dashboard') {
       return location.pathname === '/admin/dashboard';
     }
     if (path.startsWith('/admin/')) {
       return location.pathname.startsWith(path);
     }
-    // Handle regular dashboard routes
     if (path === '/dashboard') {
       return location.pathname === '/dashboard';
     }
@@ -29695,15 +29922,14 @@ export const DashboardLayout: React.FC = () => {
 
   const confirmLogout = async () => {
     try {
-      await logout(); // Calls Supabase signOut() from AuthContext
-      setShowLogoutModal(false); // Close modal
-      window.location.href = '/login'; // Redirect to login page
+      await logout();
+      setShowLogoutModal(false);
+      window.location.href = '/login';
     } catch (error) {
       console.error('Logout error:', error);
     }
   };
 
-  // Determine if sidebar is expanded
   const expanded = (isDesktop && isHovered) || sidebarOpen;
 
   return (
@@ -29720,15 +29946,9 @@ export const DashboardLayout: React.FC = () => {
       <aside
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
-        className={`fixed top-0 left-0 h-full z-[100] transition-[width,background,box-shadow] duration-300 ease-in-out flex flex-col ${
-          // Mobile: slide in/out
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
-          } ${
-          // Width: expanded on hover (desktop) or when open (mobile)
-          expanded ? 'w-[200px]' : 'w-20'
-          } ${
-          // Overlay styling when expanded on desktop
-          expanded && isDesktop
+        className={`fixed top-0 left-0 h-full z-[100] transition-[width,background,box-shadow] duration-300 ease-in-out flex flex-col ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+          } ${expanded ? 'w-[200px]' : 'w-20'
+          } ${expanded && isDesktop
             ? 'bg-[var(--bg-sidebar)]/95 backdrop-blur-md border-r border-[var(--border-subtle)] shadow-xl'
             : 'bg-[var(--bg-sidebar)] border-r border-[var(--border-subtle)]'
           }`}
@@ -29818,7 +30038,7 @@ export const DashboardLayout: React.FC = () => {
       <div className="flex-1 flex flex-col lg:ml-20 transition-all duration-300 min-h-0">
         {/* Topbar */}
         <header className="h-16 bg-[var(--bg-sidebar)] border-b border-[var(--border-subtle)] flex items-center justify-between px-6 sticky top-0 z-100">
-          {/* Left side: Mobile Menu Button + Breadcrumb */}
+          {/* Left side: Mobile Menu Button + Title */}
           <div className="flex items-center gap-4">
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -29827,7 +30047,6 @@ export const DashboardLayout: React.FC = () => {
               <Menu size={20} />
             </button>
 
-            {/* Page Title and Subtitle */}
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-semibold text-[var(--text-main)] tracking-wide">
                 {pageInfo.title}:
@@ -29838,9 +30057,8 @@ export const DashboardLayout: React.FC = () => {
             </div>
           </div>
 
-          {/* Right side: Back to Home Button + Notifications + Profile */}
+          {/* Right side */}
           <div className="flex items-center gap-3 ml-4">
-            {/* Back to Home Button */}
             <button
               onClick={() => navigate("/")}
               className="flex items-center gap-2 px-4 py-2 bg-[#8B5CF6]/20 border border-[#8B5CF6]/30 rounded-lg text-[var(--text-main)] hover:bg-[#8B5CF6]/30 transition whitespace-nowrap"
@@ -29849,6 +30067,7 @@ export const DashboardLayout: React.FC = () => {
               <span className="text-sm font-medium hidden md:inline">Back to Home</span>
               <span className="text-sm font-medium md:hidden">Home</span>
             </button>
+
             {/* Notifications */}
             <div className="relative" ref={notificationRef}>
               <button
@@ -29861,10 +30080,8 @@ export const DashboardLayout: React.FC = () => {
                 )}
               </button>
 
-              {/* Notification Popup */}
               {showNotifications && (
                 <div className="absolute right-0 top-12 w-80 md:w-96 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg shadow-2xl z-50 max-h-[500px] flex flex-col">
-                  {/* Header */}
                   <div className="flex items-center justify-between p-4 border-b border-[var(--border-subtle)]">
                     <h3 className="text-lg font-semibold text-[var(--text-main)]">Notifications</h3>
                     {unreadCount > 0 && (
@@ -29877,7 +30094,6 @@ export const DashboardLayout: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Notifications List */}
                   <div className="overflow-y-auto max-h-[400px]">
                     {notifications.length === 0 ? (
                       <div className="p-8 text-center">
@@ -29918,7 +30134,6 @@ export const DashboardLayout: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Footer */}
                   {notifications.length > 0 && (
                     <div className="p-3 border-t border-[var(--border-subtle)] text-center">
                       <button
@@ -29950,7 +30165,6 @@ export const DashboardLayout: React.FC = () => {
                 </span>
               </button>
 
-              {/* Profile Dropdown */}
               {showProfileMenu && (
                 <div className="absolute right-0 top-12 w-48 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg shadow-xl z-50 overflow-hidden py-1">
                   <button
@@ -29982,15 +30196,21 @@ export const DashboardLayout: React.FC = () => {
         {/* Page Content */}
         <main
           ref={mainContentRef}
-          className="flex-1 min-h-0 bg-[var(--bg-page)] overflow-y-auto"
+          className={`flex-1 min-h-0 bg-[var(--bg-page)] ${isAnalyticsLayout ? 'overflow-hidden' : 'overflow-y-auto'
+            }`}
         >
-          <div className="w-full h-[calc(100vh-4rem)] flex flex-col bg-[var(--bg-page)] 
-          px-0 pt-0 pb-0 lg:pb-1">
+          <div
+            className={`w-full flex flex-col bg-[var(--bg-page)] ${isAnalyticsLayout
+              ? 'h-[calc(100vh-4rem)] px-0 pt-0 pb-0' // full viewport, no scroll, không margin-top
+              : 'h-[calc(100vh-4rem)] px-0 pt-0 pb-0 lg:pb-1'
+              }`}
+          >
             <Outlet context={outletContext} />
           </div>
         </main>
       </div>
 
+      {/* AddOrderModal */}
       <AddOrderModal
         isOpen={isOrderModalOpen}
         onClose={closeAddOrderModal}
@@ -30002,13 +30222,13 @@ export const DashboardLayout: React.FC = () => {
         }}
       />
 
+      {/* AddProductModal */}
       <AddProductModal
         isOpen={isProductModalOpen}
         onClose={closeAddProductModal}
         onSuccess={handleProductModalSuccess}
         initialName={productModalInitialName}
       />
-
 
       {/* All Notifications Modal */}
       {showAllNotifications && (

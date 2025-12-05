@@ -4,6 +4,7 @@ import { Button } from '../../../../components/ui/Button';
 import { Input } from '../../../../components/ui/Input';
 import { processRefund } from '../../services/ordersService';
 import type { Order } from '../../../../types/supabase';
+import { useAuth } from '../../../../features/auth'; // 👈 THÊM DÒNG NÀY
 
 interface RefundModalProps {
     isOpen: boolean;
@@ -13,7 +14,15 @@ interface RefundModalProps {
     title?: string;
 }
 
-export const RefundModal: React.FC<RefundModalProps> = ({ isOpen, onClose, order, onSuccess, title = 'Refund Order' }) => {
+export const RefundModal: React.FC<RefundModalProps> = ({
+    isOpen,
+    onClose,
+    order,
+    onSuccess,
+    title = 'Refund Order',
+}) => {
+    const { user } = useAuth(); // 👈 LẤY user TỪ AUTH
+
     const [amount, setAmount] = useState<string>('');
     const [note, setNote] = useState('');
     const [loading, setLoading] = useState(false);
@@ -27,12 +36,18 @@ export const RefundModal: React.FC<RefundModalProps> = ({ isOpen, onClose, order
         setError(null);
 
         try {
+            if (!user) {
+                throw new Error('User not authenticated');
+            }
+
             const refundAmount = parseInt(amount.replace(/[^0-9]/g, ''), 10);
             if (isNaN(refundAmount) || refundAmount <= 0) {
                 throw new Error('Invalid refund amount');
             }
 
-            await processRefund(order.id, refundAmount, note);
+            // 👇 TRUYỀN user.id VÀO processRefund THEO SIGNATURE MỚI
+            await processRefund(user.id, order.id, refundAmount, note);
+
             onSuccess();
             onClose();
         } catch (err: any) {
@@ -63,7 +78,9 @@ export const RefundModal: React.FC<RefundModalProps> = ({ isOpen, onClose, order
 
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
-                        <label className="block text-sm font-medium text-white/70 mb-1">Refund Amount (VND)</label>
+                        <label className="block text-sm font-medium text-white/70 mb-1">
+                            Refund Amount (VND)
+                        </label>
                         <Input
                             type="number"
                             value={amount}
@@ -75,7 +92,9 @@ export const RefundModal: React.FC<RefundModalProps> = ({ isOpen, onClose, order
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-white/70 mb-1">Reason / Note</label>
+                        <label className="block text-sm font-medium text-white/70 mb-1">
+                            Reason / Note
+                        </label>
                         <textarea
                             value={note}
                             onChange={(e) => setNote(e.target.value)}

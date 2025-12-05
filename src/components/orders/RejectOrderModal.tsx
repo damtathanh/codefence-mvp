@@ -135,21 +135,21 @@ const RejectOrderModal: React.FC<RejectOrderModalProps> = ({
           >
             Cancel
           </Button>
-          <button
+          <Button
             type="button"
             onClick={onConfirm}
-            disabled={isConfirmDisabled}
-            className="px-6 py-3 rounded-xl font-semibold text-white transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[#0B0F28] disabled:opacity-50 disabled:cursor-not-allowed bg-[#8B5CF6] hover:bg-[#7C3AED] focus:ring-[#8B5CF6]"
+            disabled={isConfirmDisabled || loading}
+            className="w-full"
           >
             {loading ? (
-              <span className="flex items-center">
-                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2" />
+              <span className="flex items-center justify-center gap-2">
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 Processing...
               </span>
             ) : (
               'Confirm'
             )}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

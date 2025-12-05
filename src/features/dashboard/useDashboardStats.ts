@@ -187,7 +187,9 @@ export function useDashboardStats(
                             "created_at",
                             "refunded_amount",
                             "customer_shipping_paid",
-                            "seller_shipping_paid"
+                            "seller_shipping_paid",
+                            "paid_at",
+                            "customer_confirmed_at"
                         ].join(",")
                     )
                     .eq("user_id", user.id)
@@ -362,39 +364,37 @@ function isCOD(order: Order): boolean {
 
 // New Helper: Order has ever been paid
 function hasBeenPaid(order: Order): boolean {
-    // If we have an explicit paid_at timestamp, it's paid.
+    // 1. Nếu DB đã có paid_at → coi như đã thanh toán
     if (order.paid_at) return true;
 
+    // 2. Đơn PREPAID (non-COD)
     if (!isCOD(order)) {
-        // Non-COD (Prepaid):
-        // Considered paid if status is PAID, DELIVERING, or COMPLETED
-        // (Assuming prepaid orders are paid before delivery)
+        // Với prepaid: chỉ cần đơn đã tới các stage này thì coi như đã nhận tiền rồi
         return (
             order.status === ORDER_STATUS.ORDER_PAID ||
             order.status === ORDER_STATUS.DELIVERING ||
             order.status === ORDER_STATUS.COMPLETED
         );
-    } else {
-        // COD:
-        // Only considered paid if explicitly PAID status (or paid_at above)
-        return order.status === ORDER_STATUS.ORDER_PAID;
     }
+
+    // 3. Đơn COD
+    // COD chỉ được coi là paid khi đã qua stage ORDER_PAID
+    return order.status === ORDER_STATUS.ORDER_PAID;
 }
 
 // New Helper: Customer has confirmed (for COD)
 function hasBeenCustomerConfirmed(order: Order): boolean {
+    // Chỉ xét COD Medium/High
+    const level = order.risk_level?.toLowerCase();
     if (!isCOD(order)) return false;
+    if (level !== "medium" && level !== "high") return false;
 
-    // Explicit timestamp
-    if (order.customer_confirmed_at) return true;
-
-    // Or status implies confirmation
+    // Khách THỰC SỰ bấm Confirm
     return (
+        !!order.customer_confirmed_at ||
         order.status === ORDER_STATUS.CUSTOMER_CONFIRMED ||
-        order.status === ORDER_STATUS.ORDER_APPROVED ||
         order.status === ORDER_STATUS.DELIVERING ||
-        order.status === ORDER_STATUS.COMPLETED ||
-        order.status === ORDER_STATUS.ORDER_PAID
+        order.status === ORDER_STATUS.COMPLETED
     );
 }
 
@@ -402,14 +402,31 @@ function hasBeenCustomerConfirmed(order: Order): boolean {
 // COD confirmed/delivering/completed but NOT paid
 function isCodPaymentPending(order: Order): boolean {
     if (!isCOD(order)) return false;
+
+    const risk = (order.risk_level || "").toLowerCase();
+
+    // Nếu đã trả tiền rồi thì không còn pending
     if (hasBeenPaid(order)) return false;
 
-    return (
-        order.status === ORDER_STATUS.CUSTOMER_CONFIRMED ||
-        order.status === ORDER_STATUS.ORDER_APPROVED ||
-        order.status === ORDER_STATUS.DELIVERING ||
-        order.status === ORDER_STATUS.COMPLETED
-    );
+    // Nếu là các trạng thái đã “chết” thì không pending nữa
+    const isCancelledOrFailed =
+        order.status === ORDER_STATUS.CUSTOMER_CANCELLED ||
+        order.status === ORDER_STATUS.ORDER_REJECTED ||
+        order.status === ORDER_STATUS.CUSTOMER_UNREACHABLE;
+
+    if (isCancelledOrFailed) return false;
+
+    // 1) LOW RISK — tất cả đơn COD low, chưa huỷ, chưa trả tiền => pending
+    if (risk === "low" || !risk) {
+        return true;
+    }
+
+    // 2) MEDIUM/HIGH RISK — chỉ pending nếu khách đã Confirm (hoặc các stage sau đó)
+    if (risk === "medium" || risk === "high") {
+        return hasBeenCustomerConfirmed(order);
+    }
+
+    return false;
 }
 
 function computeStats(orders: Order[]): DashboardStats {
@@ -555,7 +572,7 @@ function computeStats(orders: Order[]): DashboardStats {
         (o) =>
             isCOD(o) &&
             o.status === ORDER_STATUS.COMPLETED &&
-            !hasBeenPaid(o)
+            !o.paid_at
     );
 
     const deliveredNotPaidRevenue = deliveredNotPaidOrders.reduce(
@@ -569,7 +586,7 @@ function computeStats(orders: Order[]): DashboardStats {
     ).length;
 
     const codConfirmed = orders.filter(
-        (o) => isCOD(o) && verifiedPositiveStatuses.has(o.status)
+        (o) => isCOD(o) && hasBeenCustomerConfirmed(o)
     ).length;
 
     const customerResponses = codCancelled + codConfirmed;
@@ -1004,7 +1021,7 @@ function buildOrdersDashboard(orders: Order[], aggregation: AggregationMode): Or
         if (!isCOD(o)) continue;
 
         if (pendingStatuses.has(o.status)) row.codPending += 1;
-        else if (confirmedStatuses.has(o.status)) row.codConfirmed += 1;
+        else if (hasBeenCustomerConfirmed(o)) row.codConfirmed += 1;
         else if (cancelledStatuses.has(o.status)) row.codCancelled += 1;
     }
 

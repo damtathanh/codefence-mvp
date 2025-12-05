@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { PageLayout } from '../../components/layout/PageLayout';
 import { DateRangeSelector } from '../../components/dashboard/DateRangeSelector';
 import { AnalyticsTabsHeader, type AnalyticsTabKey } from '../../features/analytics/components/AnalyticsTabsHeader';
 import { RevenueTab } from '../../features/analytics/components/RevenueTab';
@@ -27,34 +26,35 @@ export const AnalyticsPage: React.FC = () => {
   } = useAnalyticsDateRangeStore();
 
   return (
-    <PageLayout>
-      {/* Header row: title + date range on right */}
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-xl font-semibold text-white">Analytics</h2>
-          <p className="text-sm text-white/60">
-            Key insights about your orders, risk and performance.
-          </p>
-        </div>
+    // ⬇️ Layout riêng cho Analytics: full height, KHÔNG padding top
+    <div className="flex flex-col h-full min-h-0 px-6 pt-0 pb-4">
+      {/* Hàng Tabs + DateRange cùng 1 row, dính sát topbar */}
+      <div className="border-b border-slate-800">
+        <div className="flex flex-col gap-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+          {/* Tabs bên trái, có scroll ngang nếu 10 tabs nhiều */}
+          <div className="flex-1 overflow-x-auto">
+            <AnalyticsTabsHeader
+              activeTab={activeTab}
+              onChange={setActiveTab}
+            />
+          </div>
 
-        <DateRangeSelector
-          value={dateRange}
-          onChange={setDateRange}
-          customFrom={customFrom}
-          customTo={customTo}
-          onChangeCustomFrom={setCustomFrom}
-          onChangeCustomTo={setCustomTo}
-        />
+          {/* Date range sát bên phải */}
+          <div className="shrink-0">
+            <DateRangeSelector
+              value={dateRange}
+              onChange={setDateRange}
+              customFrom={customFrom}
+              customTo={customTo}
+              onChangeCustomFrom={setCustomFrom}
+              onChangeCustomTo={setCustomTo}
+            />
+          </div>
+        </div>
       </div>
 
-      {/* Tab bar */}
-      <AnalyticsTabsHeader
-        activeTab={activeTab}
-        onChange={setActiveTab}
-      />
-
-      {/* Tab content */}
-      <div className="mt-3 min-h-0 h-full overflow-visible">
+      {/* Tab content chiếm phần còn lại của viewport */}
+      <div className="mt-3 min-h-0 flex-1 overflow-hidden">
         {activeTab === "revenue" && (
           <RevenueTab dateRange={dateRange} customFrom={customFrom} customTo={customTo} />
         )}
@@ -86,6 +86,6 @@ export const AnalyticsPage: React.FC = () => {
           <FunnelTab dateRange={dateRange} customFrom={customFrom} customTo={customTo} />
         )}
       </div>
-    </PageLayout>
+    </div>
   );
 };

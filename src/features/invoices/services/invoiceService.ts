@@ -273,13 +273,6 @@ export async function applyInvoiceRules(order: Order) {
   const paymentMethod = (order.payment_method || "COD").toUpperCase(); // Default COD
   const isCOD = paymentMethod === "COD";
 
-  // 1. PAID logic (mọi payment method)
-  // => Chỉ khi status là 1 trong các trạng thái "đã thanh toán" RÕ RÀNG
-  //    (Simulate Paid, QR callback, non-COD prepaid...)
-  const paidStatuses = [
-    ORDER_STATUS.ORDER_PAID,
-  ];
-
   if (status === ORDER_STATUS.ORDER_PAID) {
     // Order đã ở trạng thái đã thanh toán -> đảm bảo Invoice = Paid
     await markInvoicePaidForOrder(order);

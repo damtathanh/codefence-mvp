@@ -30,26 +30,30 @@ const tabs: { key: AnalyticsTabKey; label: string }[] = [
     { key: "operations", label: "Operations" },
 ];
 
-export const AnalyticsTabsHeader: React.FC<AnalyticsTabsHeaderProps> = ({ activeTab, onChange }) => {
+export const AnalyticsTabsHeader: React.FC<AnalyticsTabsHeaderProps> = ({
+    activeTab,
+    onChange,
+}) => {
     return (
-        <div className="border-b border-white/10 overflow-x-auto">
+        <nav className="overflow-x-auto">
             <div className="flex gap-6 min-w-max">
                 {tabs.map((tab) => (
                     <button
                         key={tab.key}
                         onClick={() => onChange(tab.key)}
-                        className={`pb-4 text-sm font-medium transition-all relative whitespace-nowrap ${activeTab === tab.key
-                            ? "text-[#8B5CF6]"
-                            : "text-[#E5E7EB]/60 hover:text-white"
+                        className={`relative whitespace-nowrap text-sm font-medium transition-all py-2 ${activeTab === tab.key
+                                ? "text-[#8B5CF6]"
+                                : "text-[#E5E7EB]/60 hover:text-white"
                             }`}
                     >
                         {tab.label}
                         {activeTab === tab.key && (
-                            <span className="absolute bottom-0 left-0 w-full h-0.5 bg-[#8B5CF6] rounded-t-full" />
+                            <span className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-[#8B5CF6] rounded-t-full" />
                         )}
                     </button>
                 ))}
             </div>
-        </div>
+        </nav>
     );
 };
+

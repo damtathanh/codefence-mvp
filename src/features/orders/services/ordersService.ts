@@ -34,6 +34,7 @@ export interface InsertOrderPayload {
 }
 
 export interface UpdateOrderPayload {
+  refunded_amount?: number | null;
   status?: string;
   risk_score?: number | null;
   risk_level?: string | null;
@@ -189,6 +190,7 @@ export async function fetchPastOrdersByPhones(
  * @param note - Reason/note for the refund
  */
 export async function processRefund(
+  userId: string,
   orderId: string,
   refundAmount: number,
   note: string
@@ -233,7 +235,7 @@ export async function processRefund(
     // UpdateOrderPayload doesn't have refunded_amount. We need to add it or cast.
     // Let's check UpdateOrderPayload definition above. It doesn't have it.
     // We should update the interface.
-  } as any);
+  });
 
   if (error) throw error;
 
@@ -245,14 +247,15 @@ export async function processRefund(
 
 /**
  * Process a Return (Return to Seller) - MVP SPEC.
- * 
+ *
  * MVP BEHAVIOR:
  * - Updates shipping fields: customer_shipping_paid, seller_shipping_paid
  * - Adds shipping cost entry (return direction)
  * - Logs "RETURN" event
  * - Marks order status as RETURNED (MVP now updates status when processing a return)
  * - Does NOT change invoice status
- * 
+ *
+ * @param userId - Current user ID
  * @param orderId - Order UUID
  * @param customerPays - Whether customer pays return shipping
  * @param customerAmount - Amount customer pays for return shipping
@@ -260,6 +263,7 @@ export async function processRefund(
  * @param note - Reason/note for the return
  */
 export async function processReturn(
+  userId: string,
   orderId: string,
   customerPays: boolean,
   customerAmount: number,
@@ -283,57 +287,64 @@ export async function processReturn(
   await addShippingCost(orderId, "return", SHIPPING_COST.RETURN_ONE_WAY);
 
   // 3. Fetch current shipping amounts to accumulate
-  // TODO: In a future refactor, pass userId explicitly instead of reading auth state here.
-  const { data: authData, error: authError } = await supabase.auth.getUser();
-  if (authError) {
-    console.error("processReturn: auth error", authError);
-    throw authError;
-  }
-  const user = authData?.user;
-  if (!user) throw new Error('User not authenticated');
-
-  const { data: currentOrder, error: fetchError } = await OrdersRepository.fetchOrderById(orderId, user.id);
+  const { data: currentOrder, error: fetchError } =
+    await OrdersRepository.fetchOrderById(orderId, userId);
 
   if (fetchError) throw fetchError;
+  if (!currentOrder) {
+    throw new Error("Order not found");
+  }
 
   // 4. Calculate new accumulated shipping amounts
-  const newCustomerPaid = (currentOrder.customer_shipping_paid || 0) + customerAmount;
-  const newSellerPaid = (currentOrder.seller_shipping_paid || 0) + shopAmount;
+  const newCustomerPaid =
+    (currentOrder.customer_shipping_paid || 0) + customerAmount;
+  const newSellerPaid =
+    (currentOrder.seller_shipping_paid || 0) + shopAmount;
 
   // 5. Update order with new shipping amounts AND status
-  const { data, error } = await OrdersRepository.updateOrder(orderId, user.id, {
+  const { data, error } = await OrdersRepository.updateOrder(orderId, userId, {
     customer_shipping_paid: newCustomerPaid,
     seller_shipping_paid: newSellerPaid,
     status: ORDER_STATUS.RETURNED,
-    // returned_at: new Date().toISOString(), // Optional, add if schema supports
+    // returned_at: new Date().toISOString(), // Optional, nếu schema có
   } as any);
 
   if (error) throw error;
 
-  // P3: Increment Stock (Inventory Flow)
+  // 6. Increment Stock (Inventory Flow)
   if ((currentOrder as any).product_id) {
-    // Assuming quantity is 1 as it's not in Order type
-    const quantity = 1;
-    const { error: stockError } = await supabase.rpc('increment_stock', {
+    const quantity = 1; // hiện tại giả định 1
+    const { error: stockError } = await supabase.rpc("increment_stock", {
       p_product_id: (currentOrder as any).product_id,
-      p_quantity: quantity
+      p_quantity: quantity,
     });
 
     if (stockError) {
-      console.error('[processReturn] Failed to increment stock:', stockError);
-      // We don't throw here to avoid rolling back the return logic, but we log it.
-      // Ideally we should use a transaction or notify user.
+      console.error("[processReturn] Failed to increment stock:", stockError);
+      // Không throw để tránh rollback return; chỉ log lại.
     }
   }
 
-  // P2: Record Ledger Entries for Return
+  // 7. Record Ledger Entries for Return
   if (customerAmount > 0) {
     // Customer pays -> Inflow (Return Fee)
-    await LedgerService.recordReturnFee(user.id, orderId, customerAmount, `Customer paid return shipping: ${note}`);
+    await LedgerService.recordReturnFee(
+      userId,
+      orderId,
+      customerAmount,
+      `Customer paid return shipping: ${note}`
+    );
   }
   if (shopAmount > 0) {
     // Shop pays -> Outflow (Shipping Cost)
-    await LedgerService.recordTransaction(user.id, orderId, 'shipping_cost', shopAmount, 'outflow', { note: `Shop paid return shipping: ${note}` });
+    await LedgerService.recordTransaction(
+      userId,
+      orderId,
+      "shipping_cost",
+      shopAmount,
+      "outflow",
+      { note: `Shop paid return shipping: ${note}` }
+    );
   }
 
   return data;

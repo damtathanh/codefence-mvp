@@ -15,7 +15,13 @@ interface ExchangeModalProps {
     isPaid: boolean;
 }
 
-export const ExchangeModal: React.FC<ExchangeModalProps> = ({ isOpen, onClose, order, onSuccess, isPaid }) => {
+export const ExchangeModal: React.FC<ExchangeModalProps> = ({
+    isOpen,
+    onClose,
+    order,
+    onSuccess,
+    isPaid,
+}) => {
     const { user } = useAuth();
     const [payer, setPayer] = useState<'customer' | 'shop'>('customer');
     const [customerAmount, setCustomerAmount] = useState<string>('50000');
@@ -46,7 +52,7 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({ isOpen, onClose, o
                 .catch(err => console.error('Failed to fetch products', err))
                 .finally(() => setLoadingProducts(false));
         }
-    }, [isOpen, user, order.product_id]);
+    }, [isOpen, user, order.product_id, selectedProductId]);
 
     if (!isOpen) return null;
 
@@ -65,6 +71,10 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({ isOpen, onClose, o
         setError(null);
 
         try {
+            if (!user) {
+                throw new Error('User not authenticated');
+            }
+
             const custAmount = parseInt(customerAmount.replace(/[^0-9]/g, ''), 10) || 0;
             const finalShopAmount = 0;
 
@@ -73,11 +83,21 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({ isOpen, onClose, o
                 if (isNaN(refundVal) || refundVal <= 0) {
                     throw new Error('Invalid refund amount');
                 }
-                await processRefund(order.id, refundVal, `Refund for Exchange: ${note}`);
+
+                // 👇 DÙNG user.id THEO SIGNATURE MỚI processRefund(userId, orderId, ...)
+                await processRefund(user.id, order.id, refundVal, `Refund for Exchange: ${note}`);
             }
 
-            // Pass selectedProductId to processExchange
-            await processExchange(order.id, payer === 'customer', custAmount, finalShopAmount, note, selectedProductId);
+            // processExchange hiện tại vẫn dùng signature cũ: (orderId, ...)
+            await processExchange(
+                order.id,
+                payer === 'customer',
+                custAmount,
+                finalShopAmount,
+                note,
+                selectedProductId
+            );
+
             onSuccess();
             onClose();
         } catch (err: any) {
@@ -108,13 +128,15 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({ isOpen, onClose, o
 
                 <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg text-blue-300 text-xs">
                     This will create a new order and record shipping costs.
-                    {isPaid && " The original order will be refunded."}
+                    {isPaid && ' The original order will be refunded.'}
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-4">
                     {/* Product Selection */}
                     <div>
-                        <label className="block text-sm font-medium text-white/70 mb-1">Exchange For Product</label>
+                        <label className="block text-sm font-medium text-white/70 mb-1">
+                            Exchange For Product
+                        </label>
                         <select
                             value={selectedProductId}
                             onChange={(e) => setSelectedProductId(e.target.value)}
@@ -122,10 +144,16 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({ isOpen, onClose, o
                             required
                             disabled={loadingProducts}
                         >
-                            <option value="" disabled>Select a product</option>
-                            {products.map(p => (
+                            <option value="" disabled>
+                                Select a product
+                            </option>
+                            {products.map((p) => (
                                 <option key={p.id} value={p.id}>
-                                    {p.name} - {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(p.price)}
+                                    {p.name} -{' '}
+                                    {new Intl.NumberFormat('vi-VN', {
+                                        style: 'currency',
+                                        currency: 'VND',
+                                    }).format(p.price)}
                                 </option>
                             ))}
                         </select>
@@ -133,7 +161,9 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({ isOpen, onClose, o
 
                     {isPaid && (
                         <div>
-                            <label className="block text-sm font-medium text-white/70 mb-1">Refund Amount (VND)</label>
+                            <label className="block text-sm font-medium text-white/70 mb-1">
+                                Refund Amount (VND)
+                            </label>
                             <Input
                                 type="number"
                                 value={refundAmount}
@@ -148,14 +178,16 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({ isOpen, onClose, o
                     )}
 
                     <div>
-                        <label className="block text-sm font-medium text-white/70 mb-2">Who pays return shipping?</label>
+                        <label className="block text-sm font-medium text-white/70 mb-2">
+                            Who pays return shipping?
+                        </label>
                         <div className="grid grid-cols-2 gap-3">
                             <button
                                 type="button"
                                 onClick={() => handlePayerChange('customer')}
                                 className={`p-3 rounded-lg border text-sm font-medium transition-all ${payer === 'customer'
-                                    ? 'bg-[#8B5CF6]/20 border-[#8B5CF6] text-white'
-                                    : 'bg-white/5 border-white/10 text-white/50 hover:bg-white/10'
+                                        ? 'bg-[#8B5CF6]/20 border-[#8B5CF6] text-white'
+                                        : 'bg-white/5 border-white/10 text-white/50 hover:bg-white/10'
                                     }`}
                             >
                                 Customer
@@ -164,8 +196,8 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({ isOpen, onClose, o
                                 type="button"
                                 onClick={() => handlePayerChange('shop')}
                                 className={`p-3 rounded-lg border text-sm font-medium transition-all ${payer === 'shop'
-                                    ? 'bg-[#8B5CF6]/20 border-[#8B5CF6] text-white'
-                                    : 'bg-white/5 border-white/10 text-white/50 hover:bg-white/10'
+                                        ? 'bg-[#8B5CF6]/20 border-[#8B5CF6] text-white'
+                                        : 'bg-white/5 border-white/10 text-white/50 hover:bg-white/10'
                                     }`}
                             >
                                 Shop (Free Return)
@@ -174,7 +206,9 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({ isOpen, onClose, o
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-white/70 mb-1">Customer Pays (VND)</label>
+                        <label className="block text-sm font-medium text-white/70 mb-1">
+                            Customer Pays (VND)
+                        </label>
                         <Input
                             type="number"
                             value={customerAmount}
@@ -189,7 +223,9 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({ isOpen, onClose, o
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-white/70 mb-1">Reason / Note</label>
+                        <label className="block text-sm font-medium text-white/70 mb-1">
+                            Reason / Note
+                        </label>
                         <textarea
                             value={note}
                             onChange={(e) => setNote(e.target.value)}

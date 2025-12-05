@@ -7,7 +7,7 @@ import { logUserAction } from '../../../utils/logUserAction';
 import { generateChanges } from '../../../utils/generateChanges';
 import { logOrderEvent } from '../services/orderEventsService';
 import { deleteOrders } from '../services/ordersService';
-import { deleteInvoicesByOrderIds, ensurePendingInvoiceForOrder, markInvoicePaidForOrder } from '../../invoices/services/invoiceService';
+import { ensurePendingInvoiceForOrder, markInvoicePaidForOrder } from '../../invoices/services/invoiceService';
 import { ORDER_STATUS } from '../../../constants/orderStatus';
 
 export const useOrderActions = (
@@ -375,11 +375,12 @@ export const useOrderActions = (
             const { error: deleteError } = await deleteOrders(user.id, orderIds);
             if (deleteError) throw deleteError;
 
-            try {
-                await deleteInvoicesByOrderIds(user.id, orderIds);
-            } catch (invoiceError) {
-                console.error("Failed to delete related invoices", invoiceError);
-            }
+            // ❌ Không cần xoá invoices ở FE nữa – BE đã làm rồi
+            // try {
+            //     await deleteInvoicesByOrderIds(user.id, orderIds);
+            // } catch (invoiceError) {
+            //     console.error("Failed to delete related invoices", invoiceError);
+            // }
 
             const logPromises = ordersToDelete.map(order =>
                 logUserAction({

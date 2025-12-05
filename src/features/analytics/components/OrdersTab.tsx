@@ -2,7 +2,7 @@ import React from 'react';
 import { StatCard } from '../../../components/analytics/StatCard';
 import { ChartCard } from '../../../components/analytics/ChartCard';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Package, DollarSign, Percent, XCircle } from 'lucide-react';
+import { Package, DollarSign, XCircle, MessageCircle, Clock } from 'lucide-react';
 import { useDashboardStats, type DashboardDateRange } from '../../dashboard/useDashboardStats';
 
 interface OrdersTabProps {
@@ -46,28 +46,28 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({ dateRange, customFrom, cus
                     title="Total Orders"
                     value={stats.totalOrders}
                     subtitle={`${stats.codOrders} COD / ${stats.prepaidOrders} Prepaid`}
-                    icon={<Package className="w-5 h-5 text-[#8B5CF6]" />}
-                    valueColor="#8B5CF6"
-                />
-                <StatCard
-                    title="Avg Order Value"
-                    value={formatCurrency(stats.avgOrderValue)}
-                    subtitle="Based on paid orders"
-                    icon={<DollarSign className="w-5 h-5 text-green-400" />}
+                    icon={<Package className="w-5 h-5 text-[#4ade80]" />}
                     valueColor="#4ade80"
                 />
                 <StatCard
-                    title="COD / Prepaid Ratio"
-                    value={`${stats.totalOrders > 0 ? Math.round((stats.codOrders / stats.totalOrders) * 100) : 0}%`}
-                    subtitle="Orders are COD"
-                    icon={<Percent className="w-5 h-5 text-yellow-400" />}
+                    title="Customer Responses"
+                    value={stats.customerResponses}
+                    subtitle={`${stats.codConfirmed} confirmed / ${stats.codCancelled} cancelled`}
+                    icon={<MessageCircle className="w-5 h-5 text-blue-400" />}
+                    valueColor="#60a5fa"
+                />
+                <StatCard
+                    title="Pending Verification"
+                    value={stats.pendingVerification}
+                    subtitle="COD orders waiting for processing"
+                    icon={<Clock className="w-5 h-5 text-[#facc15]" />}
                     valueColor="#facc15"
                 />
                 <StatCard
                     title="Cancellation Rate"
                     value={`${stats.cancelRate}%`}
                     subtitle="of processed COD orders"
-                    icon={<XCircle className="w-5 h-5 text-red-400" />}
+                    icon={<XCircle className="w-5 h-5 text-[#f87171]" />}
                     valueColor="#f87171"
                 />
             </div>
@@ -93,7 +93,7 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({ dateRange, customFrom, cus
                     </ResponsiveContainer>
                 </ChartCard>
 
-                <ChartCard title="Order Status Breakdown" subtitle="Confirmed, Cancelled, Pending">
+                <ChartCard title="Status Breakdown of COD Orders" subtitle="Confirmed, Cancelled, Pending">
                     <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={ordersChart}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />

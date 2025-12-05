@@ -36,13 +36,6 @@ export const DashboardPage: React.FC = () => {
     <PageLayout>
       {/* Header */}
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-xl font-semibold text-white">Overview</h2>
-          <p className="text-sm text-white/60">
-            Overview of orders, verification, risk and revenue.
-          </p>
-        </div>
-
         <DateRangeSelector
           value={dateRange}
           onChange={setDateRange}
