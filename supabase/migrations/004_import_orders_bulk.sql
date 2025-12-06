@@ -1,6 +1,9 @@
+-- 004_import_orders_bulk.sql
+
 CREATE OR REPLACE FUNCTION public.import_orders_bulk(payload jsonb)
 RETURNS jsonb
 LANGUAGE plpgsql
+SECURITY DEFINER
 AS $$
 DECLARE
     item jsonb;
@@ -11,13 +14,12 @@ DECLARE
     fail_count int := 0;
     _user_id uuid;
 
-    -- THÊM BIẾN PHỤC VỤ LOGIC
     _payment_method text;
-    _risk_score numeric;
-    _risk_level text;
-    _status text;
+    _risk_score     numeric;
+    _risk_level     text;
+    _status         text;
+    _paid_at        timestamptz;
 BEGIN
-    -- Lấy user hiện tại từ auth (an toàn, không phụ thuộc payload)
     _user_id := auth.uid();
 
     IF _user_id IS NULL THEN
@@ -46,11 +48,9 @@ BEGIN
                 CONTINUE;
             END IF;
 
-            -- 1) TÍNH PAYMENT_METHOD + RISK_SCORE TỪ PAYLOAD
             _payment_method := COALESCE(NULLIF(item->>'payment_method',''), 'COD');
-            _risk_score := COALESCE(NULLIF(item->>'risk_score','')::numeric, 0);
+            _risk_score     := COALESCE(NULLIF(item->>'risk_score','')::numeric, 0);
 
-            -- 1.1) MAP risk_level từ risk_score (CHỈ THÊM ĐOẠN NÀY)
             IF UPPER(_payment_method) <> 'COD' THEN
                 _risk_level := 'none';
             ELSE
@@ -63,7 +63,6 @@ BEGIN
                 END IF;
             END IF;
 
-            -- 2) LOGIC STATUS GIỐNG FLOW CŨ — GIỮ NGUYÊN
             IF UPPER(_payment_method) <> 'COD' THEN
                 _status := 'Order Paid';
             ELSE
@@ -76,7 +75,15 @@ BEGIN
                 END IF;
             END IF;
 
-            -- 3) UPSERT: insert mới hoặc update nếu trùng (user_id, order_id)
+            IF UPPER(_payment_method) <> 'COD' THEN
+                _paid_at := COALESCE(
+                    NULLIF(item->>'paid_at','')::timestamptz,
+                    (item->>'order_date')::date::timestamptz
+                );
+            ELSE
+                _paid_at := NULLIF(item->>'paid_at','')::timestamptz;
+            END IF;
+
             INSERT INTO public.orders (
                 user_id,
                 order_id,
@@ -101,7 +108,8 @@ BEGIN
                 order_date,
                 zalo_exists,
                 risk_score,
-                risk_level,          -- 👈 THÊM
+                risk_level,
+                paid_at,
                 created_at,
                 updated_at
             )
@@ -134,7 +142,8 @@ BEGIN
                 (item->>'order_date')::date,
                 COALESCE((item->>'zalo_exists')::boolean, false),
                 _risk_score,
-                _risk_level,          -- 👈 THÊM
+                _risk_level,
+                _paid_at,
                 NOW(),
                 NOW()
             )
@@ -161,7 +170,8 @@ BEGIN
                 order_date      = EXCLUDED.order_date,
                 zalo_exists     = EXCLUDED.zalo_exists,
                 risk_score      = EXCLUDED.risk_score,
-                risk_level      = EXCLUDED.risk_level,   -- 👈 THÊM
+                risk_level      = EXCLUDED.risk_level,
+                paid_at         = COALESCE(EXCLUDED.paid_at, public.orders.paid_at),
                 updated_at      = NOW()
             RETURNING jsonb_build_object(
                 'id', id,

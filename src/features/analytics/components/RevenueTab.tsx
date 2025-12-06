@@ -52,7 +52,7 @@ export const RevenueTab: React.FC<RevenueTabProps> = ({
     customFrom,
     customTo,
 }) => {
-    const { loading, error, stats, revenueChart } = useDashboardStats(
+    const { loading, error, stats, revenueChart, provinceRevenue, topProductsChart } = useDashboardStats(
         dateRange,
         customFrom,
         customTo
@@ -73,7 +73,7 @@ export const RevenueTab: React.FC<RevenueTabProps> = ({
 
     const openPicker = (mode: RevenueKpiMode) => {
         setPickerMode(mode);
-        setKpiMode(mode);         // cập nhật luôn mode để gauge đổi target
+        setKpiMode(mode); // cập nhật luôn mode để gauge đổi target
         setKpiPickerOpen(true);
     };
 
@@ -99,7 +99,6 @@ export const RevenueTab: React.FC<RevenueTabProps> = ({
 
     const target = REVENUE_KPI_TARGETS[kpiMode];
     const label = REVENUE_KPI_LABELS[kpiMode];
-    const chips = REVENUE_KPI_CHIPS[kpiMode];
 
     // ================== KPI ACTUAL ==================
     let actual = 0;
@@ -169,6 +168,13 @@ export const RevenueTab: React.FC<RevenueTabProps> = ({
             currency: "VND",
             maximumFractionDigits: 0,
         }).format(value);
+
+    const formatYAxisMillions = (value: number) => {
+        if (value === 0) return "0";
+        const m = value / 1_000_000;
+        if (Number.isInteger(m)) return `${m}M`;
+        return `${m.toFixed(1)}M`;
+    };
 
     if (loading) {
         return (
@@ -333,7 +339,7 @@ export const RevenueTab: React.FC<RevenueTabProps> = ({
                         className="h-full"
                     >
                         <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={collectionRiskData}>
+                            <BarChart data={collectionRiskData} margin={{ top: 0, right: 10, bottom: 0 }}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
                                 <XAxis
                                     dataKey="name"
@@ -371,7 +377,7 @@ export const RevenueTab: React.FC<RevenueTabProps> = ({
                         className="h-full"
                     >
                         <ResponsiveContainer width="100%" height="100%">
-                            <LineChart data={revenueChart}>
+                            <LineChart data={revenueChart} margin={{ top: 0, right: 10, bottom: 0 }}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
                                 <XAxis
                                     dataKey="date"
@@ -379,9 +385,7 @@ export const RevenueTab: React.FC<RevenueTabProps> = ({
                                 />
                                 <YAxis
                                     tick={{ fontSize: 10, fill: "#E5E7EB" }}
-                                    tickFormatter={(v) =>
-                                        `${(v as number / 1_000_000).toFixed(0)}M`
-                                    }
+                                    tickFormatter={(v) => formatYAxisMillions(v as number)}
                                 />
                                 <Tooltip
                                     contentStyle={{
@@ -396,7 +400,7 @@ export const RevenueTab: React.FC<RevenueTabProps> = ({
                                     dataKey="totalRevenue"
                                     stroke="#10B981"
                                     strokeWidth={2}
-                                    dot={false}
+                                    dot={true}
                                 />
                             </LineChart>
                         </ResponsiveContainer>
@@ -411,7 +415,7 @@ export const RevenueTab: React.FC<RevenueTabProps> = ({
                         className="h-full"
                     >
                         <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={revenueChart}>
+                            <BarChart data={revenueChart} margin={{ top: 0, right: 10, bottom: 0 }}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
                                 <XAxis
                                     dataKey="date"
@@ -431,9 +435,25 @@ export const RevenueTab: React.FC<RevenueTabProps> = ({
                                     }}
                                     formatter={(v) => formatCurrency(v as number)}
                                 />
-                                <Legend wrapperStyle={{ color: "#E5E7EB" }} />
-                                <Bar dataKey="totalRevenue" fill="#8B5CF6" />
-                                <Bar dataKey="convertedRevenue" fill="#10B981" />
+                                <Legend
+                                    verticalAlign="top"
+                                    height={20}
+                                    wrapperStyle={{
+                                        paddingTop: 0,
+                                        color: "#E5E7EB",
+                                        fontSize: 12,
+                                    }}
+                                />
+                                <Bar
+                                    name="Total Revenue"
+                                    dataKey="totalRevenue"
+                                    fill="#8B5CF6"
+                                />
+                                <Bar
+                                    name="Converted Revenue"
+                                    dataKey="convertedRevenue"
+                                    fill="#10B981"
+                                />
                             </BarChart>
                         </ResponsiveContainer>
                     </ChartCard>,
@@ -442,39 +462,64 @@ export const RevenueTab: React.FC<RevenueTabProps> = ({
                     <ChartCard
                         key="revenue-by-province"
                         title="Revenue by Province"
-                        subtitle="Top provinces"
+                        subtitle="Top provinces by paid revenue"
                         compact
                         className="h-full"
                     >
                         <ResponsiveContainer width="100%" height="100%">
-                            <LineChart data={revenueChart}>
+                            <BarChart
+                                data={provinceRevenue}
+                                layout="vertical"
+                                margin={{ top: 10, right: 10 }}
+                            >
                                 <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
+
+                                {/* trục X là số tiền */}
                                 <XAxis
-                                    dataKey="date"
+                                    type="number"
                                     tick={{ fontSize: 10, fill: "#E5E7EB" }}
+                                    tickFormatter={formatYAxisMillions}
                                 />
+
+                                {/* trục Y là tên tỉnh, tăng width để không bị cắt chữ */}
                                 <YAxis
-                                    tick={{ fontSize: 10, fill: "#E5E7EB" }}
-                                    tickFormatter={(v) =>
-                                        `${(v as number / 1_000_000).toFixed(0)}M`
-                                    }
+                                    type="category"
+                                    dataKey="province"
+                                    width={100}
+                                    interval={0}
+                                    tick={(props) => {
+                                        const { y, payload } = props;
+                                        return (
+                                            <text
+                                                x={12}
+                                                y={y + 4}
+                                                textAnchor="start"
+                                                fill="#E5E7EB"
+                                                fontSize={12}
+                                            >
+                                                {payload.value}
+                                            </text>
+                                        );
+                                    }}
                                 />
+
                                 <Tooltip
                                     contentStyle={{
                                         backgroundColor: "#020617",
                                         border: "1px solid rgba(255,255,255,0.1)",
                                         borderRadius: 8,
                                     }}
-                                    formatter={(v) => formatCurrency(v as number)}
+                                    formatter={(v: any) => formatCurrency(v as number)}
+                                    labelFormatter={(name: any) => `Province: ${name}`}
                                 />
-                                <Line
-                                    type="monotone"
-                                    dataKey="convertedRevenue"
-                                    stroke="#22C55E"
-                                    strokeWidth={2}
-                                    dot={false}
+
+                                <Bar
+                                    name="Total Revenue"
+                                    dataKey="total_revenue"
+                                    fill="#22c55e"
+                                    radius={[4, 4, 4, 4]}
                                 />
-                            </LineChart>
+                            </BarChart>
                         </ResponsiveContainer>
                     </ChartCard>,
 
@@ -482,35 +527,54 @@ export const RevenueTab: React.FC<RevenueTabProps> = ({
                     <ChartCard
                         key="top-products"
                         title="Top Products"
-                        subtitle="Best sellers"
+                        subtitle="Top products by revenue"
                         compact
                         className="h-full"
                     >
                         <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={revenueChart}>
+                            <BarChart
+                                data={topProductsChart}
+                                layout="vertical"
+                                margin={{ top: 10, right: 10, left: 10 }}
+                            >
                                 <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
+
                                 <XAxis
-                                    dataKey="date"
+                                    type="number"
                                     tick={{ fontSize: 10, fill: "#E5E7EB" }}
+                                    tickFormatter={formatYAxisMillions}
                                 />
+
                                 <YAxis
-                                    tick={{ fontSize: 10, fill: "#E5E7EB" }}
-                                    tickFormatter={(v) =>
-                                        `${(v as number / 1_000_000).toFixed(0)}M`
-                                    }
-                                />
-                                <Tooltip
-                                    contentStyle={{
-                                        backgroundColor: "#020617",
-                                        border: "1px solid rgba(255,255,255,0.1)",
-                                        borderRadius: 8,
+                                    type="category"
+                                    dataKey="productName"
+                                    width={150}
+                                    interval={0}
+                                    tick={(props) => {
+                                        const { y, payload } = props;
+                                        return (
+                                            <text
+                                                x={12}
+                                                y={y + 4}
+                                                textAnchor="start"
+                                                fill="#E5E7EB"
+                                                fontSize={12}
+                                            >
+                                                {payload.value}
+                                            </text>
+                                        );
                                     }}
-                                    formatter={(v) => formatCurrency(v as number)}
                                 />
-                                <Bar dataKey="convertedRevenue" fill="#A855F7" />
+
+                                <Bar
+                                    name="Total Revenue"
+                                    dataKey="totalRevenue"
+                                    fill="#A855F7"
+                                    radius={[4, 4, 4, 4]}
+                                />
                             </BarChart>
                         </ResponsiveContainer>
-                    </ChartCard>,
+                    </ChartCard>
                 ]}
                 chartHeight={200}
             />

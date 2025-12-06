@@ -12,7 +12,7 @@ export interface DashboardStats {
     codOrders: number;
     prepaidOrders: number;
 
-    totalRevenue: number; // Added for backward compatibility (same as grossRevenue)
+    totalRevenue: number; // same as grossRevenue
 
     // --- Revenue Metrics (Updated) ---
     grossRevenue: number; // Total value of all paid orders (product + shipping)
@@ -44,7 +44,6 @@ export interface DashboardStats {
     riskMedium: number;
     riskHigh: number;
 
-    // 🔽 3 field mới để dùng cho subtitle
     codCancelled: number;
     codConfirmed: number;
     customerResponses: number;
@@ -63,6 +62,16 @@ export interface RevenueDashboardPoint {
     totalRevenue: number;
     convertedRevenue: number;
     otherRevenue: number;
+}
+
+export interface ProvinceRevenuePoint {
+    province: string;
+    total_revenue: number;
+}
+
+export interface ProductRevenuePoint {
+    productName: string;
+    totalRevenue: number;
 }
 
 // Extended Analytics Stats
@@ -128,6 +137,8 @@ interface UseDashboardStatsResult {
     stats: DashboardStats;
     ordersChart: OrdersDashboardPoint[];
     revenueChart: RevenueDashboardPoint[];
+    provinceRevenue: ProvinceRevenuePoint[];
+    topProductsChart: ProductRevenuePoint[];
     riskDistribution: {
         low: number;
         medium: number;
@@ -152,6 +163,7 @@ export function useDashboardStats(
 ): UseDashboardStatsResult {
     const { user } = useAuth();
     const [orders, setOrders] = useState<Order[]>([]);
+    const [provinceRevenue, setProvinceRevenue] = useState<ProvinceRevenuePoint[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
@@ -161,7 +173,13 @@ export function useDashboardStats(
             setLoading(true);
             setError(null);
             try {
-                const { from, to } = resolveDashboardDateRange(dateRange, customFrom, customTo);
+                const { from, to } = resolveDashboardDateRange(
+                    dateRange,
+                    customFrom,
+                    customTo
+                );
+                const fromStr = from.toISOString().slice(0, 10); // 'YYYY-MM-DD'
+                const toStr = to.toISOString().slice(0, 10);
 
                 // Lọc theo order_date (business date) + chỉ select cột cần thiết
                 const { data, error } = await supabase
@@ -189,7 +207,9 @@ export function useDashboardStats(
                             "customer_shipping_paid",
                             "seller_shipping_paid",
                             "paid_at",
-                            "customer_confirmed_at"
+                            "customer_confirmed_at",
+                            "province",
+                            "product",
                         ].join(",")
                     )
                     .eq("user_id", user.id)
@@ -199,6 +219,22 @@ export function useDashboardStats(
 
                 if (error) throw error;
                 setOrders((data as unknown as Order[]) ?? []);
+
+                // Lấy top revenue theo province (only paid orders, logic nằm trong function SQL)
+                const { data: provinceData, error: provinceError } = await supabase.rpc(
+                    "get_revenue_by_province",
+                    {
+                        _from: fromStr,
+                        _to: toStr,
+                    }
+                );
+
+                if (provinceError) {
+                    console.error("[Dashboard] Failed to load province revenue", provinceError);
+                    setProvinceRevenue([]);
+                } else {
+                    setProvinceRevenue((provinceData as ProvinceRevenuePoint[]) ?? []);
+                }
             } catch (err: any) {
                 console.error("[Dashboard] Failed to load orders", err);
                 setError(err.message ?? "Failed to load dashboard data");
@@ -219,6 +255,11 @@ export function useDashboardStats(
     const revenueChart = useMemo<RevenueDashboardPoint[]>(
         () => buildRevenueDashboard(orders, aggregation),
         [orders, aggregation]
+    );
+
+    const topProductsChart = useMemo(
+        () => buildTopProductsChart(orders),
+        [orders]
     );
 
     const highRiskOrders = useMemo(
@@ -247,6 +288,7 @@ export function useDashboardStats(
     const geoRiskStats = useMemo(() => computeGeoRiskStats(orders), [orders]);
     const productStats = useMemo(() => computeProductStats(orders), [orders]);
     const channelStats = useMemo(() => computeChannelStats(orders), [orders]);
+
     // Customer stats requires additional data, computed separately below
     const [allOrdersForCustomers, setAllOrdersForCustomers] = useState<Order[]>([]);
 
@@ -271,7 +313,14 @@ export function useDashboardStats(
     }, [user]);
 
     const customerStats = useMemo(
-        () => computeCustomerStats(orders, allOrdersForCustomers, dateRange, customFrom, customTo),
+        () =>
+            computeCustomerStats(
+                orders,
+                allOrdersForCustomers,
+                dateRange,
+                customFrom,
+                customTo
+            ),
         [orders, allOrdersForCustomers, dateRange, customFrom, customTo]
     );
 
@@ -281,6 +330,7 @@ export function useDashboardStats(
         stats,
         ordersChart,
         revenueChart,
+        provinceRevenue,
         riskDistribution,
         highRiskOrders,
         riskStats,
@@ -288,6 +338,7 @@ export function useDashboardStats(
         customerStats,
         productStats,
         channelStats,
+        topProductsChart,
     };
 }
 
@@ -342,7 +393,7 @@ function getAggregationMode(orders: Order[]): AggregationMode {
     if (orders.length === 0) return "day";
 
     const dates = orders
-        .map(o => (o.order_date ?? o.created_at)?.slice(0, 10))
+        .map((o) => (o.order_date ?? o.created_at)?.slice(0, 10))
         .filter(Boolean) as string[];
 
     if (dates.length === 0) return "day";
@@ -352,7 +403,8 @@ function getAggregationMode(orders: Order[]): AggregationMode {
     const first = new Date(dates[0]);
     const last = new Date(dates[dates.length - 1]);
 
-    const diffDays = Math.round((last.getTime() - first.getTime()) / 86400000) + 1;
+    const diffDays =
+        Math.round((last.getTime() - first.getTime()) / 86400000) + 1;
 
     return diffDays > 60 ? "month" : "day";
 }
@@ -398,8 +450,7 @@ function hasBeenCustomerConfirmed(order: Order): boolean {
     );
 }
 
-// New Helper: COD Payment Pending
-// COD confirmed/delivering/completed but NOT paid
+// New Helper: COD Payment Pending – COD confirmed/delivering/completed but NOT paid
 function isCodPaymentPending(order: Order): boolean {
     if (!isCOD(order)) return false;
 
@@ -434,7 +485,6 @@ function computeStats(orders: Order[]): DashboardStats {
     const codOrders = orders.filter(isCOD).length;
     const prepaidOrders = totalOrders - codOrders;
 
-    // Status groups for counts/rates (keep existing logic for these where appropriate)
     const pendingStatuses = new Set<Order["status"]>([
         ORDER_STATUS.PENDING_REVIEW,
         ORDER_STATUS.VERIFICATION_REQUIRED,
@@ -463,9 +513,7 @@ function computeStats(orders: Order[]): DashboardStats {
         pendingStatuses.has(o.status)
     ).length;
 
-    // --- 1. GROSS REVENUE ---
-    // Definition: Total amount of all PAID orders (COD or Prepaid)
-    // Note: 'amount' usually includes product price + shipping fee - discount
+    // GROSS REVENUE – all PAID orders
     const paidOrdersForRevenue = orders.filter((o) => hasBeenPaid(o));
 
     const grossRevenue = paidOrdersForRevenue.reduce(
@@ -473,52 +521,35 @@ function computeStats(orders: Order[]): DashboardStats {
         0
     );
 
-    // --- 2. REFUND AMOUNT ---
-    // Sum of 'refunded_amount' from ALL orders (even if not fully paid, though usually refunds happen on paid orders)
-    // We should probably count refunds regardless of current payment status if the refund happened?
-    // Or only for paid orders? Usually refunds are against paid amount.
-    // Let's sum all recorded refunds in the period.
+    // REFUNDS
     const refundAmount = orders.reduce(
         (sum, o) => sum + (o.refunded_amount ?? 0),
         0
     );
 
-    // --- 3. LOGISTICS COST ---
-    // Sum of 'seller_shipping_paid' from ALL orders
-    // This tracks what the seller paid to carrier (outbound, return, exchange)
+    // LOGISTICS COST
     const logisticsCost = orders.reduce(
         (sum, o) => sum + (o.seller_shipping_paid ?? 0),
         0
     );
 
-    // --- 4. NET REVENUE ---
-    // Gross Revenue - Refund - Logistics Cost
-    // Note: Gross Revenue is based on PAID orders.
-    // Refund and Logistics might include unpaid orders (e.g. return shipping for failed COD).
-    // This is correct: Net Revenue should account for costs of failed orders too.
+    // NET REVENUE
     const netRevenue = grossRevenue - refundAmount - logisticsCost;
 
-    // --- 5. SHIPPING PROFIT ---
-    // (Sum of customer_shipping_paid) - (Sum of seller_shipping_paid)
-    // customer_shipping_paid: what customer paid for shipping (collected via COD or prepaid)
-    // seller_shipping_paid: what seller paid to carrier
+    // SHIPPING PROFIT
     const totalCustomerShippingPaid = orders.reduce(
         (sum, o) => sum + (o.customer_shipping_paid ?? 0),
         0
     );
-    // logisticsCost is same as totalSellerShippingPaid
     const shippingProfit = totalCustomerShippingPaid - logisticsCost;
 
-
-    // --- Legacy / Other Metrics ---
-
-    // AVG ORDER VALUE (based on Gross Revenue)
+    // AVG ORDER VALUE
     const avgOrderValue =
         paidOrdersForRevenue.length > 0
             ? Math.round(grossRevenue / paidOrdersForRevenue.length)
             : 0;
 
-    // --- Verified outcomes (COD only) - Keep existing logic ---
+    // Verified outcomes (COD only)
     const verifiedOutcomeCOD = orders.filter(
         (o) =>
             isCOD(o) &&
@@ -531,8 +562,7 @@ function computeStats(orders: Order[]): DashboardStats {
             ? Math.round((verifiedOutcomeCount / codOrders) * 1000) / 10
             : 0;
 
-    // --- CONVERTED REVENUE ---
-    // COD orders that have been paid
+    // CONVERTED REVENUE – COD orders that have been paid
     const convertedOrdersList = orders.filter(
         (o) => isCOD(o) && hasBeenPaid(o)
     );
@@ -546,41 +576,35 @@ function computeStats(orders: Order[]): DashboardStats {
             ? Math.round((convertedOrders / codOrders) * 1000) / 10
             : 0;
 
-    // --- PENDING REVENUE ---
-    // COD confirmed/delivering/completed but NOT paid
+    // PENDING REVENUE – COD pending but not paid
     const pendingRevenueOrders = orders.filter((o) => isCodPaymentPending(o));
-
     const pendingRevenue = pendingRevenueOrders.reduce(
         (sum, o) => sum + (o.amount ?? 0),
         0
     );
 
-    // --- CONFIRMED COD REVENUE ---
-    // COD orders that have ever been customer confirmed
+    // CONFIRMED COD REVENUE – ever customer confirmed
     const confirmedCodOrders = orders.filter(
         (o) => isCOD(o) && hasBeenCustomerConfirmed(o)
     );
-
     const confirmedCodRevenue = confirmedCodOrders.reduce(
         (sum, o) => sum + (o.amount ?? 0),
         0
     );
 
-    // --- DELIVERED NOT PAID ---
-    // COD orders that are COMPLETED but NOT paid
+    // DELIVERED NOT PAID – COMPLETED COD but not paid_at
     const deliveredNotPaidOrders = orders.filter(
         (o) =>
             isCOD(o) &&
             o.status === ORDER_STATUS.COMPLETED &&
             !o.paid_at
     );
-
     const deliveredNotPaidRevenue = deliveredNotPaidOrders.reduce(
         (sum, o) => sum + (o.amount ?? 0),
         0
     );
 
-    // --- Cancelled COD (for cancel rate) ---
+    // Cancelled COD
     const codCancelled = orders.filter(
         (o) => isCOD(o) && cancelledStatuses.has(o.status)
     ).length;
@@ -616,7 +640,7 @@ function computeStats(orders: Order[]): DashboardStats {
         logisticsCost,
         netRevenue,
         shippingProfit,
-        totalRevenue: grossRevenue, // Map grossRevenue to totalRevenue for backward compatibility if needed, or just use grossRevenue
+        totalRevenue: grossRevenue,
         avgOrderValue,
         pendingVerification,
         verifiedOutcomeCount,
@@ -639,15 +663,31 @@ function computeStats(orders: Order[]): DashboardStats {
 
 function computeRiskStats(orders: Order[]): RiskStats {
     const codOrders = orders.filter(isCOD);
-    const codOrdersWithScore = codOrders.filter(o => o.risk_score !== null && o.risk_score !== undefined);
+    const codOrdersWithScore = codOrders.filter(
+        (o) => o.risk_score !== null && o.risk_score !== undefined
+    );
 
-    const avgRiskScore = codOrdersWithScore.length > 0
-        ? Math.round(codOrdersWithScore.reduce((sum, o) => sum + (o.risk_score || 0), 0) / codOrdersWithScore.length * 10) / 10
-        : null;
+    const avgRiskScore =
+        codOrdersWithScore.length > 0
+            ? Math.round(
+                (codOrdersWithScore.reduce(
+                    (sum, o) => sum + (o.risk_score || 0),
+                    0
+                ) /
+                    codOrdersWithScore.length) *
+                10
+            ) / 10
+            : null;
 
-    const highRiskOrders = codOrders.filter(o => o.risk_level?.toLowerCase() === "high").length;
-    const mediumRiskOrders = codOrders.filter(o => o.risk_level?.toLowerCase() === "medium").length;
-    const lowRiskOrders = codOrders.filter(o => o.risk_level?.toLowerCase() === "low").length;
+    const highRiskOrders = codOrders.filter(
+        (o) => o.risk_level?.toLowerCase() === "high"
+    ).length;
+    const mediumRiskOrders = codOrders.filter(
+        (o) => o.risk_level?.toLowerCase() === "medium"
+    ).length;
+    const lowRiskOrders = codOrders.filter(
+        (o) => o.risk_level?.toLowerCase() === "low"
+    ).length;
 
     return {
         avgRiskScore,
@@ -664,14 +704,21 @@ function computeGeoRiskStats(orders: Order[]): GeoRiskStats {
     ]);
 
     // Group by province
-    const provinceMap = new Map<string, { orders: Order[]; codOrders: Order[]; paidOrders: Order[] }>();
+    const provinceMap = new Map<
+        string,
+        { orders: Order[]; codOrders: Order[]; paidOrders: Order[] }
+    >();
 
     for (const order of orders) {
         const province = order.province?.trim();
         if (!province) continue;
 
         if (!provinceMap.has(province)) {
-            provinceMap.set(province, { orders: [], codOrders: [], paidOrders: [] });
+            provinceMap.set(province, {
+                orders: [],
+                codOrders: [],
+                paidOrders: [],
+            });
         }
 
         const group = provinceMap.get(province)!;
@@ -683,12 +730,25 @@ function computeGeoRiskStats(orders: Order[]): GeoRiskStats {
     const provinceStats: GeoRiskProvinceStat[] = [];
 
     for (const [province, group] of provinceMap.entries()) {
-        const codWithScore = group.codOrders.filter(o => o.risk_score !== null && o.risk_score !== undefined);
-        const avgRiskScore = codWithScore.length > 0
-            ? Math.round(codWithScore.reduce((sum, o) => sum + (o.risk_score || 0), 0) / codWithScore.length * 10) / 10
-            : null;
+        const codWithScore = group.codOrders.filter(
+            (o) => o.risk_score !== null && o.risk_score !== undefined
+        );
+        const avgRiskScore =
+            codWithScore.length > 0
+                ? Math.round(
+                    (codWithScore.reduce(
+                        (sum, o) => sum + (o.risk_score || 0),
+                        0
+                    ) /
+                        codWithScore.length) *
+                    10
+                ) / 10
+                : null;
 
-        const totalRevenue = group.paidOrders.reduce((sum, o) => sum + (o.amount ?? 0), 0);
+        const totalRevenue = group.paidOrders.reduce(
+            (sum, o) => sum + (o.amount ?? 0),
+            0
+        );
 
         provinceStats.push({
             province,
@@ -698,18 +758,29 @@ function computeGeoRiskStats(orders: Order[]): GeoRiskStats {
         });
     }
 
-    const statsWithRisk = provinceStats.filter(s => s.avgRiskScore !== null);
-    const highestRiskProvince = statsWithRisk.length > 0
-        ? statsWithRisk.reduce((max, curr) => (curr.avgRiskScore! > max.avgRiskScore!) ? curr : max)
-        : undefined;
+    const statsWithRisk = provinceStats.filter(
+        (s) => s.avgRiskScore !== null
+    );
+    const highestRiskProvince =
+        statsWithRisk.length > 0
+            ? statsWithRisk.reduce((max, curr) =>
+                curr.avgRiskScore! > max.avgRiskScore! ? curr : max
+            )
+            : undefined;
 
-    const safestProvince = statsWithRisk.length > 0
-        ? statsWithRisk.reduce((min, curr) => (curr.avgRiskScore! < min.avgRiskScore!) ? curr : min)
-        : undefined;
+    const safestProvince =
+        statsWithRisk.length > 0
+            ? statsWithRisk.reduce((min, curr) =>
+                curr.avgRiskScore! < min.avgRiskScore! ? curr : min
+            )
+            : undefined;
 
-    const topRevenueProvince = provinceStats.length > 0
-        ? provinceStats.reduce((max, curr) => curr.totalRevenue > max.totalRevenue ? curr : max)
-        : undefined;
+    const topRevenueProvince =
+        provinceStats.length > 0
+            ? provinceStats.reduce((max, curr) =>
+                curr.totalRevenue > max.totalRevenue ? curr : max
+            )
+            : undefined;
 
     return {
         highestRiskProvince,
@@ -731,7 +802,17 @@ function computeProductStats(orders: Order[]): ProductStats {
     ]);
 
     // Group by product
-    const productMap = new Map<string, { productId: string | null; productName: string; orders: Order[]; codOrders: Order[]; paidOrders: Order[]; boomOrders: Order[] }>();
+    const productMap = new Map<
+        string,
+        {
+            productId: string | null;
+            productName: string;
+            orders: Order[];
+            codOrders: Order[];
+            paidOrders: Order[];
+            boomOrders: Order[];
+        }
+    >();
 
     for (const order of orders) {
         const key = order.product_id || order.product || "Unknown";
@@ -767,10 +848,16 @@ function computeProductStats(orders: Order[]): ProductStats {
 
     for (const [, group] of productMap.entries()) {
         const orderCount = group.orders.length;
-        const totalRevenue = group.paidOrders.reduce((sum, o) => sum + (o.amount ?? 0), 0);
-        const boomRate = group.codOrders.length > 0
-            ? Math.round((group.boomOrders.length / group.codOrders.length) * 1000) / 10
-            : 0;
+        const totalRevenue = group.paidOrders.reduce(
+            (sum, o) => sum + (o.amount ?? 0),
+            0
+        );
+        const boomRate =
+            group.codOrders.length > 0
+                ? Math.round(
+                    (group.boomOrders.length / group.codOrders.length) * 1000
+                ) / 10
+                : 0;
 
         productAggs.push({
             productId: group.productId,
@@ -781,29 +868,46 @@ function computeProductStats(orders: Order[]): ProductStats {
         });
     }
 
-    const topProductByRevenue = productAggs.length > 0
-        ? productAggs.reduce((max, curr) => curr.totalRevenue > max.totalRevenue ? curr : max)
-        : undefined;
+    const topProductByRevenue =
+        productAggs.length > 0
+            ? productAggs.reduce((max, curr) =>
+                curr.totalRevenue > max.totalRevenue ? curr : max
+            )
+            : undefined;
 
-    const topProductByOrders = productAggs.length > 0
-        ? productAggs.reduce((max, curr) => curr.orderCount > max.orderCount ? curr : max)
-        : undefined;
+    const topProductByOrders =
+        productAggs.length > 0
+            ? productAggs.reduce((max, curr) =>
+                curr.orderCount > max.orderCount ? curr : max
+            )
+            : undefined;
 
     // For boom rate, require minimum 10 COD orders to avoid noise
-    const productsWithMinVolume = productAggs.filter(p => {
+    const productsWithMinVolume = productAggs.filter((p) => {
         const key = p.productId || p.productName;
         const group = productMap.get(key);
         return group && group.codOrders.length >= 10;
     });
 
-    const topBoomRateProduct = productsWithMinVolume.length > 0
-        ? productsWithMinVolume.reduce((max, curr) => curr.boomRate > max.boomRate ? curr : max)
-        : undefined;
+    const topBoomRateProduct =
+        productsWithMinVolume.length > 0
+            ? productsWithMinVolume.reduce((max, curr) =>
+                curr.boomRate > max.boomRate ? curr : max
+            )
+            : undefined;
 
-    const totalPaidOrders = orders.filter(o => paidStatuses.has(o.status));
-    const avgRevenuePerUnit = totalPaidOrders.length > 0
-        ? Math.round(totalPaidOrders.reduce((sum, o) => sum + (o.amount ?? 0), 0) / totalPaidOrders.length)
-        : 0;
+    const totalPaidOrders = orders.filter((o) =>
+        paidStatuses.has(o.status)
+    );
+    const avgRevenuePerUnit =
+        totalPaidOrders.length > 0
+            ? Math.round(
+                totalPaidOrders.reduce(
+                    (sum, o) => sum + (o.amount ?? 0),
+                    0
+                ) / totalPaidOrders.length
+            )
+            : 0;
 
     return {
         topProductByRevenue,
@@ -826,7 +930,16 @@ function computeChannelStats(orders: Order[]): ChannelStats {
     ]);
 
     // Group by channel
-    const channelMap = new Map<string, { orders: Order[]; codOrders: Order[]; paidOrders: Order[]; boomOrders: Order[]; convertedOrders: Order[] }>();
+    const channelMap = new Map<
+        string,
+        {
+            orders: Order[];
+            codOrders: Order[];
+            paidOrders: Order[];
+            boomOrders: Order[];
+            convertedOrders: Order[];
+        }
+    >();
 
     for (const order of orders) {
         const channel = order.channel?.trim() || "Unknown";
@@ -863,13 +976,24 @@ function computeChannelStats(orders: Order[]): ChannelStats {
 
     for (const [channel, group] of channelMap.entries()) {
         const orderCount = group.orders.length;
-        const totalRevenue = group.paidOrders.reduce((sum, o) => sum + (o.amount ?? 0), 0);
-        const cancelRate = group.codOrders.length > 0
-            ? Math.round((group.boomOrders.length / group.codOrders.length) * 1000) / 10
-            : 0;
-        const conversionRate = group.codOrders.length > 0
-            ? Math.round((group.convertedOrders.length / group.codOrders.length) * 1000) / 10
-            : 0;
+        const totalRevenue = group.paidOrders.reduce(
+            (sum, o) => sum + (o.amount ?? 0),
+            0
+        );
+        const cancelRate =
+            group.codOrders.length > 0
+                ? Math.round(
+                    (group.boomOrders.length / group.codOrders.length) *
+                    1000
+                ) / 10
+                : 0;
+        const conversionRate =
+            group.codOrders.length > 0
+                ? Math.round(
+                    (group.convertedOrders.length / group.codOrders.length) *
+                    1000
+                ) / 10
+                : 0;
 
         channelAggs.push({
             channel,
@@ -880,27 +1004,38 @@ function computeChannelStats(orders: Order[]): ChannelStats {
         });
     }
 
-    const topChannelByRevenue = channelAggs.length > 0
-        ? channelAggs.reduce((max, curr) => curr.totalRevenue > max.totalRevenue ? curr : max)
-        : undefined;
+    const topChannelByRevenue =
+        channelAggs.length > 0
+            ? channelAggs.reduce((max, curr) =>
+                curr.totalRevenue > max.totalRevenue ? curr : max
+            )
+            : undefined;
 
     // For boom channel, require minimum volume
-    const channelsWithMinVolume = channelAggs.filter(c => {
+    const channelsWithMinVolume = channelAggs.filter((c) => {
         const group = channelMap.get(c.channel);
         return group && group.codOrders.length >= 10;
     });
 
-    const highestBoomChannel = channelsWithMinVolume.length > 0
-        ? channelsWithMinVolume.reduce((max, curr) => curr.cancelRate > max.cancelRate ? curr : max)
-        : undefined;
+    const highestBoomChannel =
+        channelsWithMinVolume.length > 0
+            ? channelsWithMinVolume.reduce((max, curr) =>
+                curr.cancelRate > max.cancelRate ? curr : max
+            )
+            : undefined;
 
     const totalChannels = channelMap.size;
 
     const allCodOrders = orders.filter(isCOD);
-    const allConvertedOrders = allCodOrders.filter(o => paidStatuses.has(o.status));
-    const overallConversionRate = allCodOrders.length > 0
-        ? Math.round((allConvertedOrders.length / allCodOrders.length) * 1000) / 10
-        : 0;
+    const allConvertedOrders = allCodOrders.filter((o) =>
+        paidStatuses.has(o.status)
+    );
+    const overallConversionRate =
+        allCodOrders.length > 0
+            ? Math.round(
+                (allConvertedOrders.length / allCodOrders.length) * 1000
+            ) / 10
+            : 0;
 
     return {
         totalChannels,
@@ -917,7 +1052,11 @@ function computeCustomerStats(
     customFrom?: string,
     customTo?: string
 ): CustomerStats {
-    const { from, to } = resolveDashboardDateRange(dateRange, customFrom, customTo);
+    const { from, to } = resolveDashboardDateRange(
+        dateRange,
+        customFrom,
+        customTo
+    );
 
     // Build map of phone to first order date (across all time)
     const phoneFirstOrderMap = new Map<string, string>();
@@ -961,9 +1100,12 @@ function computeCustomerStats(
     }
 
     const totalCustomers = newCustomers + returningCustomers;
-    const repeatPurchaseRate = totalCustomers > 0
-        ? Math.round((returningCustomers / totalCustomers) * 1000) / 10
-        : 0;
+    const repeatPurchaseRate =
+        totalCustomers > 0
+            ? Math.round(
+                (returningCustomers / totalCustomers) * 1000
+            ) / 10
+            : 0;
 
     return {
         newCustomers,
@@ -972,22 +1114,24 @@ function computeCustomerStats(
     };
 }
 
-function buildOrdersDashboard(orders: Order[], aggregation: AggregationMode): OrdersDashboardPoint[] {
+function buildOrdersDashboard(
+    orders: Order[],
+    aggregation: AggregationMode
+): OrdersDashboardPoint[] {
     const map = new Map<
         string,
-        { totalOrders: number; codPending: number; codConfirmed: number; codCancelled: number }
+        {
+            totalOrders: number;
+            codPending: number;
+            codConfirmed: number;
+            codCancelled: number;
+        }
     >();
 
     const pendingStatuses = new Set<Order["status"]>([
         ORDER_STATUS.PENDING_REVIEW,
         ORDER_STATUS.VERIFICATION_REQUIRED,
         ORDER_STATUS.ORDER_CONFIRMATION_SENT,
-    ]);
-
-    const confirmedStatuses = new Set<Order["status"]>([
-        ORDER_STATUS.CUSTOMER_CONFIRMED,
-        ORDER_STATUS.ORDER_PAID,
-        ORDER_STATUS.COMPLETED,
     ]);
 
     const cancelledStatuses = new Set<Order["status"]>([
@@ -997,7 +1141,11 @@ function buildOrdersDashboard(orders: Order[], aggregation: AggregationMode): Or
     ]);
 
     for (const o of orders) {
-        const baseDate = o.order_date ? o.order_date.slice(0, 10) : (o.created_at ? o.created_at.slice(0, 10) : "");
+        const baseDate = o.order_date
+            ? o.order_date.slice(0, 10)
+            : o.created_at
+                ? o.created_at.slice(0, 10)
+                : "";
         if (!baseDate) continue;
 
         let dateKey = baseDate;
@@ -1033,19 +1181,25 @@ function buildOrdersDashboard(orders: Order[], aggregation: AggregationMode): Or
         }));
 }
 
-function buildRevenueDashboard(orders: Order[], aggregation: AggregationMode): RevenueDashboardPoint[] {
+function buildRevenueDashboard(
+    orders: Order[],
+    aggregation: AggregationMode
+): RevenueDashboardPoint[] {
     const map = new Map<
         string,
         { totalRevenue: number; convertedRevenue: number }
     >();
 
-    const paidStatuses = new Set<Order["status"]>([
-        ORDER_STATUS.ORDER_PAID,
-        ORDER_STATUS.COMPLETED,
-    ]);
-
     for (const o of orders) {
-        const baseDate = o.order_date ? o.order_date.slice(0, 10) : (o.created_at ? o.created_at.slice(0, 10) : "");
+        // Chỉ tính đơn đã từng được Paid (theo helper chuẩn)
+        if (!hasBeenPaid(o)) continue;
+
+        // Ưu tiên ngày paid_at; fallback order_date / created_at
+        const baseDate =
+            (o.paid_at ? o.paid_at.slice(0, 10) : undefined) ??
+            (o.order_date ? o.order_date.slice(0, 10) : undefined) ??
+            (o.created_at ? o.created_at.slice(0, 10) : "");
+
         if (!baseDate) continue;
 
         let dateKey = baseDate;
@@ -1058,13 +1212,12 @@ function buildRevenueDashboard(orders: Order[], aggregation: AggregationMode): R
             map.set(dateKey, { totalRevenue: 0, convertedRevenue: 0 });
         }
 
-        if (paidStatuses.has(o.status)) {
-            const amount = o.amount ?? 0;
-            const row = map.get(dateKey)!;
-            row.totalRevenue += amount;
-            if (isCOD(o)) {
-                row.convertedRevenue += amount;
-            }
+        const amount = o.amount ?? 0;
+        const row = map.get(dateKey)!;
+        row.totalRevenue += amount;
+
+        if (isCOD(o)) {
+            row.convertedRevenue += amount;
         }
     }
 
@@ -1079,4 +1232,29 @@ function buildRevenueDashboard(orders: Order[], aggregation: AggregationMode): R
                 value.totalRevenue - value.convertedRevenue
             ),
         }));
+}
+
+function buildTopProductsChart(orders: Order[]): ProductRevenuePoint[] {
+    const paidOrders = orders.filter(hasBeenPaid);
+    const map = new Map<string, number>();
+
+    for (const o of paidOrders) {
+        const rawName = (o.product ?? "").trim();
+
+        // Không có tên sản phẩm thì bỏ qua
+        if (!rawName) continue;
+
+        const amount = o.amount ?? 0;
+        map.set(rawName, (map.get(rawName) ?? 0) + amount);
+    }
+
+    const allProducts: ProductRevenuePoint[] = Array.from(map.entries()).map(
+        ([productName, totalRevenue]) => ({
+            productName,
+            totalRevenue,
+        })
+    );
+
+    allProducts.sort((a, b) => b.totalRevenue - a.totalRevenue);
+    return allProducts.slice(0, 5);
 }

@@ -8,29 +8,38 @@ interface ChartCardProps {
     className?: string;
 }
 
-export const ChartCard: React.FC<ChartCardProps> = ({
+export const ChartCard = ({
     title,
     subtitle,
     children,
     compact,
     className,
-}) => {
-    const contentHeight = compact ? "h-[150px]" : "h-52 md:h-64";
-
+}: ChartCardProps) => {
     return (
         <div
+            tabIndex={-1}
             className={
-                "rounded-2xl bg-[#020617] border border-white/20 shadow-[0_0_0_1px_rgba(148,163,184,0.25)] p-4 h-full " +
-                (className ?? "")
+                [
+                    "rounded-2xl border border-white/10 bg-[#020617] p-4 flex flex-col gap-2",
+                    "focus:outline-none focus-visible:outline-none",
+                    className
+                ].filter(Boolean).join(" ")
             }
         >
-            <div className="mb-2">
-                <h3 className="text-sm font-medium text-white">{title}</h3>
+            {/* Header */}
+            <div>
+                <h2 className="text-white text-[18px] font-semibold">{title}</h2>
                 {subtitle && (
-                    <p className="text-xs text-white/50">{subtitle}</p>
+                    <p className="text-white/60 text-[13px] -mt-0.5">
+                        {subtitle}
+                    </p>
                 )}
             </div>
-            <div className={contentHeight}>{children}</div>
+
+            {/* Chart container */}
+            <div className={compact ? "h-[180px]" : "h-[240px]"}>
+                {children}
+            </div>
         </div>
     );
 };

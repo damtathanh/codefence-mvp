@@ -311,10 +311,10 @@ export async function processReturn(
 
   if (error) throw error;
 
-  // 6. Increment Stock (Inventory Flow)
+  // 6. Adjust Stock (Inventory Flow)
   if ((currentOrder as any).product_id) {
     const quantity = 1; // hiện tại giả định 1
-    const { error: stockError } = await supabase.rpc("increment_stock", {
+    const { error: stockError } = await supabase.rpc("adjust_stock", {
       p_product_id: (currentOrder as any).product_id,
       p_quantity: quantity,
     });

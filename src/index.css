@@ -23,7 +23,7 @@
 
   --border-subtle: rgba(30, 64, 175, 0.45);
   --border-strong: rgba(148, 163, 184, 0.9);
-  
+
   --bg-input: rgba(255, 255, 255, 0.05);
 }
 
@@ -148,6 +148,13 @@ textarea {
 input::placeholder,
 textarea::placeholder {
   color: rgba(229, 231, 235, 0.6);
+}
+
+.recharts-wrapper:focus,
+.recharts-wrapper:focus-visible,
+.recharts-responsive-container:focus,
+.recharts-responsive-container:focus-visible {
+  outline: none;
 }
 
 /* ===============================
