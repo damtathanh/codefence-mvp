@@ -414,24 +414,9 @@ function isCOD(order: Order): boolean {
     return method === "" || method === "COD";
 }
 
-// New Helper: Order has ever been paid
+// Helper: Order has ever been paid
 function hasBeenPaid(order: Order): boolean {
-    // 1. Nếu DB đã có paid_at → coi như đã thanh toán
-    if (order.paid_at) return true;
-
-    // 2. Đơn PREPAID (non-COD)
-    if (!isCOD(order)) {
-        // Với prepaid: chỉ cần đơn đã tới các stage này thì coi như đã nhận tiền rồi
-        return (
-            order.status === ORDER_STATUS.ORDER_PAID ||
-            order.status === ORDER_STATUS.DELIVERING ||
-            order.status === ORDER_STATUS.COMPLETED
-        );
-    }
-
-    // 3. Đơn COD
-    // COD chỉ được coi là paid khi đã qua stage ORDER_PAID
-    return order.status === ORDER_STATUS.ORDER_PAID;
+    return !!order.paid_at;
 }
 
 // New Helper: Customer has confirmed (for COD)

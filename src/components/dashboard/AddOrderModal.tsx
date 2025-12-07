@@ -14,10 +14,7 @@ import type { Product, Order } from "../../types/supabase";
 import { ManualOrderForm } from "./ManualOrderForm";
 import { useOrders } from "../../hooks/useOrders";
 import { Button } from "../ui/Button";
-
 import { supabase } from "../../lib/supabaseClient";
-import { applyInvoiceRules } from "../../features/invoices/services/invoiceService";
-
 import { logUserAction } from "../../utils/logUserAction";
 import { useAuth } from "../../features/auth";
 
@@ -101,36 +98,32 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
       const insertedOrderIds =
         insertResult.insertedOrders?.map((o: any) => o.id) || [];
 
-      // 4. Apply invoice logic only if orders were inserted
+      // 4. Nếu có đơn được insert -> fetch lại và chỉ log user action
+      //    Logic tạo / update Invoice đã được Postgres trigger xử lý.
       if (insertedOrderIds.length > 0) {
-        setMessage("Generating invoices & applying rules...");
-
         const { data: newOrders, error } = await supabase
           .from("orders")
           .select("*")
           .in("id", insertedOrderIds);
 
-        if (!error && newOrders) {
-          // Log import action for each order
-          if (user) {
-            const logPromises = newOrders.map(order =>
-              logUserAction({
-                userId: user.id,
-                action: 'Import Orders',
-                status: 'success',
-                orderId: order.order_id ?? '',
-                details: {
-                  source: 'excel_import',
-                  file_name: file.name,
-                  amount: order.amount?.toString() || '0',
-                  product: order.product,
-                },
-              })
-            );
-            await Promise.all([...newOrders.map((order) => applyInvoiceRules(order)), ...logPromises]);
-          } else {
-            await Promise.all(newOrders.map((order) => applyInvoiceRules(order)));
-          }
+        if (!error && newOrders && user) {
+          // Log import action cho từng đơn
+          const logPromises = newOrders.map((order) =>
+            logUserAction({
+              userId: user.id,
+              action: "Import Orders",
+              status: "success",
+              orderId: order.order_id ?? "",
+              details: {
+                source: "excel_import",
+                file_name: file.name,
+                amount: order.amount?.toString() || "0",
+                product: order.product,
+              },
+            })
+          );
+
+          await Promise.all(logPromises);
         }
       }
 

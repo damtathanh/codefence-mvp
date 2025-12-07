@@ -145,22 +145,36 @@ export const RevenueTab: React.FC<RevenueTabProps> = ({
         },
     ];
 
+    const values = collectionRiskData.map((d) => d.value || 0);
+    const maxCollection = Math.max(...values, 0);
+    const hasCollectionData = maxCollection > 0;
+
     const { collectionDomain, collectionTicks } = useMemo(() => {
         const values = collectionRiskData.map((d) => d.value || 0);
         const maxValue = Math.max(...values, 0);
-        const step = 100_000_000;
-        const roundedMax = maxValue === 0 ? step : Math.ceil(maxValue / step) * step;
+
+        // Nếu chưa có data → cho YAxis tự auto
+        if (maxValue === 0) {
+            return {
+                collectionDomain: undefined,
+                collectionTicks: undefined,
+            };
+        }
+
+        // Có data → scale nhẹ cho đẹp
+        const niceMax = Math.ceil(maxValue / 10_000_000) * 10_000_000; // step 10M
+        const step = niceMax / 4; // chia khoảng thành 4 tick
 
         const ticks: number[] = [];
-        for (let v = 0; v <= roundedMax; v += step) {
+        for (let v = 0; v <= niceMax; v += step) {
             ticks.push(v);
         }
 
         return {
-            collectionDomain: [0, roundedMax] as [number, number],
+            collectionDomain: [0, niceMax] as [number, number],
             collectionTicks: ticks,
         };
-    }, [stats.confirmedCodRevenue, stats.deliveredNotPaidRevenue]);
+    }, [collectionRiskData]);
 
     const formatCurrency = (value: number) =>
         new Intl.NumberFormat("vi-VN", {
@@ -349,10 +363,11 @@ export const RevenueTab: React.FC<RevenueTabProps> = ({
                                 <YAxis
                                     stroke="#E5E7EB"
                                     tick={{ fill: "#E5E7EB", fontSize: 10 }}
-                                    domain={collectionDomain}
-                                    ticks={collectionTicks}
+                                    // Nếu không có data → domain [0, 1] nhưng chỉ hiện tick 0
+                                    domain={hasCollectionData ? [0, maxCollection] : [0, 1]}
+                                    ticks={hasCollectionData ? undefined : [0]}
                                     tickFormatter={(v) =>
-                                        `${(v as number) / 1_000_000}M`
+                                        hasCollectionData ? `${(v as number) / 1_000_000}M` : "0"
                                     }
                                 />
                                 <Tooltip

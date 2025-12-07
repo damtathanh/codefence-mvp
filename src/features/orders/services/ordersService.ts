@@ -108,33 +108,51 @@ export async function updateOrder(
   userId: string,
   updates: UpdateOrderPayload
 ) {
-  // Validate status transition if status is being updated
+  // 1) Validate status transition nếu có đổi status
   if (updates.status) {
-    const { data: currentOrder, error: fetchError } = await OrdersRepository.fetchOrderById(orderId, userId);
+    const { data: currentOrder, error: fetchError } =
+      await OrdersRepository.fetchOrderById(orderId, userId);
 
     if (fetchError) {
-      console.error(`[updateOrder] Failed to fetch current status for validation:`, fetchError);
-      // Fail safe: if we can't validate, we shouldn't proceed with a potentially invalid state change
-      throw new Error(`Failed to validate order status transition: ${fetchError.message}`);
+      console.error(
+        `[updateOrder] Failed to fetch current status for validation:`,
+        fetchError
+      );
+      // Fail safe: nếu không validate được thì không cho đổi trạng thái
+      throw new Error(
+        `Failed to validate order status transition: ${fetchError.message}`
+      );
     }
 
     if (currentOrder) {
       try {
-        validateOrderTransition(currentOrder.status as OrderStatus, updates.status as OrderStatus);
+        validateOrderTransition(
+          currentOrder.status as OrderStatus,
+          updates.status as OrderStatus
+        );
       } catch (validationError: any) {
-        console.error(`[updateOrder] Invalid status transition:`, validationError);
+        console.error(
+          `[updateOrder] Invalid status transition:`,
+          validationError
+        );
         throw validationError;
       }
     }
   }
 
+  // 2) Thực hiện update trong DB
   const result = await OrdersRepository.updateOrder(orderId, userId, updates);
 
   if (result.error) {
-    console.error(`[updateOrder] Failed to update order ${orderId}:`, result.error);
+    console.error(
+      `[updateOrder] Failed to update order ${orderId}:`,
+      result.error
+    );
   }
 
-  // If update succeeded and money-related fields changed, invalidate invoice PDF cache
+  // 3) Nếu update thành công:
+  //    - Nếu thay đổi số tiền (amount / discount / shipping_fee) => xoá cache PDF invoice
+  //    - Logic tạo / update Invoice (Pending / Paid) để Postgres trigger lo (orders_invoice_status_sync)
   if (!result.error && result.data) {
     const hasMoneyChanges =
       updates.amount !== undefined ||
@@ -142,15 +160,13 @@ export async function updateOrder(
       updates.shipping_fee !== undefined;
 
     if (hasMoneyChanges) {
-      // Import dynamically to avoid circular dependency
-      const { invalidateInvoicePdfForOrder } = await import('../../invoices/services/invoiceService');
+      const { invalidateInvoicePdfForOrder } = await import(
+        "../../invoices/services/invoiceService"
+      );
       await invalidateInvoicePdfForOrder(orderId);
     }
 
-    // Apply Invoice Rules (Centralized Logic)
-    // We import dynamically to avoid circular dependency since invoiceService might import ordersService types/utils
-    const { applyInvoiceRules } = await import('../../invoices/services/invoiceService');
-    await applyInvoiceRules(result.data as Order);
+    // ❌ Không còn gọi applyInvoiceRules() ở FE nữa.
   }
 
   return result;
@@ -316,7 +332,7 @@ export async function processReturn(
     const quantity = 1; // hiện tại giả định 1
     const { error: stockError } = await supabase.rpc("adjust_stock", {
       p_product_id: (currentOrder as any).product_id,
-      p_quantity: quantity,
+      p_delta: quantity,
     });
 
     if (stockError) {
