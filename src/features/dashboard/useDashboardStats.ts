@@ -102,12 +102,16 @@ export interface GeoRiskProvinceStat {
     orderCount: number;
     avgRiskScore: number | null;
     totalRevenue: number;
+    codOrdersCount: number;
+    prepaidOrdersCount: number;
+    boomRate: number;
 }
 
 export interface GeoRiskStats {
     highestRiskProvince?: GeoRiskProvinceStat;
     safestProvince?: GeoRiskProvinceStat;
     topRevenueProvince?: GeoRiskProvinceStat;
+    provinces: GeoRiskProvinceStat[];
 }
 
 export interface CustomerStats {
@@ -144,6 +148,23 @@ export interface ChannelStats {
     topChannelByRevenue?: ChannelAgg;
     highestBoomChannel?: ChannelAgg;
     overallConversionRate: number;
+    channels: ChannelAgg[];
+}
+
+interface SourceAgg {
+    source: string;
+    orderCount: number;
+    totalRevenue: number;
+    cancelRate: number;
+    conversionRate: number;
+}
+
+export interface SourceStats {
+    totalSources: number;
+    topSourceByRevenue?: SourceAgg;
+    highestBoomSource?: SourceAgg;
+    overallConversionRate: number;
+    sources: SourceAgg[];
 }
 
 export interface CustomerActivityPoint {
@@ -198,6 +219,7 @@ interface UseDashboardStatsResult {
     customerStats: CustomerStats;
     productStats: ProductStats;
     channelStats: ChannelStats;
+    sourceStats: SourceStats;
 }
 
 /**
@@ -346,6 +368,7 @@ export function useDashboardStats(
     const geoRiskStats = useMemo(() => computeGeoRiskStats(orders), [orders]);
     const productStats = useMemo(() => computeProductStats(orders), [orders]);
     const channelStats = useMemo(() => computeChannelStats(orders), [orders]);
+    const sourceStats = useMemo(() => computeSourceStats(orders), [orders]);
 
     // Customer stats requires additional data, computed separately below
     const [allOrdersForCustomers, setAllOrdersForCustomers] = useState<Order[]>([]);
@@ -610,6 +633,7 @@ export function useDashboardStats(
         customersByProduct,
         customersByPaymentMethod,
         customerFrequencyBuckets,
+        sourceStats,
     };
 }
 
@@ -1050,11 +1074,16 @@ function computeRiskStats(orders: Order[]): RiskStats {
     };
 }
 
-
 function computeGeoRiskStats(orders: Order[]): GeoRiskStats {
     const paidStatuses = new Set<Order["status"]>([
         ORDER_STATUS.ORDER_PAID,
         ORDER_STATUS.COMPLETED,
+    ]);
+
+    const boomStatuses = new Set<Order["status"]>([
+        ORDER_STATUS.CUSTOMER_CANCELLED,
+        ORDER_STATUS.ORDER_REJECTED,
+        ORDER_STATUS.CUSTOMER_UNREACHABLE,
     ]);
 
     // Group by province
@@ -1084,9 +1113,11 @@ function computeGeoRiskStats(orders: Order[]): GeoRiskStats {
     const provinceStats: GeoRiskProvinceStat[] = [];
 
     for (const [province, group] of provinceMap.entries()) {
+        // risk score trung bình chỉ tính cho COD có risk_score
         const codWithScore = group.codOrders.filter(
             (o) => o.risk_score !== null && o.risk_score !== undefined
         );
+
         const avgRiskScore =
             codWithScore.length > 0
                 ? Math.round(
@@ -1104,17 +1135,34 @@ function computeGeoRiskStats(orders: Order[]): GeoRiskStats {
             0
         );
 
+        const codOrdersCount = group.codOrders.length;
+        const boomCodOrders = group.codOrders.filter((o) =>
+            boomStatuses.has(o.status)
+        );
+        const boomRate =
+            codOrdersCount > 0
+                ? Math.round(
+                    (boomCodOrders.length / codOrdersCount) * 1000
+                ) / 10
+                : 0;
+
+        const prepaidOrdersCount = group.orders.length - codOrdersCount;
+
         provinceStats.push({
             province,
             orderCount: group.orders.length,
             avgRiskScore,
             totalRevenue,
+            codOrdersCount,
+            prepaidOrdersCount,
+            boomRate,
         });
     }
 
     const statsWithRisk = provinceStats.filter(
-        (s) => s.avgRiskScore !== null
+        (p) => p.avgRiskScore !== null
     );
+
     const highestRiskProvince =
         statsWithRisk.length > 0
             ? statsWithRisk.reduce((max, curr) =>
@@ -1140,6 +1188,7 @@ function computeGeoRiskStats(orders: Order[]): GeoRiskStats {
         highestRiskProvince,
         safestProvince,
         topRevenueProvince,
+        provinces: provinceStats,
     };
 }
 
@@ -1206,13 +1255,19 @@ function computeProductStats(orders: Order[]): ProductStats {
             (sum, o) => sum + (o.amount ?? 0),
             0
         );
+
+        const codOrdersCount = group.codOrders.length;
+        const boomCodOrders = group.codOrders.filter((o) =>
+            boomStatuses.has(o.status)
+        );
         const boomRate =
-            group.codOrders.length > 0
+            codOrdersCount > 0
                 ? Math.round(
-                    (group.boomOrders.length / group.codOrders.length) * 1000
+                    (boomCodOrders.length / codOrdersCount) * 1000
                 ) / 10
                 : 0;
 
+        // 👇 đúng ra phải push vào productAggs
         productAggs.push({
             productId: group.productId,
             productName: group.productName,
@@ -1396,6 +1451,137 @@ function computeChannelStats(orders: Order[]): ChannelStats {
         topChannelByRevenue,
         highestBoomChannel,
         overallConversionRate,
+        channels: channelAggs,
+    };
+}
+
+function computeSourceStats(orders: Order[]): SourceStats {
+    const paidStatuses = new Set<Order["status"]>([
+        ORDER_STATUS.ORDER_PAID,
+        ORDER_STATUS.COMPLETED,
+    ]);
+
+    const boomStatuses = new Set<Order["status"]>([
+        ORDER_STATUS.CUSTOMER_CANCELLED,
+        ORDER_STATUS.ORDER_REJECTED,
+        ORDER_STATUS.CUSTOMER_UNREACHABLE,
+    ]);
+
+    // Group by source
+    const sourceMap = new Map<
+        string,
+        {
+            orders: Order[];
+            codOrders: Order[];
+            paidOrders: Order[];
+            boomOrders: Order[];
+            convertedOrders: Order[];
+        }
+    >();
+
+    for (const order of orders) {
+        const rawSource = order.source?.trim();
+        const source = rawSource && rawSource.length > 0 ? rawSource : "Unknown";
+
+        if (!sourceMap.has(source)) {
+            sourceMap.set(source, {
+                orders: [],
+                codOrders: [],
+                paidOrders: [],
+                boomOrders: [],
+                convertedOrders: [],
+            });
+        }
+
+        const group = sourceMap.get(source)!;
+        group.orders.push(order);
+
+        if (paidStatuses.has(order.status)) {
+            group.paidOrders.push(order);
+        }
+
+        if (isCOD(order)) {
+            group.codOrders.push(order);
+            if (boomStatuses.has(order.status)) {
+                group.boomOrders.push(order);
+            }
+            if (paidStatuses.has(order.status)) {
+                group.convertedOrders.push(order);
+            }
+        }
+    }
+
+    const sourceAggs: SourceAgg[] = [];
+
+    for (const [source, group] of sourceMap.entries()) {
+        const orderCount = group.orders.length;
+        const totalRevenue = group.paidOrders.reduce(
+            (sum, o) => sum + (o.amount ?? 0),
+            0
+        );
+        const cancelRate =
+            group.codOrders.length > 0
+                ? Math.round(
+                    (group.boomOrders.length / group.codOrders.length) * 1000
+                ) / 10
+                : 0;
+        const conversionRate =
+            group.codOrders.length > 0
+                ? Math.round(
+                    (group.convertedOrders.length /
+                        group.codOrders.length) *
+                    1000
+                ) / 10
+                : 0;
+
+        sourceAggs.push({
+            source,
+            orderCount,
+            totalRevenue,
+            cancelRate,
+            conversionRate,
+        });
+    }
+
+    const topSourceByRevenue =
+        sourceAggs.length > 0
+            ? sourceAggs.reduce((max, curr) =>
+                curr.totalRevenue > max.totalRevenue ? curr : max
+            )
+            : undefined;
+
+    // Boom source: yêu cầu tối thiểu volume COD
+    const sourcesWithMinVolume = sourceAggs.filter((s) => {
+        const group = sourceMap.get(s.source);
+        return group && group.codOrders.length >= 10;
+    });
+
+    const highestBoomSource =
+        sourcesWithMinVolume.length > 0
+            ? sourcesWithMinVolume.reduce((max, curr) =>
+                curr.cancelRate > max.cancelRate ? curr : max
+            )
+            : undefined;
+
+    const totalSources = sourceMap.size;
+
+    const allCodOrders = orders.filter(isCOD);
+    const allConvertedOrders = allCodOrders.filter((o) =>
+        paidStatuses.has(o.status)
+    );
+    const overallConversionRate =
+        allCodOrders.length > 0
+            ? Math.round(
+                (allConvertedOrders.length / allCodOrders.length) * 1000
+            ) / 10
+            : 0;
+
+    return {
+        totalSources,
+        topSourceByRevenue,
+        highestBoomSource,
+        overallConversionRate,
+        sources: sourceAggs,
     };
 }
 
