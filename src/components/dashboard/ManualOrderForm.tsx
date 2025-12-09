@@ -522,7 +522,7 @@ export const ManualOrderForm: React.FC<ManualOrderFormProps> = ({
                     className="mt-1 w-full h-11 px-3 rounded-xl bg-white/5 backdrop-blur-xl border border-white/10 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#8B5CF6] focus:border-[#8B5CF6]/50 focus:bg-white/10 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     <option value="COD">COD</option>
-                    <option value="BANK_TRANSFER">Bank Transfer</option>
+                    <option value="BANK_TRANSFER">Bank</option>
                     <option value="MOMO">Momo</option>
                     <option value="ZALO">Zalo</option>
                     <option value="Credit Cards">Credit Cards</option>

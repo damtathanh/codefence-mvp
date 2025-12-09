@@ -74,12 +74,27 @@ export interface ProductRevenuePoint {
     totalRevenue: number;
 }
 
+export interface ProvinceOrdersPoint {
+    province: string;
+    orderCount: number;
+}
+
+export interface ProductOrdersPoint {
+    productName: string;
+    orderCount: number;
+}
+
 // Extended Analytics Stats
 export interface RiskStats {
     avgRiskScore: number | null;
     highRiskOrders: number;
     mediumRiskOrders: number;
     lowRiskOrders: number;
+
+    scoreOverTime: { date: string; avgScore: number }[];
+    byProvince: { province: string; avgScore: number }[];
+    byProduct: { productName: string; avgScore: number }[];
+    repeatOffenders: { customer: string; orders: number }[];
 }
 
 export interface GeoRiskProvinceStat {
@@ -131,6 +146,32 @@ export interface ChannelStats {
     overallConversionRate: number;
 }
 
+export interface CustomerActivityPoint {
+    date: string;
+    newCustomers: number;
+    returningCustomers: number;
+}
+
+export interface CustomersByProvincePoint {
+    province: string;
+    customerCount: number;
+}
+
+export interface CustomersByProductPoint {
+    productName: string;
+    customerCount: number;
+}
+
+export interface CustomersByPaymentMethodPoint {
+    paymentMethod: string;
+    customerCount: number;
+}
+
+export interface CustomerFrequencyBucket {
+    label: string;
+    customers: number;
+}
+
 interface UseDashboardStatsResult {
     loading: boolean;
     error: string | null;
@@ -139,6 +180,13 @@ interface UseDashboardStatsResult {
     revenueChart: RevenueDashboardPoint[];
     provinceRevenue: ProvinceRevenuePoint[];
     topProductsChart: ProductRevenuePoint[];
+    ordersByProvinceChart: ProvinceOrdersPoint[];
+    ordersByProductChart: ProductOrdersPoint[];
+    customerActivitySeries: CustomerActivityPoint[];
+    customersByProvince: CustomersByProvincePoint[];
+    customersByProduct: CustomersByProductPoint[];
+    customersByPaymentMethod: CustomersByPaymentMethodPoint[];
+    customerFrequencyBuckets: CustomerFrequencyBucket[];
     riskDistribution: {
         low: number;
         medium: number;
@@ -262,6 +310,16 @@ export function useDashboardStats(
         [orders]
     );
 
+    const ordersByProvinceChart = useMemo(
+        () => buildOrdersByProvinceChart(orders),
+        [orders]
+    );
+
+    const ordersByProductChart = useMemo(
+        () => buildOrdersByProductChart(orders),
+        [orders]
+    );
+
     const highRiskOrders = useMemo(
         () =>
             orders.filter(
@@ -324,6 +382,212 @@ export function useDashboardStats(
         [orders, allOrdersForCustomers, dateRange, customFrom, customTo]
     );
 
+    const customerActivitySeries = useMemo<CustomerActivityPoint[]>(
+        () => {
+            if (!orders.length || !allOrdersForCustomers.length) return [];
+
+            const { from, to } = resolveDashboardDateRange(
+                dateRange,
+                customFrom,
+                customTo
+            );
+            const phoneFirstOrderMap = buildPhoneFirstOrderMap(
+                allOrdersForCustomers as Order[]
+            );
+
+            const map = new Map<
+                string,
+                { newCustomers: Set<string>; returningCustomers: Set<string> }
+            >();
+
+            for (const order of orders) {
+                const phone = order.phone?.trim();
+                if (!phone) continue;
+
+                const baseDate = order.order_date
+                    ? order.order_date.slice(0, 10)
+                    : order.created_at
+                        ? order.created_at.slice(0, 10)
+                        : null;
+                if (!baseDate) continue;
+
+                const firstOrderDate = phoneFirstOrderMap.get(phone);
+                if (!firstOrderDate) continue;
+
+                const firstDate = new Date(firstOrderDate);
+                const bucket =
+                    map.get(baseDate) ??
+                    {
+                        newCustomers: new Set<string>(),
+                        returningCustomers: new Set<string>(),
+                    };
+
+                if (firstDate >= from && firstDate <= to) {
+                    bucket.newCustomers.add(phone);
+                } else if (firstDate < from) {
+                    bucket.returningCustomers.add(phone);
+                }
+
+                map.set(baseDate, bucket);
+            }
+
+            return Array.from(map.entries())
+                .sort(([a], [b]) => (a < b ? -1 : 1))
+                .map(([date, bucket]) => ({
+                    date,
+                    newCustomers: bucket.newCustomers.size,
+                    returningCustomers: bucket.returningCustomers.size,
+                }));
+        },
+        [orders, allOrdersForCustomers, dateRange, customFrom, customTo]
+    );
+
+    const customersByProvince = useMemo<CustomersByProvincePoint[]>(
+        () => {
+            if (!orders.length) return [];
+
+            const map = new Map<string, Set<string>>();
+
+            for (const order of orders) {
+                const phone = order.phone?.trim();
+                if (!phone) continue;
+
+                const province = order.province?.trim() || "Unknown";
+                const set = map.get(province) ?? new Set<string>();
+                set.add(phone);
+                map.set(province, set);
+            }
+
+            const all: CustomersByProvincePoint[] = Array.from(map.entries()).map(
+                ([province, set]) => ({
+                    province,
+                    customerCount: set.size,
+                })
+            );
+
+            all.sort((a, b) => b.customerCount - a.customerCount);
+            return all.slice(0, 5);
+        },
+        [orders]
+    );
+
+    const customersByProduct = useMemo<CustomersByProductPoint[]>(
+        () => {
+            if (!orders.length) return [];
+
+            const map = new Map<string, Set<string>>();
+
+            for (const order of orders) {
+                const phone = order.phone?.trim();
+                if (!phone) continue;
+
+                const rawName = (order.product ?? "").trim();
+                const name = rawName || "Unknown Product";
+
+                const set = map.get(name) ?? new Set<string>();
+                set.add(phone);
+                map.set(name, set);
+            }
+
+            const all: CustomersByProductPoint[] = Array.from(map.entries()).map(
+                ([productName, set]) => ({
+                    productName,
+                    customerCount: set.size,
+                })
+            );
+
+            all.sort((a, b) => b.customerCount - a.customerCount);
+            return all.slice(0, 5);
+        },
+        [orders]
+    );
+
+    const customersByPaymentMethod = useMemo<CustomersByPaymentMethodPoint[]>(
+        () => {
+            if (!orders.length) return [];
+
+            const map = new Map<string, Set<string>>();
+
+            for (const order of orders) {
+                const phone = order.phone?.trim();
+                if (!phone) continue;
+
+                const raw = (order.payment_method || "").trim().toUpperCase();
+                let label: string;
+
+                if (!raw || raw === "COD") label = "COD";
+                else if (
+                    raw === "PREPAID" ||
+                    raw === "PAID" ||
+                    raw === "ONLINE" ||
+                    raw.includes("WALLET")
+                ) {
+                    label = "Prepaid";
+                } else if (raw.includes("BANK") || raw.includes("TRANSFER")) {
+                    label = "BANK";
+                } else {
+                    label = raw || "Other";
+                }
+
+                const set = map.get(label) ?? new Set<string>();
+                set.add(phone);
+                map.set(label, set);
+            }
+
+            const all: CustomersByPaymentMethodPoint[] = Array.from(
+                map.entries()
+            ).map(([paymentMethod, set]) => ({
+                paymentMethod,
+                customerCount: set.size,
+            }));
+
+            all.sort((a, b) => b.customerCount - a.customerCount);
+            return all;
+        },
+        [orders]
+    );
+
+    const customerFrequencyBuckets = useMemo<CustomerFrequencyBucket[]>(
+        () => {
+            if (!allOrdersForCustomers.length) {
+                return [
+                    { label: "1 order", customers: 0 },
+                    { label: "2–3 orders", customers: 0 },
+                    { label: "4–5 orders", customers: 0 },
+                    { label: "6+ orders", customers: 0 },
+                ];
+            }
+
+            const counts = new Map<string, number>();
+
+            for (const order of allOrdersForCustomers) {
+                const phone = order.phone?.trim();
+                if (!phone) continue;
+                counts.set(phone, (counts.get(phone) ?? 0) + 1);
+            }
+
+            let bucket1 = 0;
+            let bucket2_3 = 0;
+            let bucket4_5 = 0;
+            let bucket6plus = 0;
+
+            for (const count of counts.values()) {
+                if (count <= 1) bucket1++;
+                else if (count <= 3) bucket2_3++;
+                else if (count <= 5) bucket4_5++;
+                else bucket6plus++;
+            }
+
+            return [
+                { label: "1 order", customers: bucket1 },
+                { label: "2–3 orders", customers: bucket2_3 },
+                { label: "4–5 orders", customers: bucket4_5 },
+                { label: "6+ orders", customers: bucket6plus },
+            ];
+        },
+        [allOrdersForCustomers]
+    );
+
     return {
         loading,
         error,
@@ -339,6 +603,13 @@ export function useDashboardStats(
         productStats,
         channelStats,
         topProductsChart,
+        ordersByProvinceChart,
+        ordersByProductChart,
+        customerActivitySeries,
+        customersByProvince,
+        customersByProduct,
+        customersByPaymentMethod,
+        customerFrequencyBuckets,
     };
 }
 
@@ -648,22 +919,24 @@ function computeStats(orders: Order[]): DashboardStats {
 
 function computeRiskStats(orders: Order[]): RiskStats {
     const codOrders = orders.filter(isCOD);
-    const codOrdersWithScore = codOrders.filter(
-        (o) => o.risk_score !== null && o.risk_score !== undefined
+    const codWithScore = codOrders.filter(
+        (o) => typeof o.risk_score === "number"
     );
 
+    // === Avg risk score ===
     const avgRiskScore =
-        codOrdersWithScore.length > 0
+        codWithScore.length > 0
             ? Math.round(
-                (codOrdersWithScore.reduce(
-                    (sum, o) => sum + (o.risk_score || 0),
+                (codWithScore.reduce(
+                    (sum, o) => sum + (o.risk_score as number),
                     0
                 ) /
-                    codOrdersWithScore.length) *
+                    codWithScore.length) *
                 10
             ) / 10
             : null;
 
+    // === Counters theo level ===
     const highRiskOrders = codOrders.filter(
         (o) => o.risk_level?.toLowerCase() === "high"
     ).length;
@@ -674,13 +947,109 @@ function computeRiskStats(orders: Order[]): RiskStats {
         (o) => o.risk_level?.toLowerCase() === "low"
     ).length;
 
+    // === 1) Risk score over time (avg per day) ===
+    const byDate = new Map<string, { total: number; count: number }>();
+
+    for (const o of codWithScore) {
+        const baseDate =
+            (o.order_date ? o.order_date.slice(0, 10) : undefined) ??
+            (o.created_at ? o.created_at.slice(0, 10) : undefined) ??
+            null;
+        if (!baseDate) continue;
+
+        const entry = byDate.get(baseDate) ?? { total: 0, count: 0 };
+        entry.total += o.risk_score as number;
+        entry.count++;
+        byDate.set(baseDate, entry);
+    }
+
+    const scoreOverTime = Array.from(byDate.entries())
+        .sort(([a], [b]) => (a < b ? -1 : 1))
+        .map(([date, { total, count }]) => ({
+            date,
+            avgScore: Math.round((total / count) * 10) / 10,
+        }));
+
+    // === 2) Risk by province (avg score) ===
+    const byProvinceMap = new Map<string, { total: number; count: number }>();
+
+    for (const o of codWithScore) {
+        const province = o.province?.trim();
+        if (!province) continue;
+
+        const entry = byProvinceMap.get(province) ?? { total: 0, count: 0 };
+        entry.total += o.risk_score as number;
+        entry.count++;
+        byProvinceMap.set(province, entry);
+    }
+
+    const byProvince = Array.from(byProvinceMap.entries())
+        .map(([province, { total, count }]) => ({
+            province,
+            avgScore: Math.round((total / count) * 10) / 10,
+        }))
+        .sort((a, b) => b.avgScore - a.avgScore)
+        .slice(0, 5); // top 5 province
+
+    // === 3) Risk by product (avg score) ===
+    const byProductMap = new Map<
+        string,
+        { name: string; total: number; count: number }
+    >();
+
+    for (const o of codWithScore) {
+        const rawName = (o.product ?? "").trim();
+        const name = rawName || "Unknown Product";
+
+        const key = name; // đơn giản dùng name làm key
+        const entry =
+            byProductMap.get(key) ?? { name, total: 0, count: 0 };
+        entry.total += o.risk_score as number;
+        entry.count++;
+        byProductMap.set(key, entry);
+    }
+
+    const byProduct = Array.from(byProductMap.values())
+        .map(({ name, total, count }) => ({
+            productName: name,
+            avgScore: Math.round((total / count) * 10) / 10,
+        }))
+        .sort((a, b) => b.avgScore - a.avgScore)
+        .slice(0, 5); // top 5 product
+
+    // === 4) Repeat offenders (customers with >= 2 high-risk COD orders) ===
+    const repeatMap = new Map<string, number>();
+
+    for (const o of codOrders) {
+        if (o.risk_level?.toLowerCase() !== "high") continue;
+
+        const key =
+            o.phone?.trim() ||
+            o.customer_name?.trim() ||
+            "Unknown Customer";
+
+        const current = repeatMap.get(key) ?? 0;
+        repeatMap.set(key, current + 1);
+    }
+
+    const repeatOffenders = Array.from(repeatMap.entries())
+        .filter(([_, orders]) => orders >= 2)
+        .map(([customer, orders]) => ({ customer, orders }))
+        .sort((a, b) => b.orders - a.orders)
+        .slice(0, 5);
+
     return {
         avgRiskScore,
         highRiskOrders,
         mediumRiskOrders,
         lowRiskOrders,
+        scoreOverTime,
+        byProvince,
+        byProduct,
+        repeatOffenders,
     };
 }
+
 
 function computeGeoRiskStats(orders: Order[]): GeoRiskStats {
     const paidStatuses = new Set<Order["status"]>([
@@ -1030,20 +1399,7 @@ function computeChannelStats(orders: Order[]): ChannelStats {
     };
 }
 
-function computeCustomerStats(
-    ordersInRange: Order[],
-    allOrders: Order[],
-    dateRange: DashboardDateRange,
-    customFrom?: string,
-    customTo?: string
-): CustomerStats {
-    const { from, to } = resolveDashboardDateRange(
-        dateRange,
-        customFrom,
-        customTo
-    );
-
-    // Build map of phone to first order date (across all time)
+function buildPhoneFirstOrderMap(allOrders: Order[]): Map<string, string> {
     const phoneFirstOrderMap = new Map<string, string>();
 
     for (const order of allOrders) {
@@ -1057,6 +1413,24 @@ function computeCustomerStats(
             phoneFirstOrderMap.set(phone, orderDate);
         }
     }
+
+    return phoneFirstOrderMap;
+}
+
+function computeCustomerStats(
+    ordersInRange: Order[],
+    allOrders: Order[],
+    dateRange: DashboardDateRange,
+    customFrom?: string,
+    customTo?: string
+): CustomerStats {
+    const { from, to } = resolveDashboardDateRange(
+        dateRange,
+        customFrom,
+        customTo
+    );
+
+    const phoneFirstOrderMap = buildPhoneFirstOrderMap(allOrders);
 
     // Get unique customers in current range
     const phonesInRange = new Set<string>();
@@ -1074,12 +1448,9 @@ function computeCustomerStats(
 
         const firstDate = new Date(firstOrderDate);
 
-        // New customer: first order is within the current range
         if (firstDate >= from && firstDate <= to) {
             newCustomers++;
-        }
-        // Returning customer: first order is before the range
-        else if (firstDate < from) {
+        } else if (firstDate < from) {
             returningCustomers++;
         }
     }
@@ -1242,4 +1613,46 @@ function buildTopProductsChart(orders: Order[]): ProductRevenuePoint[] {
 
     allProducts.sort((a, b) => b.totalRevenue - a.totalRevenue);
     return allProducts.slice(0, 5);
+}
+
+function buildOrdersByProvinceChart(orders: Order[]): ProvinceOrdersPoint[] {
+    const map = new Map<string, number>();
+
+    for (const o of orders) {
+        const province = o.province?.trim() || "Unknown";
+        map.set(province, (map.get(province) ?? 0) + 1);
+    }
+
+    const all: ProvinceOrdersPoint[] = Array.from(map.entries()).map(
+        ([province, orderCount]) => ({
+            province,
+            orderCount,
+        })
+    );
+
+    // Sort nhiều đơn nhất lên đầu, lấy top 5
+    all.sort((a, b) => b.orderCount - a.orderCount);
+    return all.slice(0, 5);
+}
+
+function buildOrdersByProductChart(orders: Order[]): ProductOrdersPoint[] {
+    const map = new Map<string, number>();
+
+    for (const o of orders) {
+        const rawName = (o.product ?? "").trim();
+        const name = rawName || "Unknown Product";
+
+        map.set(name, (map.get(name) ?? 0) + 1);
+    }
+
+    const all: ProductOrdersPoint[] = Array.from(map.entries()).map(
+        ([productName, orderCount]) => ({
+            productName,
+            orderCount,
+        })
+    );
+
+    // Sort nhiều đơn nhất lên đầu, lấy top 5
+    all.sort((a, b) => b.orderCount - a.orderCount);
+    return all.slice(0, 5);
 }

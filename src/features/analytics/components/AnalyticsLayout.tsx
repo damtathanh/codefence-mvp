@@ -13,8 +13,6 @@ interface AnalyticsLayoutProps {
 
 /**
  * Layout chuẩn cho tất cả tabs Analytics:
- * - Hàng trên: 4 summary cards (1–4 tùy bạn, nhưng thường là 4)
- * - Hàng dưới: grid 3 cột, tối đa 6 chart, mỗi chart có chiều cao cố định
  */
 export const AnalyticsLayout: React.FC<AnalyticsLayoutProps> = ({
     summaryCards,
@@ -35,8 +33,8 @@ export const AnalyticsLayout: React.FC<AnalyticsLayoutProps> = ({
                 {charts.map((chart, idx) => (
                     <div
                         key={idx}
-                        className="h-[200px]"           // để Tailwind giữ đúng chiều cao cơ bản
-                        style={{ height: chartHeight }} // chartHeight có thể custom khi cần
+                        className="h-[200px]"
+                        style={{ height: chartHeight }}
                     >
                         {chart}
                     </div>

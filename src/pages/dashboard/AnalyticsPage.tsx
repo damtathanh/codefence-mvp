@@ -3,7 +3,6 @@ import { DateRangeSelector } from '../../components/dashboard/DateRangeSelector'
 import { AnalyticsTabsHeader, type AnalyticsTabKey } from '../../features/analytics/components/AnalyticsTabsHeader';
 import { RevenueTab } from '../../features/analytics/components/RevenueTab';
 import { OrdersTab } from '../../features/analytics/components/OrdersTab';
-import { CodTab } from '../../features/analytics/components/CodTab';
 import { RiskTab } from '../../features/analytics/components/RiskTab';
 import { OperationsTab } from '../../features/analytics/components/OperationsTab';
 import { FunnelTab } from '../../features/analytics/components/FunnelTab';
@@ -60,9 +59,6 @@ export const AnalyticsPage: React.FC = () => {
         )}
         {activeTab === "orders" && (
           <OrdersTab dateRange={dateRange} customFrom={customFrom} customTo={customTo} />
-        )}
-        {activeTab === "cod" && (
-          <CodTab dateRange={dateRange} customFrom={customFrom} customTo={customTo} />
         )}
         {activeTab === "risk" && (
           <RiskTab dateRange={dateRange} customFrom={customFrom} customTo={customTo} />

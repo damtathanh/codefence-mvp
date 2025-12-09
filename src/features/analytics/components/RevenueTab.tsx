@@ -127,7 +127,7 @@ export const RevenueTab: React.FC<RevenueTabProps> = ({
 
     // Gauge color
     let gaugeColor = "#facc15";
-    if (percent >= 110) gaugeColor = "#10B981";
+    if (percent >= 100) gaugeColor = "#10B981";
     else if (percent >= 80) gaugeColor = "#8B5CF6";
 
     // Gauge dùng 0–100
@@ -253,7 +253,7 @@ export const RevenueTab: React.FC<RevenueTabProps> = ({
                         titleClass="text-[11px]"
                         valueClass="text-xl"
                         value={formatCurrency(stats.pendingRevenue)}
-                        subtitle="COD confirmed/delivering but not paid"
+                        subtitle="COD approved/confirmed but not paid"
                         icon={<Wallet className="h-4 w-4 text-[#facc15]" />}
                         valueColor="#facc15"
                     />,
@@ -267,10 +267,9 @@ export const RevenueTab: React.FC<RevenueTabProps> = ({
                         compact
                         className="h-full"
                     >
-                        <div className="flex items-center justify-between gap-6">
-                            {/* LEFT: Gauge + % + actual / target */}
-                            <div className="flex flex-1 flex-col items-center justify-center">
-                                {/* Gauge */}
+                        <div className="flex h-full items-center justify-between gap-6">
+                            {/* LEFT: Gauge + % + actual/target (tất cả trong 1 khối) */}
+                            <div className="flex flex-col items-center justify-center">
                                 <div className="relative w-44 h-24 md:w-56 md:h-28">
                                     <ResponsiveContainer width="100%" height="100%">
                                         <RadialBarChart
@@ -289,17 +288,15 @@ export const RevenueTab: React.FC<RevenueTabProps> = ({
                                         </RadialBarChart>
                                     </ResponsiveContainer>
 
-                                    {/* % nằm trong lòng gauge, sát phía dưới */}
-                                    <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center translate-y-2">
-                                        <span className="text-3xl font-semibold">
+                                    {/* Overlay: % + actual/target cùng 1 overlay */}
+                                    <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-end translate-y-1">
+                                        <span className="text-3xl font-semibold" style={{ color: gaugeColor }}>
                                             {percent}%
                                         </span>
+                                        <span className="mt-1 text-[11px] text-white/70">
+                                            {formatCurrency(actual)} / {formatCurrency(target)}
+                                        </span>
                                     </div>
-                                </div>
-
-                                {/* Actual / Target – sát ngay dưới gauge */}
-                                <div className="mt-2 text-xs text-white/65 text-center">
-                                    {formatCurrency(actual)} / {formatCurrency(target)}
                                 </div>
                             </div>
 
@@ -342,7 +339,8 @@ export const RevenueTab: React.FC<RevenueTabProps> = ({
                                 </button>
                             </div>
                         </div>
-                    </ChartCard>,
+                    </ChartCard>
+                    ,
 
                     // 2) COD Collection Risk
                     <ChartCard

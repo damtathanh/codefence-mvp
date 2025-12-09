@@ -20,7 +20,6 @@ interface AnalyticsTabsHeaderProps {
 const tabs: { key: AnalyticsTabKey; label: string }[] = [
     { key: "revenue", label: "Revenue" },
     { key: "orders", label: "Orders" },
-    { key: "cod", label: "COD & Boom" },
     { key: "risk", label: "Risk" },
     { key: "customers", label: "Customers" },
     { key: "products", label: "Products" },
@@ -42,8 +41,8 @@ export const AnalyticsTabsHeader: React.FC<AnalyticsTabsHeaderProps> = ({
                         key={tab.key}
                         onClick={() => onChange(tab.key)}
                         className={`relative whitespace-nowrap text-sm font-medium transition-all py-2 ${activeTab === tab.key
-                                ? "text-[#8B5CF6]"
-                                : "text-[#E5E7EB]/60 hover:text-white"
+                            ? "text-[#8B5CF6]"
+                            : "text-[#E5E7EB]/60 hover:text-white"
                             }`}
                     >
                         {tab.label}
