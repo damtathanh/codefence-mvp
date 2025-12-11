@@ -51,27 +51,27 @@ export const Header: React.FC = () => {
     if (profile?.full_name && profile.full_name.trim()) {
       return profile.full_name.trim();
     }
-    
+
     // Priority 2: full_name from user metadata (for backward compatibility)
     if (user?.user_metadata?.full_name && user.user_metadata.full_name.trim()) {
       return user.user_metadata.full_name.trim();
     }
-    
+
     // Priority 3: fullName from user metadata (alternative format)
     if (user?.user_metadata?.fullName && user.user_metadata.fullName.trim()) {
       return user.user_metadata.fullName.trim();
     }
-    
+
     // Priority 4: display_name from user metadata
     if (user?.user_metadata?.display_name && user.user_metadata.display_name.trim()) {
       return user.user_metadata.display_name.trim();
     }
-    
+
     // Priority 5: Fallback to email from auth user
     if (user?.email) {
       return user.email;
     }
-    
+
     // Priority 6: Fallback to "User" if nothing is available
     return 'User';
   };
@@ -88,7 +88,7 @@ export const Header: React.FC = () => {
 
   const getUserInitials = () => {
     const displayName = getUserDisplayName();
-    
+
     // If we have a full name (from profile or metadata), use it for initials
     if (profile?.full_name && profile.full_name.trim()) {
       const names = profile.full_name.trim().split(' ').filter(n => n.length > 0);
@@ -99,7 +99,7 @@ export const Header: React.FC = () => {
         return names[0][0]?.toUpperCase() || 'U';
       }
     }
-    
+
     // Check user metadata for full name
     if (user?.user_metadata?.full_name || user?.user_metadata?.fullName) {
       const fullName = (user.user_metadata.full_name || user.user_metadata.fullName || '').trim();
@@ -113,12 +113,12 @@ export const Header: React.FC = () => {
         }
       }
     }
-    
+
     // Fallback to email first letter
     if (user?.email) {
       return user.email[0].toUpperCase();
     }
-    
+
     return 'U';
   };
 
@@ -161,27 +161,27 @@ export const Header: React.FC = () => {
   const handleNavClick = (href: string) => {
     setMobileMenuOpen(false);
     const sectionId = href.substring(1); // Remove the # from href
-    
+
     if (!sectionId) {
       return;
     }
-    
+
     if (location.pathname !== "/") {
       // Not on home page, navigate to home with hash
       navigate(`/#${sectionId}`);
       // Scroll will be handled by ScrollToSectionHandler after navigation
       return;
     }
-    
+
     // Already on home page, scroll directly with proper offset
     const scrollToSection = () => {
       let tries = 0;
       const maxTries = 30;
-      
+
       const tryScroll = () => {
         const el = document.getElementById(sectionId);
         const header = document.querySelector("header");
-        
+
         if (!el || !header) {
           if (tries < maxTries) {
             tries++;
@@ -189,46 +189,45 @@ export const Header: React.FC = () => {
           }
           return;
         }
-        
+
         const headerHeight = (header as HTMLElement).offsetHeight;
-        
+
         // Get the element's computed styles to check for scroll-margin-top
         const computedStyle = window.getComputedStyle(el);
         const scrollMarginTop = parseInt(computedStyle.scrollMarginTop || "0", 10) || 0;
-        
+
         // Get the element's absolute position in the document
         // getBoundingClientRect gives us position relative to viewport (includes padding)
         const rect = el.getBoundingClientRect();
         const scrollY = window.pageYOffset || document.documentElement.scrollTop;
         const absoluteTop = rect.top + scrollY;
-        
+
         // Calculate scroll position:
         // - Start from the absolute top of the section element
         // - Subtract header height to position it below the navbar
         // - Optionally account for scroll-margin-top if it's set (for scrollIntoView compatibility)
         // The goal is to show the section's padding-top area starting right below the navbar
         const scrollPosition = Math.max(0, absoluteTop - headerHeight);
-        
+
         window.scrollTo({
           top: scrollPosition,
           behavior: "smooth",
         });
       };
-      
+
       // Wait a bit for any layout updates to complete
       setTimeout(tryScroll, 100);
     };
-    
+
     scrollToSection();
   };
 
   return (
     <header
-      className={`fixed top-0 left-0 w-full z-50 transition-all duration-500 ${
-        scrolled
-          ? "bg-[#0B0F28]/80 backdrop-blur-xl border-b border-white/10 shadow-lg"
-          : "bg-transparent"
-      }`}
+      className={`fixed top-0 left-0 w-full z-30 transition-all duration-500 ${scrolled
+        ? "bg-[#0B0F28]/80 backdrop-blur-xl border-b border-white/10 shadow-lg"
+        : "bg-transparent"
+        }`}
     >
       <nav className="max-w-7xl mx-auto flex justify-between items-center py-4 px-6">
         {/* Logo */}
@@ -313,10 +312,10 @@ export const Header: React.FC = () => {
                 <>
                   {/* Backdrop to close dropdown */}
                   <div
-                    className="fixed inset-0 z-40"
+                    className="fixed inset-0 z-[9000]"
                     onClick={() => setDropdownOpen(false)}
                   />
-                  <div className="absolute right-0 mt-2 w-48 bg-[#12163A] border border-white/10 rounded-lg shadow-lg z-50 overflow-hidden">
+                  <div className="absolute right-0 mt-2 w-48 bg-[#12163A] border border-white/10 rounded-lg shadow-lg z-[9999] overflow-hidden">
                     <button
                       onClick={handleManageDashboard}
                       className="w-full text-left text-sm text-white/80 hover:bg-white/10 px-4 py-2 rounded flex items-center gap-3"

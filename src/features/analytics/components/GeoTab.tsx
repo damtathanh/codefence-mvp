@@ -1,4 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
+import { VietnamMap } from "../../../components/maps/VietnamMap";
+
 import {
     BarChart,
     Bar,
@@ -9,19 +11,24 @@ import {
     ResponsiveContainer,
     Legend,
 } from "recharts";
+
 import {
-    MapPin,
     Shield,
     DollarSign,
     TrendingDown,
     AlertTriangle,
 } from "lucide-react";
+
 import { StatCard } from "../../../components/analytics/StatCard";
 import { ChartCard } from "../../../components/analytics/ChartCard";
+import { AnalyticsLayout } from "./AnalyticsLayout";
+
 import {
     useDashboardStats,
     type DashboardDateRange,
 } from "../../dashboard/useDashboardStats";
+
+// --------------------------------------------------------
 
 interface GeoTabProps {
     dateRange: DashboardDateRange;
@@ -52,6 +59,42 @@ export const GeoTab: React.FC<GeoTabProps> = ({
 
     const formatPercent = (value: number) => `${value.toFixed(1)}%`;
 
+    // ------------------ PREPARE DATA ------------------
+
+    const provinces = geoRiskStats?.provinces ?? [];
+
+    // Cast for TS to avoid {} type warning
+    const districtsByProvince = (geoRiskStats?.districtsByProvince ??
+        {}) as Record<string, string[]>;
+
+    const hasAnyProvince = provinces.length > 0;
+
+    const sortedProvinceNames = [...provinces]
+        .map((p) => p.province)
+        .sort((a, b) => a.localeCompare(b, "vi"));
+
+    const selectedProvinceStat =
+        selectedProvince === "all"
+            ? undefined
+            : provinces.find((p) => p.province === selectedProvince);
+
+    const districtOptions: string[] =
+        selectedProvince === "all"
+            ? []
+            : districtsByProvince[selectedProvince] ?? [];
+
+    // ------------------ MAP DATA ------------------
+
+    const mapData = useMemo(() => {
+        const result: Record<string, number> = {};
+        for (const p of provinces) {
+            result[p.province] = p.avgRiskScore ?? 0;
+        }
+        return result;
+    }, [provinces]);
+
+    // ------------------ LOADING + ERROR ------------------
+
     if (loading) {
         return (
             <div className="flex h-64 items-center justify-center">
@@ -68,11 +111,8 @@ export const GeoTab: React.FC<GeoTabProps> = ({
         );
     }
 
-    const provinces = geoRiskStats?.provinces ?? [];
+    // ------------------ DATASETS FOR CHARTS ------------------
 
-    // ======== DATASETS CHO 4 CHART ========
-
-    // 1) Top 5 tỉnh theo doanh thu
     const topRevenueProvinces = [...provinces]
         .sort((a, b) => b.totalRevenue - a.totalRevenue)
         .slice(0, 5);
@@ -82,10 +122,10 @@ export const GeoTab: React.FC<GeoTabProps> = ({
         totalRevenue: p.totalRevenue,
     }));
 
-    // 2) Top 5 boom rate (chỉ lấy tỉnh có >= 50 đơn COD)
     const provincesWithVolume = provinces.filter(
         (p) => p.codOrdersCount >= 50
     );
+
     const topBoomProvinces = [...provincesWithVolume]
         .sort((a, b) => b.boomRate - a.boomRate)
         .slice(0, 5);
@@ -95,10 +135,10 @@ export const GeoTab: React.FC<GeoTabProps> = ({
         boomRate: p.boomRate,
     }));
 
-    // 3) Top 5 risk score trung bình
     const provincesWithRisk = provinces.filter(
         (p) => p.avgRiskScore !== null
     );
+
     const topRiskProvinces = [...provincesWithRisk]
         .sort((a, b) => (b.avgRiskScore ?? 0) - (a.avgRiskScore ?? 0))
         .slice(0, 5);
@@ -108,7 +148,6 @@ export const GeoTab: React.FC<GeoTabProps> = ({
         avgRiskScore: p.avgRiskScore ?? 0,
     }));
 
-    // 4) COD vs Prepaid mix – top 5 tỉnh theo số đơn
     const topOrderProvinces = [...provinces]
         .sort((a, b) => b.orderCount - a.orderCount)
         .slice(0, 5);
@@ -119,32 +158,19 @@ export const GeoTab: React.FC<GeoTabProps> = ({
         prepaidOrders: p.prepaidOrdersCount,
     }));
 
-    const hasAnyProvince = provinces.length > 0;
-
-    // ======== MAP – TÓM TẮT TỈNH ĐANG CHỌN ========
-
-    const sortedProvinceNames = [...provinces]
-        .map((p) => p.province)
-        .sort((a, b) => a.localeCompare(b, "vi"));
-
-    const selectedProvinceStat =
-        selectedProvince === "all"
-            ? undefined
-            : provinces.find((p) => p.province === selectedProvince);
+    // ------------------ RENDER ------------------
 
     return (
-        <div className="flex h-full min-h-0 flex-col gap-3">
-            {/* ===== ROW 1: 4 KPI CARDS ===== */}
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <AnalyticsLayout
+            summaryCards={[
                 <StatCard
+                    key="highest-risk-province"
                     title="HIGHEST-RISK PROVINCE"
-                    value={
-                        geoRiskStats.highestRiskProvince?.province ?? "No data"
-                    }
+                    value={geoRiskStats.highestRiskProvince?.province ?? "No data"}
                     subtitle={
                         geoRiskStats.highestRiskProvince
-                            ? `Avg risk: ${geoRiskStats.highestRiskProvince
-                                .avgRiskScore ?? "N/A"
+                            ? `Avg risk: ${geoRiskStats.highestRiskProvince.avgRiskScore ??
+                            "N/A"
                             } (${geoRiskStats.highestRiskProvince.orderCount} orders)`
                             : "Need more COD orders with risk score"
                     }
@@ -153,9 +179,9 @@ export const GeoTab: React.FC<GeoTabProps> = ({
                     className="h-[88px] px-4 py-2"
                     titleClass="text-[11px]"
                     valueClass="text-lg"
-                />
-
+                />,
                 <StatCard
+                    key="safest-province"
                     title="SAFEST PROVINCE"
                     value={geoRiskStats.safestProvince?.province ?? "No data"}
                     subtitle={
@@ -170,15 +196,13 @@ export const GeoTab: React.FC<GeoTabProps> = ({
                     className="h-[88px] px-4 py-2"
                     titleClass="text-[11px]"
                     valueClass="text-lg"
-                />
-
+                />,
                 <StatCard
+                    key="top-revenue-province"
                     title="TOP REVENUE PROVINCE"
                     value={
                         geoRiskStats.topRevenueProvince
-                            ? formatCurrency(
-                                geoRiskStats.topRevenueProvince.totalRevenue
-                            )
+                            ? formatCurrency(geoRiskStats.topRevenueProvince.totalRevenue)
                             : "No data"
                     }
                     subtitle={
@@ -190,9 +214,9 @@ export const GeoTab: React.FC<GeoTabProps> = ({
                     className="h-[88px] px-4 py-2"
                     titleClass="text-[11px]"
                     valueClass="text-lg"
-                />
-
+                />,
                 <StatCard
+                    key="worst-boom-province"
                     title="WORST BOOM PROVINCE"
                     value={
                         provincesWithVolume.length
@@ -211,15 +235,15 @@ export const GeoTab: React.FC<GeoTabProps> = ({
                     className="h-[88px] px-4 py-2"
                     titleClass="text-[11px]"
                     valueClass="text-lg"
-                />
-            </div>
-
-            {/* ===== ROW 2: 4 CHARTS (2/3 TRÁI) + MAP (1/3 PHẢI) ===== */}
+                />,
+            ]}
+        >
+            {/* ROW 2: charts + map (custom layout as children) */}
             <div className="grid flex-1 min-h-0 grid-cols-1 gap-3 xl:grid-cols-3">
-                {/* LEFT: 4 charts trong 2 cột = 2/3 width */}
+                {/* LEFT 2/3: CHARTS */}
                 <div className="flex flex-col gap-3 xl:col-span-2">
+                    {/* Row 1 Chart */}
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                        {/* Chart 1 – Sales by Province */}
                         <ChartCard
                             title="Sales by Province"
                             subtitle="Top 5 provinces by revenue"
@@ -231,357 +255,179 @@ export const GeoTab: React.FC<GeoTabProps> = ({
                                     No geo revenue data in this period
                                 </div>
                             ) : (
-                                <ResponsiveContainer
-                                    width="100%"
-                                    height="100%"
-                                >
-                                    <BarChart
-                                        data={salesByProvinceData}
-                                        layout="vertical"
-                                        margin={{
-                                            top: 0,
-                                            right: 10,
-                                            left: 0,
-                                            bottom: 0,
-                                        }}
-                                    >
-                                        <CartesianGrid
-                                            strokeDasharray="3 3"
-                                            stroke="#1E223D"
-                                        />
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={salesByProvinceData} layout="vertical">
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
                                         <XAxis
                                             type="number"
-                                            tick={{
-                                                fontSize: 10,
-                                                fill: "#E5E7EB",
-                                            }}
+                                            tick={{ fontSize: 10, fill: "#E5E7EB" }}
                                         />
                                         <YAxis
                                             type="category"
                                             dataKey="province"
                                             width={120}
                                             interval={0}
-                                            tick={(props: any) => {
-                                                const { y, payload } = props;
-                                                return (
-                                                    <text
-                                                        x={12}
-                                                        y={y + 4}
-                                                        textAnchor="start"
-                                                        fill="#E5E7EB"
-                                                        fontSize={12}
-                                                    >
-                                                        {payload.value}
-                                                    </text>
-                                                );
-                                            }}
+                                            tick={({ y, payload }) => (
+                                                <text
+                                                    x={12}
+                                                    y={y + 4}
+                                                    fill="#E5E7EB"
+                                                    fontSize={12}
+                                                >
+                                                    {payload.value}
+                                                </text>
+                                            )}
                                         />
                                         <Tooltip
-                                            cursor={{
-                                                fill: "rgba(148,163,184,0.12)",
-                                            }}
-                                            contentStyle={{
-                                                backgroundColor: "#020617",
-                                                border:
-                                                    "1px solid rgba(255,255,255,0.1)",
-                                                borderRadius: 8,
-                                                fontSize: 11,
-                                            }}
-                                            formatter={(value: any) => [
-                                                formatCurrency(
-                                                    value as number
-                                                ),
-                                                "Total revenue",
+                                            formatter={(v) => [
+                                                formatCurrency(v as number),
+                                                "Revenue",
                                             ]}
                                         />
-                                        <Bar
-                                            dataKey="totalRevenue"
-                                            name="Total revenue"
-                                            fill="#8B5CF6"
-                                            radius={[4, 4, 4, 4]}
-                                        />
+                                        <Bar dataKey="totalRevenue" fill="#8B5CF6" />
                                     </BarChart>
                                 </ResponsiveContainer>
                             )}
                         </ChartCard>
 
-                        {/* Chart 2 – Boom Rate by Province */}
                         <ChartCard
                             title="Boom Rate by Province"
-                            subtitle="Top 5 provinces by boom rate"
+                            subtitle="Top 5 boom provinces"
                             compact
                             className="h-[200px]"
                         >
-                            {!hasAnyProvince ||
-                                boomRateByProvinceData.length === 0 ? (
+                            {!hasAnyProvince || boomRateByProvinceData.length === 0 ? (
                                 <div className="flex h-full items-center justify-center text-xs text-white/40">
-                                    No COD boom data in this period
+                                    No boom data in this period
                                 </div>
                             ) : (
-                                <ResponsiveContainer
-                                    width="100%"
-                                    height="100%"
-                                >
-                                    <BarChart
-                                        data={boomRateByProvinceData}
-                                        layout="vertical"
-                                        margin={{
-                                            top: 0,
-                                            right: 10,
-                                            left: 0,
-                                            bottom: 0,
-                                        }}
-                                    >
-                                        <CartesianGrid
-                                            strokeDasharray="3 3"
-                                            stroke="#1E223D"
-                                        />
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={boomRateByProvinceData} layout="vertical">
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
                                         <XAxis
                                             type="number"
                                             domain={[0, 100]}
-                                            tick={{
-                                                fontSize: 10,
-                                                fill: "#E5E7EB",
-                                            }}
-                                            tickFormatter={(v: number) =>
-                                                `${v.toFixed(0)}%`
-                                            }
+                                            tick={{ fontSize: 10, fill: "#E5E7EB" }}
+                                            tickFormatter={(v) => `${v}%`}
                                         />
                                         <YAxis
                                             type="category"
                                             dataKey="province"
                                             width={120}
                                             interval={0}
-                                            tick={(props: any) => {
-                                                const { y, payload } = props;
-                                                return (
-                                                    <text
-                                                        x={12}
-                                                        y={y + 4}
-                                                        textAnchor="start"
-                                                        fill="#E5E7EB"
-                                                        fontSize={12}
-                                                    >
-                                                        {payload.value}
-                                                    </text>
-                                                );
-                                            }}
+                                            tick={({ y, payload }) => (
+                                                <text
+                                                    x={12}
+                                                    y={y + 4}
+                                                    fill="#E5E7EB"
+                                                    fontSize={12}
+                                                >
+                                                    {payload.value}
+                                                </text>
+                                            )}
                                         />
                                         <Tooltip
-                                            cursor={{
-                                                fill: "rgba(248,113,113,0.08)",
-                                            }}
-                                            contentStyle={{
-                                                backgroundColor: "#020617",
-                                                border:
-                                                    "1px solid rgba(248,113,113,0.4)",
-                                                borderRadius: 8,
-                                                fontSize: 11,
-                                            }}
-                                            formatter={(value: any) => [
-                                                `${(value as number).toFixed(
-                                                    1
-                                                )}%`,
-                                                "Boom rate",
-                                            ]}
+                                            formatter={(v) => [`${v}%`, "Boom rate"]}
                                         />
-                                        <Bar
-                                            dataKey="boomRate"
-                                            name="Boom rate"
-                                            fill="#F97373"
-                                            radius={[4, 4, 4, 4]}
-                                        />
+                                        <Bar dataKey="boomRate" fill="#F97373" />
                                     </BarChart>
                                 </ResponsiveContainer>
                             )}
                         </ChartCard>
                     </div>
 
+                    {/* Row 2 Chart */}
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                        {/* Chart 3 – Avg Risk Score by Province */}
                         <ChartCard
                             title="Risk Score by Province"
-                            subtitle="Top 5 provinces by avg risk score"
+                            subtitle="Top 5 provinces by risk"
                             compact
                             className="h-[200px]"
                         >
-                            {!hasAnyProvince ||
-                                riskByProvinceData.length === 0 ? (
+                            {!hasAnyProvince || riskByProvinceData.length === 0 ? (
                                 <div className="flex h-full items-center justify-center text-xs text-white/40">
-                                    No geo risk score data in this period
+                                    No risk data in this period
                                 </div>
                             ) : (
-                                <ResponsiveContainer
-                                    width="100%"
-                                    height="100%"
-                                >
-                                    <BarChart
-                                        data={riskByProvinceData}
-                                        layout="vertical"
-                                        margin={{
-                                            top: 0,
-                                            right: 10,
-                                            left: 0,
-                                            bottom: 0,
-                                        }}
-                                    >
-                                        <CartesianGrid
-                                            strokeDasharray="3 3"
-                                            stroke="#1E223D"
-                                        />
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={riskByProvinceData} layout="vertical">
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
                                         <XAxis
                                             type="number"
-                                            tick={{
-                                                fontSize: 10,
-                                                fill: "#E5E7EB",
-                                            }}
+                                            tick={{ fontSize: 10, fill: "#E5E7EB" }}
                                         />
                                         <YAxis
                                             type="category"
                                             dataKey="province"
                                             width={120}
                                             interval={0}
-                                            tick={(props: any) => {
-                                                const { y, payload } = props;
-                                                return (
-                                                    <text
-                                                        x={12}
-                                                        y={y + 4}
-                                                        textAnchor="start"
-                                                        fill="#E5E7EB"
-                                                        fontSize={12}
-                                                    >
-                                                        {payload.value}
-                                                    </text>
-                                                );
-                                            }}
+                                            tick={({ y, payload }) => (
+                                                <text
+                                                    x={12}
+                                                    y={y + 4}
+                                                    fill="#E5E7EB"
+                                                    fontSize={12}
+                                                >
+                                                    {payload.value}
+                                                </text>
+                                            )}
                                         />
                                         <Tooltip
-                                            cursor={{
-                                                fill: "rgba(129,140,248,0.08)",
-                                            }}
-                                            contentStyle={{
-                                                backgroundColor: "#020617",
-                                                border:
-                                                    "1px solid rgba(129,140,248,0.4)",
-                                                borderRadius: 8,
-                                                fontSize: 11,
-                                            }}
-                                            formatter={(value: any) => [
-                                                (value as number).toFixed(1),
-                                                "Avg risk score",
+                                            formatter={(v) => [
+                                                (v as number).toFixed(1),
+                                                "Risk score",
                                             ]}
                                         />
-                                        <Bar
-                                            dataKey="avgRiskScore"
-                                            name="Avg risk score"
-                                            fill="#6366F1"
-                                            radius={[4, 4, 4, 4]}
-                                        />
+                                        <Bar dataKey="avgRiskScore" fill="#6366F1" />
                                     </BarChart>
                                 </ResponsiveContainer>
                             )}
                         </ChartCard>
 
-                        {/* Chart 4 – COD vs Prepaid mix */}
                         <ChartCard
-                            title="COD vs Prepaid by Province"
-                            subtitle="Order mix for top 5 provinces"
+                            title="COD vs Prepaid"
+                            subtitle="Order mix by province"
                             compact
                             className="h-[200px]"
                         >
-                            {!hasAnyProvince ||
-                                codMixByProvinceData.length === 0 ? (
+                            {!hasAnyProvince || codMixByProvinceData.length === 0 ? (
                                 <div className="flex h-full items-center justify-center text-xs text-white/40">
-                                    No payment mix data in this period
+                                    No mix data in this period
                                 </div>
                             ) : (
-                                <ResponsiveContainer
-                                    width="100%"
-                                    height="100%"
-                                >
-                                    <BarChart
-                                        data={codMixByProvinceData}
-                                        layout="vertical"
-                                        margin={{
-                                            top: 0,
-                                            right: 10,
-                                            left: 0,
-                                            bottom: 0,
-                                        }}
-                                    >
-                                        <CartesianGrid
-                                            strokeDasharray="3 3"
-                                            stroke="#1E223D"
-                                        />
-                                        <XAxis
-                                            type="number"
-                                            tick={{
-                                                fontSize: 10,
-                                                fill: "#E5E7EB",
-                                            }}
-                                        />
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={codMixByProvinceData} layout="vertical">
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
+                                        <XAxis type="number" />
                                         <YAxis
                                             type="category"
                                             dataKey="province"
                                             width={120}
                                             interval={0}
-                                            tick={(props: any) => {
-                                                const { y, payload } = props;
-                                                return (
-                                                    <text
-                                                        x={12}
-                                                        y={y + 4}
-                                                        textAnchor="start"
-                                                        fill="#E5E7EB"
-                                                        fontSize={12}
-                                                    >
-                                                        {payload.value}
-                                                    </text>
-                                                );
-                                            }}
+                                            tick={({ y, payload }) => (
+                                                <text
+                                                    x={12}
+                                                    y={y + 4}
+                                                    fill="#E5E7EB"
+                                                    fontSize={12}
+                                                >
+                                                    {payload.value}
+                                                </text>
+                                            )}
                                         />
-                                        <Tooltip
-                                            cursor={{
-                                                fill: "rgba(56,189,248,0.08)",
-                                            }}
-                                            contentStyle={{
-                                                backgroundColor: "#020617",
-                                                border:
-                                                    "1px solid rgba(56,189,248,0.4)",
-                                                borderRadius: 8,
-                                                fontSize: 11,
-                                            }}
-                                            formatter={(value: any, name) => [
-                                                value,
-                                                name === "codOrders"
-                                                    ? "COD orders"
-                                                    : "Prepaid orders",
-                                            ]}
-                                        />
-                                        <Legend
-                                            verticalAlign="top"
-                                            height={20}
-                                            iconSize={8}
-                                            formatter={(value) =>
-                                                value === "codOrders"
-                                                    ? "COD"
-                                                    : "Prepaid"
-                                            }
-                                        />
+                                        <Tooltip />
+                                        <Legend />
                                         <Bar
                                             dataKey="codOrders"
-                                            stackId="a"
                                             name="COD"
+                                            stackId="a"
                                             fill="#38BDF8"
-                                            radius={[4, 0, 0, 4]}
                                         />
                                         <Bar
                                             dataKey="prepaidOrders"
-                                            stackId="a"
                                             name="Prepaid"
+                                            stackId="a"
                                             fill="#22D3EE"
-                                            radius={[0, 4, 4, 0]}
                                         />
                                     </BarChart>
                                 </ResponsiveContainer>
@@ -590,94 +436,105 @@ export const GeoTab: React.FC<GeoTabProps> = ({
                     </div>
                 </div>
 
-                {/* RIGHT: MAP CARD – 1/3 WIDTH */}
+                {/* RIGHT 1/3: MAP */}
                 <ChartCard
-                    title="Vietnam Risk Map"
-                    subtitle="Select province and district"
+                    title=""
+                    subtitle=""
                     compact={false}
-                    className="h-full min-h-[220px] xl:min-h-[420px]"
+                    className="h-[412px]"
                 >
-                    <div className="flex h-full flex-col">
-                        {/* Filters */}
-                        <div className="mb-3 flex gap-2">
-                            <select
-                                value={selectedProvince}
-                                onChange={(e) => {
-                                    setSelectedProvince(e.target.value);
-                                    setSelectedDistrict("all");
-                                }}
-                                className="rounded-lg border border-white/10 bg-[#12163A] px-3 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
-                            >
-                                <option value="all">All Provinces</option>
-                                {sortedProvinceNames.map((name) => (
-                                    <option key={name} value={name}>
-                                        {name}
-                                    </option>
-                                ))}
-                            </select>
+                    {/* This flex container uses the full inner height of the card */}
+                    <div className="flex h-full min-h-0 items-stretch gap-6">
+                        {/* LEFT COLUMN: title + filters + summary (fixed width controls map width) */}
+                        <div className="flex h-full w-[190px] flex-col justify-start">
+                            <h3 className="text-lg font-semibold text-white">
+                                Vietnam Map
+                            </h3>
+                            <p className="mt-1 text-xs text-white/60">
+                                Select a province and district
+                            </p>
 
-                            <select
-                                value={selectedDistrict}
-                                onChange={(e) =>
-                                    setSelectedDistrict(e.target.value)
-                                }
-                                className="rounded-lg border border-white/10 bg-[#12163A] px-3 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
-                            >
-                                <option value="all">All Districts</option>
-                                {/* TODO: hook real district data in future */}
-                                <option value="placeholder" disabled>
-                                    Coming soon
-                                </option>
-                            </select>
-                        </div>
+                            {/* Filters */}
+                            <div className="mt-4 flex gap-2">
+                                <select
+                                    value={selectedProvince}
+                                    onChange={(e) => {
+                                        setSelectedProvince(e.target.value);
+                                        setSelectedDistrict("all");
+                                    }}
+                                    className="w-full rounded-lg border border-white/10 bg-[#12163A] px-3 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]"
+                                >
+                                    <option value="all">All Provinces</option>
+                                    {sortedProvinceNames.map((name) => (
+                                        <option key={name} value={name}>
+                                            {name}
+                                        </option>
+                                    ))}
+                                </select>
 
-                        {/* Map placeholder + summary */}
-                        <div className="flex flex-1 items-center justify-center rounded-lg border border-white/5 bg-gradient-to-br from-[#12163A] to-[#1E223D]">
-                            <div className="text-center">
-                                <MapPin className="mx-auto mb-2 h-10 w-10 text-[#8B5CF6]" />
+                                <select
+                                    value={selectedDistrict}
+                                    onChange={(e) => setSelectedDistrict(e.target.value)}
+                                    disabled={
+                                        selectedProvince === "all" ||
+                                        districtOptions.length === 0
+                                    }
+                                    className="w-full rounded-lg border border-white/10 bg-[#12163A] px-3 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-[#8B5CF6] disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                    <option value="all">All Districts</option>
+                                    {districtOptions.map((d) => (
+                                        <option key={d} value={d}>
+                                            {d}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {/* Summary text */}
+                            <div className="mt-4 text-xs text-white/70">
                                 {selectedProvinceStat ? (
                                     <>
-                                        <p className="text-sm font-medium text-white">
+                                        <div className="mb-1 text-sm font-medium text-white">
                                             {selectedProvinceStat.province}
-                                        </p>
-                                        <p className="mt-1 text-xs text-white/70">
-                                            Orders:{" "}
-                                            {selectedProvinceStat.orderCount} •
-                                            Boom:{" "}
-                                            {formatPercent(
-                                                selectedProvinceStat.boomRate
-                                            )}
-                                        </p>
-                                        <p className="text-xs text-white/70">
+                                        </div>
+                                        <div>Orders: {selectedProvinceStat.orderCount}</div>
+                                        <div>
+                                            Boom: {formatPercent(selectedProvinceStat.boomRate)}
+                                        </div>
+                                        <div>
                                             Avg risk:{" "}
-                                            {selectedProvinceStat
-                                                .avgRiskScore ?? "N/A"}{" "}
-                                            • Revenue:{" "}
+                                            {selectedProvinceStat.avgRiskScore ?? "N/A"}
+                                        </div>
+                                        <div>
+                                            Revenue:{" "}
                                             {formatCurrency(
                                                 selectedProvinceStat.totalRevenue
                                             )}
-                                        </p>
-                                        <p className="mt-2 text-[11px] text-white/50">
-                                            (Interactive Vietnam map coming
-                                            soon)
-                                        </p>
+                                        </div>
                                     </>
                                 ) : (
-                                    <>
-                                        <p className="text-sm text-white/80">
-                                            Vietnam Risk Map
-                                        </p>
-                                        <p className="mt-1 text-xs text-white/60">
-                                            Hover over provinces to see risk &
-                                            boom (coming soon)
-                                        </p>
-                                    </>
+                                    <div className="text-white/60">
+                                        Click a province to view details.
+                                    </div>
                                 )}
+                            </div>
+                        </div>
+
+                        {/* RIGHT COLUMN: map fills remaining width and full height */}
+                        <div className="flex h-full min-h-0 flex-1">
+                            <div className="h-[370px] w-full overflow-hidden rounded-2xl border border-white/5 bg-[#020617]">
+                                <VietnamMap
+                                    data={mapData}
+                                    onProvinceClick={(name) => {
+                                        setSelectedProvince(name);
+                                        setSelectedDistrict("all");
+                                    }}
+                                />
                             </div>
                         </div>
                     </div>
                 </ChartCard>
             </div>
-        </div>
+        </AnalyticsLayout>
     );
 };

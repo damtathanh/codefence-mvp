@@ -112,6 +112,7 @@ export interface GeoRiskStats {
     safestProvince?: GeoRiskProvinceStat;
     topRevenueProvince?: GeoRiskProvinceStat;
     provinces: GeoRiskProvinceStat[];
+    districtsByProvince: Record<string, string[]>;
 }
 
 export interface CustomerStats {
@@ -193,6 +194,41 @@ export interface CustomerFrequencyBucket {
     customers: number;
 }
 
+export interface FunnelSummaryStats {
+    totalCodOrders: number;
+    approvedCodOrders: number;
+    paidCodOrders: number;
+    completedCodOrders: number;
+    customerCancelledCodOrders: number;
+    rejectedCodOrders: number;
+    failedCodOrders: number;
+
+    approvalRate: number;            // % Approved / COD
+    paymentConversionRate: number;   // % Paid / Approved
+    deliverySuccessRate: number;
+    failedRate: number;
+}
+
+export interface FunnelStagePoint {
+    date: string;
+    codOrders: number;
+    approved: number;
+    paid: number;
+    completed: number;
+    failed: number;
+}
+
+export interface FunnelReasonPoint {
+    reason: string;
+    count: number;
+}
+
+export interface TimeToConfirmPoint {
+    date: string;
+    avgHours: number;
+    confirmations: number;
+}
+
 interface UseDashboardStatsResult {
     loading: boolean;
     error: string | null;
@@ -220,6 +256,11 @@ interface UseDashboardStatsResult {
     productStats: ProductStats;
     channelStats: ChannelStats;
     sourceStats: SourceStats;
+    funnelSummary: FunnelSummaryStats;
+    funnelStageSeries: FunnelStagePoint[];
+    cancelReasonBreakdown: FunnelReasonPoint[];
+    rejectReasonBreakdown: FunnelReasonPoint[];
+    timeToConfirmSeries: TimeToConfirmPoint[];
 }
 
 /**
@@ -279,6 +320,8 @@ export function useDashboardStats(
                             "paid_at",
                             "customer_confirmed_at",
                             "province",
+                            "district",
+                            "ward",
                             "product",
                         ].join(",")
                     )
@@ -611,6 +654,31 @@ export function useDashboardStats(
         [allOrdersForCustomers]
     );
 
+    const funnelSummary = useMemo(
+        () => computeFunnelSummaryStats(orders),
+        [orders]
+    );
+
+    const funnelStageSeries = useMemo(
+        () => buildFunnelStageSeries(orders, aggregation),
+        [orders, aggregation]
+    );
+
+    const cancelReasonBreakdown = useMemo(
+        () => buildCancelReasonBreakdown(orders),
+        [orders]
+    );
+
+    const rejectReasonBreakdown = useMemo(
+        () => buildRejectReasonBreakdown(orders),
+        [orders]
+    );
+
+    const timeToConfirmSeries = useMemo(
+        () => buildTimeToConfirmSeries(orders, aggregation),
+        [orders, aggregation]
+    );
+
     return {
         loading,
         error,
@@ -634,6 +702,11 @@ export function useDashboardStats(
         customersByPaymentMethod,
         customerFrequencyBuckets,
         sourceStats,
+        funnelSummary,
+        funnelStageSeries,
+        cancelReasonBreakdown,
+        rejectReasonBreakdown,
+        timeToConfirmSeries,
     };
 }
 
@@ -758,6 +831,46 @@ function isCodPaymentPending(order: Order): boolean {
     }
 
     return false;
+}
+
+// ---- FUNNEL HELPERS ----
+
+function isCustomerCancelled(order: Order): boolean {
+    return order.status === ORDER_STATUS.CUSTOMER_CANCELLED;
+}
+
+function isRejectedByShop(order: Order): boolean {
+    return order.status === ORDER_STATUS.ORDER_REJECTED;
+}
+
+// Các trạng thái vẫn đang “chưa duyệt” cho Medium/High
+const FUNNEL_PENDING_STATUSES = new Set<Order["status"]>([
+    ORDER_STATUS.PENDING_REVIEW,
+    ORDER_STATUS.VERIFICATION_REQUIRED,
+    ORDER_STATUS.ORDER_CONFIRMATION_SENT,
+]);
+
+// COD đã được Approved:
+// - Low risk COD: auto approved (trừ khi bị reject thẳng)
+// - Medium/High: không còn ở pending + không bị reject
+function isApprovedCod(order: Order): boolean {
+    if (!isCOD(order)) return false;
+
+    if (isRejectedByShop(order)) return false;
+
+    const level = order.risk_level?.toLowerCase() || "";
+
+    // Low risk → auto approved
+    if (level === "low" || !level) {
+        return true;
+    }
+
+    // Medium / High → approved khi đã ra khỏi pending
+    if (FUNNEL_PENDING_STATUSES.has(order.status)) {
+        return false;
+    }
+
+    return true;
 }
 
 function computeStats(orders: Order[]): DashboardStats {
@@ -1184,11 +1297,14 @@ function computeGeoRiskStats(orders: Order[]): GeoRiskStats {
             )
             : undefined;
 
+    const districtsByProvince = buildDistrictsByProvince(orders as any[]);
+
     return {
         highestRiskProvince,
         safestProvince,
         topRevenueProvince,
         provinces: provinceStats,
+        districtsByProvince,
     };
 }
 
@@ -1841,4 +1957,222 @@ function buildOrdersByProductChart(orders: Order[]): ProductOrdersPoint[] {
     // Sort nhiều đơn nhất lên đầu, lấy top 5
     all.sort((a, b) => b.orderCount - a.orderCount);
     return all.slice(0, 5);
+}
+
+function buildDistrictsByProvince(orders: any[]) {
+    const map = new Map<string, Set<string>>();
+
+    for (const o of orders) {
+        const province = o.province;
+        const district = o.district;
+
+        if (!province || !district) continue;
+
+        if (!map.has(province)) {
+            map.set(province, new Set());
+        }
+        map.get(province)!.add(district);
+    }
+
+    const result: Record<string, string[]> = {};
+    for (const [province, districts] of map.entries()) {
+        result[province] = Array.from(districts).sort((a, b) =>
+            a.localeCompare(b, "vi")
+        );
+    }
+
+    return result;
+}
+
+function pct(num: number, denom: number): number {
+    if (!denom || denom <= 0) return 0;
+    return Math.round((num / denom) * 1000) / 10; // 1 decimal
+}
+
+function computeFunnelSummaryStats(orders: Order[]): FunnelSummaryStats {
+    const codOrders = orders.filter(isCOD);
+
+    let approved = 0;
+    let paid = 0;
+    let completed = 0;
+    let customerCancelled = 0;
+    let rejected = 0;
+
+    for (const o of codOrders) {
+        if (isApprovedCod(o)) approved++;
+        if (hasBeenPaid(o)) paid++;
+        if (o.status === ORDER_STATUS.COMPLETED) completed++;
+        if (isCustomerCancelled(o)) customerCancelled++;
+        if (isRejectedByShop(o)) rejected++;
+    }
+
+    const totalCodOrders = codOrders.length;
+    const failed = customerCancelled + rejected;
+
+    return {
+        totalCodOrders,
+        approvedCodOrders: approved,
+        paidCodOrders: paid,
+        completedCodOrders: completed,
+        customerCancelledCodOrders: customerCancelled,
+        rejectedCodOrders: rejected,
+        failedCodOrders: failed,
+
+        approvalRate: pct(approved, totalCodOrders),
+        paymentConversionRate: pct(paid, approved),
+        deliverySuccessRate: pct(completed, approved),
+        failedRate: pct(failed, totalCodOrders),
+    };
+}
+
+function buildFunnelStageSeries(
+    orders: Order[],
+    aggregation: AggregationMode
+): FunnelStagePoint[] {
+    const map = new Map<
+        string,
+        {
+            codOrders: number;
+            approved: number;
+            paid: number;
+            completed: number;
+            failed: number;
+        }
+    >();
+
+    for (const o of orders) {
+        if (!isCOD(o)) continue;
+
+        const baseDate = o.order_date
+            ? o.order_date.slice(0, 10)
+            : o.created_at
+                ? o.created_at.slice(0, 10)
+                : "";
+        if (!baseDate) continue;
+
+        let dateKey = baseDate;
+        if (aggregation === "month") {
+            const [y, m] = baseDate.split("-");
+            dateKey = `${y}-${m}`;
+        }
+
+        if (!map.has(dateKey)) {
+            map.set(dateKey, {
+                codOrders: 0,
+                approved: 0,
+                paid: 0,
+                completed: 0,
+                failed: 0,
+            });
+        }
+
+        const row = map.get(dateKey)!;
+        row.codOrders += 1;
+
+        if (isApprovedCod(o)) row.approved += 1;
+        if (hasBeenPaid(o)) row.paid += 1;
+        if (o.status === ORDER_STATUS.COMPLETED) row.completed += 1;
+        if (isCustomerCancelled(o) || isRejectedByShop(o)) row.failed += 1;
+    }
+
+    return Array.from(map.entries())
+        .sort(([a], [b]) => (a < b ? -1 : 1))
+        .map(([date, value]) => ({
+            date,
+            ...value,
+        }));
+}
+
+function buildCancelReasonBreakdown(orders: Order[]): FunnelReasonPoint[] {
+    const map = new Map<string, number>();
+
+    for (const o of orders) {
+        if (!isCOD(o)) continue;
+        if (!isCustomerCancelled(o)) continue;
+
+        const raw =
+            (o as any).cancel_reason as string | null | undefined;
+        const key =
+            raw && raw.trim().length > 0
+                ? raw.trim()
+                : "Other / Unspecified";
+
+        map.set(key, (map.get(key) ?? 0) + 1);
+    }
+
+    const all: FunnelReasonPoint[] = Array.from(map.entries()).map(
+        ([reason, count]) => ({ reason, count })
+    );
+
+    all.sort((a, b) => b.count - a.count);
+    return all;
+}
+
+function buildRejectReasonBreakdown(orders: Order[]): FunnelReasonPoint[] {
+    const map = new Map<string, number>();
+
+    for (const o of orders) {
+        if (!isCOD(o)) continue;
+        if (!isRejectedByShop(o)) continue;
+
+        const raw =
+            (o as any).reject_reason as string | null | undefined;
+        const key =
+            raw && raw.trim().length > 0
+                ? raw.trim()
+                : "Other / Unspecified";
+
+        map.set(key, (map.get(key) ?? 0) + 1);
+    }
+
+    const all: FunnelReasonPoint[] = Array.from(map.entries()).map(
+        ([reason, count]) => ({ reason, count })
+    );
+
+    all.sort((a, b) => b.count - a.count);
+    return all;
+}
+
+function buildTimeToConfirmSeries(
+    orders: Order[],
+    aggregation: AggregationMode
+): TimeToConfirmPoint[] {
+    const map = new Map<string, { totalHours: number; count: number }>();
+
+    for (const o of orders) {
+        if (!isCOD(o)) continue;
+        if (!o.customer_confirmed_at) continue;
+
+        const confirmedStr = o.customer_confirmed_at;
+        const confirmedAt = new Date(confirmedStr);
+
+        const orderBaseStr = o.order_date ?? o.created_at;
+        if (!orderBaseStr) continue;
+
+        const orderAt = new Date(orderBaseStr);
+
+        const diffMs = confirmedAt.getTime() - orderAt.getTime();
+        if (!Number.isFinite(diffMs) || diffMs < 0) continue;
+
+        const hours = diffMs / 36e5; // ms → hours
+
+        let dateKey = confirmedStr.slice(0, 10);
+        if (aggregation === "month") {
+            const [y, m] = dateKey.split("-");
+            dateKey = `${y}-${m}`;
+        }
+
+        const row = map.get(dateKey) ?? { totalHours: 0, count: 0 };
+        row.totalHours += hours;
+        row.count += 1;
+        map.set(dateKey, row);
+    }
+
+    return Array.from(map.entries())
+        .sort(([a], [b]) => (a < b ? -1 : 1))
+        .map(([date, { totalHours, count }]) => ({
+            date,
+            avgHours: count > 0 ? Math.round((totalHours / count) * 10) / 10 : 0,
+            confirmations: count,
+        }));
 }
