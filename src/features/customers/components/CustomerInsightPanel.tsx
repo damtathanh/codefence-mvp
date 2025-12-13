@@ -132,7 +132,7 @@ export const CustomerInsightPanel: React.FC<CustomerInsightPanelProps> = ({
                 <div className="px-6 py-4 border-b border-white/10 flex items-center justify-between gap-4">
                     <div className="flex-1 min-w-0">
                         <h2 className="text-xl font-semibold text-white truncate">
-                            {customer.lastName || 'Customer'}
+                            {customer.fullName || 'Customer'}
                         </h2>
                         <p className="text-sm text-white/50 mt-1">{customer.phone}</p>
                         <p className="text-sm text-white/60 mt-1 leading-relaxed">
