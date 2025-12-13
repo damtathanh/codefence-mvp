@@ -160,6 +160,13 @@ interface SourceAgg {
     conversionRate: number;
 }
 
+export interface VerificationOutcomePoint {
+    date: string;
+    approved: number;
+    customerCancelled: number;
+    rejected: number;
+}
+
 export interface SourceStats {
     totalSources: number;
     topSourceByRevenue?: SourceAgg;
@@ -261,6 +268,7 @@ interface UseDashboardStatsResult {
     cancelReasonBreakdown: FunnelReasonPoint[];
     rejectReasonBreakdown: FunnelReasonPoint[];
     timeToConfirmSeries: TimeToConfirmPoint[];
+    verificationOutcomes: VerificationOutcomePoint[];
 }
 
 /**
@@ -654,6 +662,11 @@ export function useDashboardStats(
         [allOrdersForCustomers]
     );
 
+    const verificationOutcomes = useMemo<VerificationOutcomePoint[]>(
+        () => buildVerificationOutcomeSeries(orders, aggregation),
+        [orders, aggregation]
+    );
+
     const funnelSummary = useMemo(
         () => computeFunnelSummaryStats(orders),
         [orders]
@@ -707,6 +720,7 @@ export function useDashboardStats(
         cancelReasonBreakdown,
         rejectReasonBreakdown,
         timeToConfirmSeries,
+        verificationOutcomes,
     };
 }
 
@@ -1889,6 +1903,70 @@ function buildRevenueDashboard(
                 0,
                 value.totalRevenue - value.convertedRevenue
             ),
+        }));
+}
+
+function isMediumOrHighRiskCOD(order: Order): boolean {
+    if (!isCOD(order)) return false;
+    const level = order.risk_level?.toLowerCase();
+    return level === "medium" || level === "high";
+}
+
+function buildVerificationOutcomeSeries(
+    orders: Order[],
+    aggregation: AggregationMode
+): VerificationOutcomePoint[] {
+    // Chỉ xét COD Medium/High risk
+    const candidates = orders.filter(isMediumOrHighRiskCOD);
+
+    const approvedStatuses = new Set<Order["status"]>([
+        ORDER_STATUS.ORDER_CONFIRMATION_SENT,
+        ORDER_STATUS.CUSTOMER_CONFIRMED,
+        ORDER_STATUS.DELIVERING,
+        ORDER_STATUS.ORDER_PAID,
+        ORDER_STATUS.COMPLETED,
+    ]);
+
+    const customerCancelledStatus = ORDER_STATUS.CUSTOMER_CANCELLED;
+    const rejectedStatus = ORDER_STATUS.ORDER_REJECTED;
+
+    const map = new Map<
+        string,
+        { approved: number; customerCancelled: number; rejected: number }
+    >();
+
+    for (const o of candidates) {
+        const baseDate =
+            (o.order_date ? o.order_date.slice(0, 10) : undefined) ??
+            (o.created_at ? o.created_at.slice(0, 10) : undefined) ??
+            "";
+        if (!baseDate) continue;
+
+        let dateKey = baseDate;
+        if (aggregation === "month") {
+            const [y, m] = baseDate.split("-");
+            dateKey = `${y}-${m}`; // YYYY-MM
+        }
+
+        if (!map.has(dateKey)) {
+            map.set(dateKey, { approved: 0, customerCancelled: 0, rejected: 0 });
+        }
+        const row = map.get(dateKey)!;
+
+        if (approvedStatuses.has(o.status)) {
+            row.approved += 1;
+        } else if (o.status === customerCancelledStatus) {
+            row.customerCancelled += 1;
+        } else if (o.status === rejectedStatus) {
+            row.rejected += 1;
+        }
+    }
+
+    return Array.from(map.entries())
+        .sort(([a], [b]) => (a < b ? -1 : 1))
+        .map(([date, value]) => ({
+            date,
+            ...value,
         }));
 }
 

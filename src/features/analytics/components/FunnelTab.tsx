@@ -43,6 +43,7 @@ export const FunnelTab: React.FC<FunnelTabProps> = ({
         cancelReasonBreakdown,
         rejectReasonBreakdown,
         timeToConfirmSeries,
+        verificationOutcomes,
     } = useDashboardStats(dateRange, customFrom, customTo);
 
     const {
@@ -490,6 +491,80 @@ export const FunnelTab: React.FC<FunnelTabProps> = ({
                         </ResponsiveContainer>
                     )}
                 </ChartCard>,
+
+                // 6) Verification Required Breakdown
+                <ChartCard
+                    title="Verification Required Breakdown"
+                    subtitle="Medium/High risk COD – Approved vs Cancel vs Reject"
+                    compact
+                    className="h-full"
+                >
+                    {verificationOutcomes.length === 0 ? (
+                        <div className="flex h-full items-center justify-center text-xs text-white/40">
+                            No verification outcomes in this date range
+                        </div>
+                    ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart
+                                data={verificationOutcomes}
+                                margin={{ top: 6, right: 10, left: 0, bottom: 0 }}
+                                barCategoryGap="22%"
+                                barGap={2}
+                            >
+                                <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" vertical={false} />
+
+                                <XAxis
+                                    dataKey="date"
+                                    tick={{ fontSize: 10, fill: "#E5E7EB" }}
+                                    axisLine={false}
+                                    tickLine={false}
+                                    interval="preserveStartEnd"
+                                />
+
+                                <YAxis
+                                    tick={{ fontSize: 10, fill: "#E5E7EB" }}
+                                    allowDecimals={false}
+                                    axisLine={false}
+                                    tickLine={false}
+                                />
+
+                                <Tooltip
+                                    contentStyle={{
+                                        backgroundColor: "#020617",
+                                        border: "1px solid rgba(255,255,255,0.1)",
+                                        borderRadius: 8,
+                                        fontSize: 12,
+                                    }}
+                                    formatter={(value: any, name: any) => {
+                                        const label =
+                                            name === "approved"
+                                                ? "Approved"
+                                                : name === "customerCancelled"
+                                                    ? "Customer cancelled"
+                                                    : "Rejected";
+                                        return [`${value} orders`, label];
+                                    }}
+                                />
+
+                                <Legend
+                                    verticalAlign="bottom"
+                                    align="left"
+                                    iconType="circle"
+                                    wrapperStyle={{
+                                        paddingTop: 6,
+                                        color: "#E5E7EB",
+                                        fontSize: 12,
+                                        lineHeight: "14px",
+                                    }}
+                                />
+
+                                <Bar dataKey="approved" name="Approved" stackId="a" fill="#22c55e" radius={[4, 4, 0, 0]} />
+                                <Bar dataKey="customerCancelled" name="Customer cancelled" stackId="a" fill="#facc15" radius={[0, 0, 0, 0]} />
+                                <Bar dataKey="rejected" name="Rejected" stackId="a" fill="#f97373" radius={[0, 0, 4, 4]} />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    )}
+                </ChartCard>
             ]}
             chartHeight={200}
         />
