@@ -44,6 +44,7 @@ The content is organized as follows:
 public/
   map/
     vietnam.json
+  maintenance.html
 scripts/
   dev-server.cjs
 src/
@@ -305,6 +306,7 @@ repomix.config.json
 tailwind.config.js
 tsconfig.json
 tsconfig.node.json
+vercel.json
 vite.config.ts
 </directory_structure>
 
@@ -1987,280 +1989,6 @@ export const ResetPassword: React.FC = () => {
       </div>
     </div>
   );
-};
-</file>
-
-<file path="src/features/customers/components/CustomerInsightPanel.tsx">
-import React, { useMemo } from 'react';
-import { createPortal } from 'react-dom';
-import type { CustomerStats } from '../services/customersService';
-import type { Order } from '../../../types/supabase';
-import { StatusBadge } from '../../../components/dashboard/StatusBadge';
-
-interface CustomerInsightPanelProps {
-    customer: CustomerStats | null;
-    orders: Order[];
-    isOpen: boolean;
-    onClose: () => void;
-}
-
-const formatDate = (iso: string | null | undefined) => {
-    if (!iso) return "N/A";
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return "N/A";
-    return d.toLocaleDateString(undefined, {
-        year: "numeric",
-        month: "short",
-        day: "2-digit",
-    });
-};
-
-const formatAmount = (amount: number | null | undefined) => {
-    if (amount === null || amount === undefined) return "N/A";
-    return amount.toLocaleString("vi-VN") + " ₫";
-};
-
-// Large Risk Badge Component
-const LargeRiskBadge: React.FC<{ score: number | null }> = ({ score }) => {
-    if (score === null || score === undefined) {
-        return (
-            <div className="px-4 py-1 rounded-lg border-2 border-gray-500/30 bg-gray-500/10">
-                <span className="text-xl font-bold text-gray-400">N/A</span>
-            </div>
-        );
-    }
-
-    let colorClass = '';
-    let label = '';
-
-    if (score <= 30) {
-        colorClass = 'border-green-500/50 bg-green-500/10 text-green-400';
-        label = 'Low Risk';
-    } else if (score <= 70) {
-        colorClass = 'border-yellow-500/50 bg-yellow-500/10 text-yellow-400';
-        label = 'Medium Risk';
-    } else {
-        colorClass = 'border-red-500/50 bg-red-500/10 text-red-400';
-        label = 'High Risk';
-    }
-
-    return (
-        <div className={`px-4 py-1 rounded-lg border-2 ${colorClass}`}>
-            <div className="flex items-center gap-2">
-                <span className="text-2xl font-bold">{score.toFixed(0)}</span>
-                <span className="text-sm font-medium opacity-80">{label}</span>
-            </div>
-        </div>
-    );
-};
-
-export const CustomerInsightPanel: React.FC<CustomerInsightPanelProps> = ({
-    customer,
-    orders,
-    isOpen,
-    onClose,
-}) => {
-    // Compute derived stats
-    const stats = useMemo(() => {
-        if (!customer) return null;
-
-        const totalAmount = orders.reduce((sum, order) => sum + (order.amount || 0), 0);
-        const aov = customer.totalOrders > 0 ? totalAmount / customer.totalOrders : 0;
-        const successRate = customer.totalOrders > 0 ? (customer.successCount / customer.totalOrders) * 100 : 0;
-        const failedRate = customer.totalOrders > 0 ? (customer.failedCount / customer.totalOrders) * 100 : 0;
-
-        // Get most recent order for address
-        const latest = orders[0];
-        let address = "No address available";
-
-        const structured = [
-            latest?.address_detail,
-            latest?.ward,
-            latest?.district,
-            latest?.province
-        ].filter(Boolean).join(", ");
-
-        if (structured) {
-            address = structured;
-        } else if (latest?.address) {
-            address = latest.address;
-        }
-
-        // Behavior signals
-        const behaviorSignals = [];
-        if (customer.successCount === 0) {
-            behaviorSignals.push("No successful orders yet");
-        }
-        if (customer.failedCount > 0) {
-            behaviorSignals.push(`${customer.failedCount} failed order${customer.failedCount > 1 ? 's' : ''}`);
-        }
-        if (address === "No address available") {
-            behaviorSignals.push("Address unverified");
-        } else if (customer.successCount > 0) {
-            behaviorSignals.push("Verified customer");
-        }
-
-        return {
-            totalAmount,
-            aov,
-            successRate,
-            failedRate,
-            address,
-            behaviorSignals,
-        };
-    }, [customer, orders]);
-
-    if (!isOpen || !customer || typeof document === 'undefined' || !stats) {
-        return null;
-    }
-
-    return createPortal(
-        <div className="fixed inset-0 z-50 flex justify-end">
-            {/* Backdrop */}
-            <div className="flex-1 bg-black/40" onClick={onClose} />
-
-            {/* Side Panel */}
-            <div className="w-full max-w-xl h-full bg-[#020617] border-l border-white/10 flex flex-col">
-                {/* Header */}
-                <div className="px-6 py-4 border-b border-white/10 flex items-center justify-between gap-4">
-                    <div className="flex-1 min-w-0">
-                        <h2 className="text-xl font-semibold text-white truncate">
-                            {customer.lastName || 'Customer'}
-                        </h2>
-                        <p className="text-sm text-white/50 mt-1">{customer.phone}</p>
-                        <p className="text-sm text-white/60 mt-1 leading-relaxed">
-                            {stats.address}
-                        </p>
-                    </div>
-                    <div className="flex items-center gap-3 flex-shrink-0">
-                        <LargeRiskBadge score={customer.customerRiskScore} />
-                        <button
-                            onClick={onClose}
-                            className="text-white/50 hover:text-white text-3xl leading-none px-2 transition-colors"
-                        >
-                            ×
-                        </button>
-                    </div>
-                </div>
-
-                {/* Body - Scrollable */}
-                <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
-                    {/* Behavior Signals Section */}
-                    {stats.behaviorSignals.length > 0 && (
-                        <div>
-                            <h3 className="text-sm font-semibold text-white/70 uppercase tracking-wider mb-3">
-                                Behavior Signals
-                            </h3>
-                            <div className="bg-white/5 rounded-lg p-4 border border-white/10">
-                                <ul className="space-y-2">
-                                    {stats.behaviorSignals.map((signal, idx) => (
-                                        <li key={idx} className="text-sm text-white/80 flex items-start gap-2">
-                                            <span className="text-white/40 mt-0.5">•</span>
-                                            <span>{signal}</span>
-                                        </li>
-                                    ))}
-                                </ul>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Customer Profile Section */}
-                    <div>
-                        <h3 className="text-sm font-semibold text-white/70 uppercase tracking-wider mb-4">
-                            Customer Profile
-                        </h3>
-                        <div className="grid grid-cols-2 gap-4">
-                            {/* Total Amount Purchased */}
-                            <div className="bg-white/5 rounded-lg p-4 border border-white/10">
-                                <p className="text-xs text-white/50 mb-1">Total Purchase</p>
-                                <p className="text-lg font-bold text-white">
-                                    {formatAmount(stats.totalAmount)}
-                                </p>
-                            </div>
-
-                            {/* Average Order Value */}
-                            <div className="bg-white/5 rounded-lg p-4 border border-white/10">
-                                <p className="text-xs text-white/50 mb-1">Avg Order Value</p>
-                                <p className="text-lg font-bold text-white">
-                                    {formatAmount(stats.aov)}
-                                </p>
-                            </div>
-
-                            {/* Success Rate */}
-                            <div className="bg-white/5 rounded-lg p-4 border border-white/10">
-                                <p className="text-xs text-white/50 mb-1">Success Rate</p>
-                                <p className="text-lg font-bold text-green-400">
-                                    {stats.successRate.toFixed(1)}%
-                                </p>
-                            </div>
-
-                            {/* Failed Rate */}
-                            <div className="bg-white/5 rounded-lg p-4 border border-white/10">
-                                <p className="text-xs text-white/50 mb-1">Failed Rate</p>
-                                <p className="text-lg font-bold text-red-400">
-                                    {stats.failedRate.toFixed(1)}%
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Order History Section */}
-                    <div>
-                        <h3 className="text-sm font-semibold text-white/70 uppercase tracking-wider mb-4">
-                            Order History ({orders.length})
-                        </h3>
-                        {orders.length === 0 ? (
-                            <div className="bg-white/5 rounded-lg p-6 border border-white/10 text-center">
-                                <p className="text-white/50">No orders for this customer yet.</p>
-                            </div>
-                        ) : (
-                            <div className="bg-white/5 rounded-lg border border-white/10 overflow-hidden">
-                                <div className="overflow-x-auto">
-                                    <table className="w-full">
-                                        <thead className="bg-white/5 border-b border-white/10">
-                                            <tr>
-                                                <th className="px-4 py-3 text-left text-xs font-semibold text-white/70">
-                                                    Order ID
-                                                </th>
-                                                <th className="px-4 py-3 text-left text-xs font-semibold text-white/70">
-                                                    Amount
-                                                </th>
-                                                <th className="px-4 py-3 text-left text-xs font-semibold text-white/70">
-                                                    Status
-                                                </th>
-                                                <th className="px-4 py-3 text-left text-xs font-semibold text-white/70">
-                                                    Date
-                                                </th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-white/10">
-                                            {orders.map((order) => (
-                                                <tr key={order.id} className="hover:bg-white/5 transition-colors">
-                                                    <td className="px-4 py-3 text-sm text-white/90">
-                                                        {order.order_id || order.id.slice(0, 8)}
-                                                    </td>
-                                                    <td className="px-4 py-3 text-sm text-white/90">
-                                                        {formatAmount(order.amount)}
-                                                    </td>
-                                                    <td className="px-4 py-3 text-sm">
-                                                        <StatusBadge status={order.status} />
-                                                    </td>
-                                                    <td className="px-4 py-3 text-sm text-white/70">
-                                                        {formatDate(order.created_at)}
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            </div>
-        </div>,
-        document.body
-    );
 };
 </file>
 
@@ -6196,6 +5924,56 @@ export default defineConfig({
 })
 </file>
 
+<file path="public/maintenance.html">
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>CodFence – Maintenance</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        body {
+            margin: 0;
+            font-family: Inter, system-ui, -apple-system;
+            background: #020617;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            text-align: center;
+        }
+
+        .box {
+            max-width: 420px;
+        }
+
+        h1 {
+            font-size: 28px;
+            margin-bottom: 12px;
+        }
+
+        p {
+            color: #94a3b8;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="box">
+        <h1>🚧 CodFence is updating</h1>
+        <p>
+            We’re rolling out improvements.<br />
+            Please check back shortly.
+        </p>
+    </div>
+</body>
+
+</html>
+</file>
+
 <file path="src/components/dashboard/BulkCreateProductsModal.tsx">
 import React, { useState, useEffect } from 'react';
 import { Button } from '../ui/Button';
@@ -8343,6 +8121,280 @@ export { authService } from './services/authService';
 export type { LoginResult, SignupResult } from './services/authService';
 </file>
 
+<file path="src/features/customers/components/CustomerInsightPanel.tsx">
+import React, { useMemo } from 'react';
+import { createPortal } from 'react-dom';
+import type { CustomerStats } from '../services/customersService';
+import type { Order } from '../../../types/supabase';
+import { StatusBadge } from '../../../components/dashboard/StatusBadge';
+
+interface CustomerInsightPanelProps {
+    customer: CustomerStats | null;
+    orders: Order[];
+    isOpen: boolean;
+    onClose: () => void;
+}
+
+const formatDate = (iso: string | null | undefined) => {
+    if (!iso) return "N/A";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "N/A";
+    return d.toLocaleDateString(undefined, {
+        year: "numeric",
+        month: "short",
+        day: "2-digit",
+    });
+};
+
+const formatAmount = (amount: number | null | undefined) => {
+    if (amount === null || amount === undefined) return "N/A";
+    return amount.toLocaleString("vi-VN") + " ₫";
+};
+
+// Large Risk Badge Component
+const LargeRiskBadge: React.FC<{ score: number | null }> = ({ score }) => {
+    if (score === null || score === undefined) {
+        return (
+            <div className="px-4 py-1 rounded-lg border-2 border-gray-500/30 bg-gray-500/10">
+                <span className="text-xl font-bold text-gray-400">N/A</span>
+            </div>
+        );
+    }
+
+    let colorClass = '';
+    let label = '';
+
+    if (score <= 30) {
+        colorClass = 'border-green-500/50 bg-green-500/10 text-green-400';
+        label = 'Low Risk';
+    } else if (score <= 70) {
+        colorClass = 'border-yellow-500/50 bg-yellow-500/10 text-yellow-400';
+        label = 'Medium Risk';
+    } else {
+        colorClass = 'border-red-500/50 bg-red-500/10 text-red-400';
+        label = 'High Risk';
+    }
+
+    return (
+        <div className={`px-4 py-1 rounded-lg border-2 ${colorClass}`}>
+            <div className="flex items-center gap-2">
+                <span className="text-2xl font-bold">{score.toFixed(0)}</span>
+                <span className="text-sm font-medium opacity-80">{label}</span>
+            </div>
+        </div>
+    );
+};
+
+export const CustomerInsightPanel: React.FC<CustomerInsightPanelProps> = ({
+    customer,
+    orders,
+    isOpen,
+    onClose,
+}) => {
+    // Compute derived stats
+    const stats = useMemo(() => {
+        if (!customer) return null;
+
+        const totalAmount = orders.reduce((sum, order) => sum + (order.amount || 0), 0);
+        const aov = customer.totalOrders > 0 ? totalAmount / customer.totalOrders : 0;
+        const successRate = customer.totalOrders > 0 ? (customer.successCount / customer.totalOrders) * 100 : 0;
+        const failedRate = customer.totalOrders > 0 ? (customer.failedCount / customer.totalOrders) * 100 : 0;
+
+        // Get most recent order for address
+        const latest = orders[0];
+        let address = "No address available";
+
+        const structured = [
+            latest?.address_detail,
+            latest?.ward,
+            latest?.district,
+            latest?.province
+        ].filter(Boolean).join(", ");
+
+        if (structured) {
+            address = structured;
+        } else if (latest?.address) {
+            address = latest.address;
+        }
+
+        // Behavior signals
+        const behaviorSignals = [];
+        if (customer.successCount === 0) {
+            behaviorSignals.push("No successful orders yet");
+        }
+        if (customer.failedCount > 0) {
+            behaviorSignals.push(`${customer.failedCount} failed order${customer.failedCount > 1 ? 's' : ''}`);
+        }
+        if (address === "No address available") {
+            behaviorSignals.push("Address unverified");
+        } else if (customer.successCount > 0) {
+            behaviorSignals.push("Verified customer");
+        }
+
+        return {
+            totalAmount,
+            aov,
+            successRate,
+            failedRate,
+            address,
+            behaviorSignals,
+        };
+    }, [customer, orders]);
+
+    if (!isOpen || !customer || typeof document === 'undefined' || !stats) {
+        return null;
+    }
+
+    return createPortal(
+        <div className="fixed inset-0 z-50 flex justify-end">
+            {/* Backdrop */}
+            <div className="flex-1 bg-black/40" onClick={onClose} />
+
+            {/* Side Panel */}
+            <div className="w-full max-w-xl h-full bg-[#020617] border-l border-white/10 flex flex-col">
+                {/* Header */}
+                <div className="px-6 py-4 border-b border-white/10 flex items-center justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                        <h2 className="text-xl font-semibold text-white truncate">
+                            {customer.fullName || 'Customer'}
+                        </h2>
+                        <p className="text-sm text-white/50 mt-1">{customer.phone}</p>
+                        <p className="text-sm text-white/60 mt-1 leading-relaxed">
+                            {stats.address}
+                        </p>
+                    </div>
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                        <LargeRiskBadge score={customer.customerRiskScore} />
+                        <button
+                            onClick={onClose}
+                            className="text-white/50 hover:text-white text-3xl leading-none px-2 transition-colors"
+                        >
+                            ×
+                        </button>
+                    </div>
+                </div>
+
+                {/* Body - Scrollable */}
+                <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
+                    {/* Behavior Signals Section */}
+                    {stats.behaviorSignals.length > 0 && (
+                        <div>
+                            <h3 className="text-sm font-semibold text-white/70 uppercase tracking-wider mb-3">
+                                Behavior Signals
+                            </h3>
+                            <div className="bg-white/5 rounded-lg p-4 border border-white/10">
+                                <ul className="space-y-2">
+                                    {stats.behaviorSignals.map((signal, idx) => (
+                                        <li key={idx} className="text-sm text-white/80 flex items-start gap-2">
+                                            <span className="text-white/40 mt-0.5">•</span>
+                                            <span>{signal}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Customer Profile Section */}
+                    <div>
+                        <h3 className="text-sm font-semibold text-white/70 uppercase tracking-wider mb-4">
+                            Customer Profile
+                        </h3>
+                        <div className="grid grid-cols-2 gap-4">
+                            {/* Total Amount Purchased */}
+                            <div className="bg-white/5 rounded-lg p-4 border border-white/10">
+                                <p className="text-xs text-white/50 mb-1">Total Purchase</p>
+                                <p className="text-lg font-bold text-white">
+                                    {formatAmount(stats.totalAmount)}
+                                </p>
+                            </div>
+
+                            {/* Average Order Value */}
+                            <div className="bg-white/5 rounded-lg p-4 border border-white/10">
+                                <p className="text-xs text-white/50 mb-1">Avg Order Value</p>
+                                <p className="text-lg font-bold text-white">
+                                    {formatAmount(stats.aov)}
+                                </p>
+                            </div>
+
+                            {/* Success Rate */}
+                            <div className="bg-white/5 rounded-lg p-4 border border-white/10">
+                                <p className="text-xs text-white/50 mb-1">Success Rate</p>
+                                <p className="text-lg font-bold text-green-400">
+                                    {stats.successRate.toFixed(1)}%
+                                </p>
+                            </div>
+
+                            {/* Failed Rate */}
+                            <div className="bg-white/5 rounded-lg p-4 border border-white/10">
+                                <p className="text-xs text-white/50 mb-1">Failed Rate</p>
+                                <p className="text-lg font-bold text-red-400">
+                                    {stats.failedRate.toFixed(1)}%
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Order History Section */}
+                    <div>
+                        <h3 className="text-sm font-semibold text-white/70 uppercase tracking-wider mb-4">
+                            Order History ({orders.length})
+                        </h3>
+                        {orders.length === 0 ? (
+                            <div className="bg-white/5 rounded-lg p-6 border border-white/10 text-center">
+                                <p className="text-white/50">No orders for this customer yet.</p>
+                            </div>
+                        ) : (
+                            <div className="bg-white/5 rounded-lg border border-white/10 overflow-hidden">
+                                <div className="overflow-x-auto">
+                                    <table className="w-full">
+                                        <thead className="bg-white/5 border-b border-white/10">
+                                            <tr>
+                                                <th className="px-4 py-3 text-left text-xs font-semibold text-white/70">
+                                                    Order ID
+                                                </th>
+                                                <th className="px-4 py-3 text-left text-xs font-semibold text-white/70">
+                                                    Amount
+                                                </th>
+                                                <th className="px-4 py-3 text-left text-xs font-semibold text-white/70">
+                                                    Status
+                                                </th>
+                                                <th className="px-4 py-3 text-left text-xs font-semibold text-white/70">
+                                                    Date
+                                                </th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-white/10">
+                                            {orders.map((order) => (
+                                                <tr key={order.id} className="hover:bg-white/5 transition-colors">
+                                                    <td className="px-4 py-3 text-sm text-white/90">
+                                                        {order.order_id || order.id.slice(0, 8)}
+                                                    </td>
+                                                    <td className="px-4 py-3 text-sm text-white/90">
+                                                        {formatAmount(order.amount)}
+                                                    </td>
+                                                    <td className="px-4 py-3 text-sm">
+                                                        <StatusBadge status={order.status} />
+                                                    </td>
+                                                    <td className="px-4 py-3 text-sm text-white/70">
+                                                        {formatDate(order.created_at)}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+        </div>,
+        document.body
+    );
+};
+</file>
+
 <file path="src/features/invoices/repositories/invoicesRepository.ts">
 import { supabase } from "../../../lib/supabaseClient";
 import type { InvoiceStatus } from "../services/invoiceTypes";
@@ -9143,25 +9195,6 @@ module.exports = {
 }
 </file>
 
-<file path="index.html">
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <title>CodFence - Smart COD Risk Protection</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
-</html>
-</file>
-
 <file path="MIGRATION_GUIDE.md">
 # 🚀 Database Migration Guide for CodFence MVP
 
@@ -9433,6 +9466,18 @@ export default {
     "allowSyntheticDefaultImports": true
   },
   "include": ["vite.config.ts"]
+}
+</file>
+
+<file path="vercel.json">
+{
+    "redirects": [
+        {
+            "source": "/((?!maintenance.html).*)",
+            "destination": "/maintenance.html",
+            "permanent": false
+        }
+    ]
 }
 </file>
 
@@ -14361,581 +14406,6 @@ export const CustomersTab: React.FC<CustomersTabProps> = ({
 };
 </file>
 
-<file path="src/features/analytics/components/FunnelTab.tsx">
-import React, { useMemo } from "react";
-import {
-    LineChart,
-    Line,
-    BarChart,
-    Bar,
-    XAxis,
-    YAxis,
-    CartesianGrid,
-    Tooltip,
-    Legend,
-    ResponsiveContainer,
-} from "recharts";
-import { CheckCircle, XCircle, Clock, Timer, Activity } from "lucide-react";
-
-import { AnalyticsLayout } from "./AnalyticsLayout";
-import { StatCard } from "../../../components/analytics/StatCard";
-import { ChartCard } from "../../../components/analytics/ChartCard";
-import {
-    useDashboardStats,
-    type DashboardDateRange,
-    type FunnelStagePoint,
-} from "../../dashboard/useDashboardStats";
-
-interface FunnelTabProps {
-    dateRange: DashboardDateRange;
-    customFrom?: string;
-    customTo?: string;
-}
-
-const formatPercent = (v: number) => `${v.toFixed(1)}%`;
-
-export const FunnelTab: React.FC<FunnelTabProps> = ({
-    dateRange,
-    customFrom,
-    customTo,
-}) => {
-    const {
-        loading,
-        error,
-        funnelSummary,
-        funnelStageSeries,
-        cancelReasonBreakdown,
-        rejectReasonBreakdown,
-        timeToConfirmSeries,
-        verificationOutcomes,
-    } = useDashboardStats(dateRange, customFrom, customTo);
-
-    const {
-        totalCodOrders,
-        approvedCodOrders,
-        paidCodOrders,
-        completedCodOrders,
-        customerCancelledCodOrders,
-        rejectedCodOrders,
-        approvalRate,
-        paymentConversionRate,
-        deliverySuccessRate,
-        failedRate,
-    } = funnelSummary;
-
-    // Health series – tính local từ stage data
-    const codHealthSeries = useMemo(
-        () =>
-            funnelStageSeries.map((p: FunnelStagePoint) => {
-                const { codOrders, approved, paid, completed, failed } = p;
-
-                const safePct = (num: number, denom: number) =>
-                    denom > 0
-                        ? Math.round((num / denom) * 1000) / 10
-                        : 0;
-
-                return {
-                    date: p.date,
-                    approvalRate: safePct(approved, codOrders),
-                    paymentRate: safePct(paid, approved),
-                    deliveryRate: safePct(completed, approved),
-                    failedRate: safePct(failed, codOrders),
-                };
-            }),
-        [funnelStageSeries]
-    );
-
-    if (loading) {
-        return (
-            <div className="flex h-64 items-center justify-center">
-                <p className="text-white/60">Loading funnel analytics...</p>
-            </div>
-        );
-    }
-
-    if (error) {
-        return (
-            <div className="flex h-64 items-center justify-center">
-                <p className="text-red-400">Error loading analytics: {error}</p>
-            </div>
-        );
-    }
-
-    return (
-        <AnalyticsLayout
-            summaryCards={[
-                // 1) Approval Rate
-                <StatCard
-                    key="approval-rate"
-                    className="px-4 py-2 h-[88px]"
-                    title="APPROVAL RATE"
-                    titleClass="text-[11px]"
-                    valueClass="text-xl"
-                    value={formatPercent(approvalRate)}
-                    subtitle={`${approvedCodOrders} approved / ${totalCodOrders} COD`}
-                    icon={<CheckCircle className="h-4 w-4 text-[#22c55e]" />}
-                    valueColor="#22c55e"
-                />,
-
-                // 2) Payment Conversion Rate
-                <StatCard
-                    key="payment-conversion"
-                    className="px-4 py-2 h-[88px]"
-                    title="PAYMENT CONVERSION"
-                    titleClass="text-[11px]"
-                    valueClass="text-xl"
-                    value={formatPercent(paymentConversionRate)}
-                    subtitle={`${paidCodOrders} paid / ${approvedCodOrders} approved`}
-                    icon={<Activity className="h-4 w-4 text-[#60a5fa]" />}
-                    valueColor="#60a5fa"
-                />,
-
-                // 3) Delivery Success Rate
-                <StatCard
-                    key="delivery-success"
-                    className="px-4 py-2 h-[88px]"
-                    title="DELIVERY SUCCESS"
-                    titleClass="text-[11px]"
-                    valueClass="text-xl"
-                    value={formatPercent(deliverySuccessRate)}
-                    subtitle={`${completedCodOrders} completed / ${approvedCodOrders} approved`}
-                    icon={<Clock className="h-4 w-4 text-[#a855f7]" />}
-                    valueColor="#a855f7"
-                />,
-
-                // 4) Failed Rate (Customer Cancel + Rejected)
-                <StatCard
-                    key="failed-rate"
-                    className="px-4 py-2 h-[88px]"
-                    title="FAILED RATE"
-                    titleClass="text-[11px]"
-                    valueClass="text-xl"
-                    value={formatPercent(failedRate)}
-                    subtitle={`${customerCancelledCodOrders} cancelled + ${rejectedCodOrders} rejected / ${totalCodOrders} COD`}
-                    icon={<XCircle className="h-4 w-4 text-[#f97373]" />}
-                    valueColor="#f97373"
-                />,
-            ]}
-            charts={[
-                // 1) COD Funnel over time
-                <ChartCard
-                    key="funnel-over-time"
-                    title="COD Verification Funnel"
-                    subtitle="COD → Approved → Completed → Paid"
-                    compact
-                    className="h-full"
-                >
-                    {funnelStageSeries.length === 0 ? (
-                        <div className="flex h-full items-center justify-center text-xs text-white/40">
-                            No COD funnel data in this date range
-                        </div>
-                    ) : (
-                        <ResponsiveContainer width="100%" height="100%">
-                            <LineChart
-                                data={funnelStageSeries}
-                                margin={{ top: 0, right: 10, bottom: 0 }}
-                            >
-                                <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
-                                <XAxis
-                                    dataKey="date"
-                                    tick={{ fontSize: 10, fill: "#E5E7EB" }}
-                                />
-                                <YAxis
-                                    tick={{ fontSize: 10, fill: "#E5E7EB" }}
-                                    allowDecimals={false}
-                                />
-                                <Tooltip
-                                    contentStyle={{
-                                        backgroundColor: "#020617",
-                                        border: "1px solid rgba(255,255,255,0.1)",
-                                        borderRadius: 8,
-                                    }}
-                                />
-                                <Legend
-                                    verticalAlign="top"
-                                    height={20}
-                                    wrapperStyle={{
-                                        paddingTop: 0,
-                                        color: "#E5E7EB",
-                                        fontSize: 11,
-                                    }}
-                                />
-                                <Line
-                                    type="monotone"
-                                    dataKey="codOrders"
-                                    name="COD Orders"
-                                    stroke="#64748b"
-                                    strokeWidth={1.5}
-                                    dot={false}
-                                />
-                                <Line
-                                    type="monotone"
-                                    dataKey="approved"
-                                    name="Approved"
-                                    stroke="#22c55e"
-                                    strokeWidth={2}
-                                    dot={{ r: 2, fill: "#22c55e" }}
-                                />
-                                <Line
-                                    type="monotone"
-                                    dataKey="completed"
-                                    name="Completed"
-                                    stroke="#a855f7"
-                                    strokeWidth={2}
-                                    dot={{ r: 2, fill: "#a855f7" }}
-                                />
-                                <Line
-                                    type="monotone"
-                                    dataKey="paid"
-                                    name="Paid"
-                                    stroke="#60a5fa"
-                                    strokeWidth={2}
-                                    dot={{ r: 2, fill: "#60a5fa" }}
-                                />
-                            </LineChart>
-                        </ResponsiveContainer>
-                    )}
-                </ChartCard>,
-
-                // 2) Customer Cancel Reasons
-                <ChartCard
-                    key="customer-cancel-reasons"
-                    title="Customer Cancel Reasons"
-                    subtitle="Only Customer Cancelled COD orders"
-                    compact
-                    className="h-full"
-                >
-                    {cancelReasonBreakdown.length === 0 ? (
-                        <div className="flex h-full items-center justify-center text-xs text-white/40">
-                            No customer cancel reasons in this date range
-                        </div>
-                    ) : (
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart
-                                data={cancelReasonBreakdown}
-                                layout="vertical"
-                                margin={{ top: 10, right: 10, left: 10 }}
-                            >
-                                <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
-                                <XAxis
-                                    type="number"
-                                    tick={{ fontSize: 10, fill: "#E5E7EB" }}
-                                    allowDecimals={false}
-                                />
-                                <YAxis
-                                    type="category"
-                                    dataKey="reason"
-                                    width={180}
-                                    interval={0}
-                                    tick={(props: any) => {
-                                        const { y, payload } = props;
-                                        return (
-                                            <text
-                                                x={12}
-                                                y={y + 4}
-                                                textAnchor="start"
-                                                fill="#E5E7EB"
-                                                fontSize={11}
-                                            >
-                                                {payload.value}
-                                            </text>
-                                        );
-                                    }}
-                                />
-                                <Tooltip
-                                    contentStyle={{
-                                        backgroundColor: "#020617",
-                                        border: "1px solid rgba(255,255,255,0.1)",
-                                        borderRadius: 8,
-                                    }}
-                                    formatter={(v: any) => `${v} orders`}
-                                />
-                                <Bar
-                                    dataKey="count"
-                                    name="Cancelled orders"
-                                    radius={[4, 4, 4, 4]}
-                                    fill="#facc15"
-                                />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    )}
-                </ChartCard>,
-
-                // 3) Shop Reject Reasons
-                <ChartCard
-                    key="reject-reasons"
-                    title="Shop Reject Reasons"
-                    subtitle="Risk / fraud rejections from merchant"
-                    compact
-                    className="h-full"
-                >
-                    {rejectReasonBreakdown.length === 0 ? (
-                        <div className="flex h-full items-center justify-center text-xs text-white/40">
-                            No reject reasons in this date range
-                        </div>
-                    ) : (
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart
-                                data={rejectReasonBreakdown}
-                                layout="vertical"
-                                margin={{ top: 10, right: 10, left: 10 }}
-                            >
-                                <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
-                                <XAxis
-                                    type="number"
-                                    tick={{ fontSize: 10, fill: "#E5E7EB" }}
-                                    allowDecimals={false}
-                                />
-                                <YAxis
-                                    type="category"
-                                    dataKey="reason"
-                                    width={180}
-                                    interval={0}
-                                    tick={(props: any) => {
-                                        const { y, payload } = props;
-                                        return (
-                                            <text
-                                                x={12}
-                                                y={y + 4}
-                                                textAnchor="start"
-                                                fill="#E5E7EB"
-                                                fontSize={11}
-                                            >
-                                                {payload.value}
-                                            </text>
-                                        );
-                                    }}
-                                />
-                                <Tooltip
-                                    contentStyle={{
-                                        backgroundColor: "#020617",
-                                        border: "1px solid rgba(255,255,255,0.1)",
-                                        borderRadius: 8,
-                                    }}
-                                    formatter={(v: any) => `${v} orders`}
-                                />
-                                <Bar
-                                    dataKey="count"
-                                    name="Rejected orders"
-                                    radius={[4, 4, 4, 4]}
-                                    fill="#f97373"
-                                />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    )}
-                </ChartCard>,
-
-                // 4) Time to Customer Confirmation
-                <ChartCard
-                    key="time-to-confirm"
-                    title="Time to Customer Confirmation"
-                    subtitle="Average hours from order to customer confirm"
-                    compact
-                    className="h-full"
-                >
-                    {timeToConfirmSeries.length === 0 ? (
-                        <div className="flex h-full items-center justify-center text-xs text-white/40">
-                            No confirmation data in this date range
-                        </div>
-                    ) : (
-                        <ResponsiveContainer width="100%" height="100%">
-                            <LineChart
-                                data={timeToConfirmSeries}
-                                margin={{ top: 0, right: 10, bottom: 0 }}
-                            >
-                                <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
-                                <XAxis
-                                    dataKey="date"
-                                    tick={{ fontSize: 10, fill: "#E5E7EB" }}
-                                />
-                                <YAxis
-                                    tick={{ fontSize: 10, fill: "#E5E7EB" }}
-                                    allowDecimals={false}
-                                />
-                                <Tooltip
-                                    contentStyle={{
-                                        backgroundColor: "#020617",
-                                        border: "1px solid rgba(255,255,255,0.1)",
-                                        borderRadius: 8,
-                                    }}
-                                    formatter={(v: any, _name: any, entry: any) => {
-                                        const hours = Number(v) || 0;
-                                        const c = entry.payload?.confirmations ?? 0;
-                                        return [
-                                            `${hours} hours (n=${c})`,
-                                            "Avg time to confirm",
-                                        ];
-                                    }}
-                                />
-                                <Line
-                                    type="monotone"
-                                    dataKey="avgHours"
-                                    name="Avg hours"
-                                    stroke="#60a5fa"
-                                    strokeWidth={2}
-                                    dot={{ r: 3, fill: "#60a5fa" }}
-                                />
-                            </LineChart>
-                        </ResponsiveContainer>
-                    )}
-                </ChartCard>,
-
-                // 5) COD Health Index
-                <ChartCard
-                    key="cod-health"
-                    title="COD Health Over Time"
-                    subtitle="Approval, Payment, Failed rates"
-                    compact
-                    className="h-full"
-                >
-                    {codHealthSeries.length === 0 ? (
-                        <div className="flex h-full items-center justify-center text-xs text-white/40">
-                            No COD health data in this date range
-                        </div>
-                    ) : (
-                        <ResponsiveContainer width="100%" height="100%">
-                            <LineChart
-                                data={codHealthSeries}
-                                margin={{ top: 0, right: 10, bottom: 0 }}
-                            >
-                                <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
-                                <XAxis
-                                    dataKey="date"
-                                    tick={{ fontSize: 10, fill: "#E5E7EB" }}
-                                />
-                                <YAxis
-                                    tick={{ fontSize: 10, fill: "#E5E7EB" }}
-                                    tickFormatter={(v) => `${v}%`}
-                                />
-                                <Tooltip
-                                    contentStyle={{
-                                        backgroundColor: "#020617",
-                                        border: "1px solid rgba(255,255,255,0.1)",
-                                        borderRadius: 8,
-                                    }}
-                                    formatter={(v: any, name: any) => [
-                                        `${v}%`,
-                                        name,
-                                    ]}
-                                />
-                                <Legend
-                                    verticalAlign="top"
-                                    height={20}
-                                    wrapperStyle={{
-                                        paddingTop: 0,
-                                        color: "#E5E7EB",
-                                        fontSize: 11,
-                                    }}
-                                />
-                                <Line
-                                    type="monotone"
-                                    dataKey="approvalRate"
-                                    name="Approval %"
-                                    stroke="#22c55e"
-                                    strokeWidth={2}
-                                    dot={true}
-                                />
-                                <Line
-                                    type="monotone"
-                                    dataKey="paymentRate"
-                                    name="Payment %"
-                                    stroke="#60a5fa"
-                                    strokeWidth={2}
-                                    dot={false}
-                                />
-                                <Line
-                                    type="monotone"
-                                    dataKey="failedRate"
-                                    name="Failed %"
-                                    stroke="#f97373"
-                                    strokeWidth={2}
-                                    dot={false}
-                                />
-                            </LineChart>
-                        </ResponsiveContainer>
-                    )}
-                </ChartCard>,
-
-                // 6) Verification Required Breakdown
-                <ChartCard
-                    title="Verification Required Breakdown"
-                    subtitle="Medium/High risk COD – Approved vs Cancel vs Reject"
-                    compact
-                    className="h-full"
-                >
-                    {verificationOutcomes.length === 0 ? (
-                        <div className="flex h-full items-center justify-center text-xs text-white/40">
-                            No verification outcomes in this date range
-                        </div>
-                    ) : (
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart
-                                data={verificationOutcomes}
-                                margin={{ top: 6, right: 10, left: 0, bottom: 0 }}
-                                barCategoryGap="22%"
-                                barGap={2}
-                            >
-                                <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" vertical={false} />
-
-                                <XAxis
-                                    dataKey="date"
-                                    tick={{ fontSize: 10, fill: "#E5E7EB" }}
-                                    axisLine={false}
-                                    tickLine={false}
-                                    interval="preserveStartEnd"
-                                />
-
-                                <YAxis
-                                    tick={{ fontSize: 10, fill: "#E5E7EB" }}
-                                    allowDecimals={false}
-                                    axisLine={false}
-                                    tickLine={false}
-                                />
-
-                                <Tooltip
-                                    contentStyle={{
-                                        backgroundColor: "#020617",
-                                        border: "1px solid rgba(255,255,255,0.1)",
-                                        borderRadius: 8,
-                                        fontSize: 12,
-                                    }}
-                                    formatter={(value: any, name: any) => {
-                                        const label =
-                                            name === "approved"
-                                                ? "Approved"
-                                                : name === "customerCancelled"
-                                                    ? "Customer cancelled"
-                                                    : "Rejected";
-                                        return [`${value} orders`, label];
-                                    }}
-                                />
-
-                                <Legend
-                                    verticalAlign="bottom"
-                                    align="left"
-                                    iconType="circle"
-                                    wrapperStyle={{
-                                        paddingTop: 6,
-                                        color: "#E5E7EB",
-                                        fontSize: 12,
-                                        lineHeight: "14px",
-                                    }}
-                                />
-
-                                <Bar dataKey="approved" name="Approved" stackId="a" fill="#22c55e" radius={[4, 4, 0, 0]} />
-                                <Bar dataKey="customerCancelled" name="Customer cancelled" stackId="a" fill="#facc15" radius={[0, 0, 0, 0]} />
-                                <Bar dataKey="rejected" name="Rejected" stackId="a" fill="#f97373" radius={[0, 0, 4, 4]} />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    )}
-                </ChartCard>
-            ]}
-            chartHeight={200}
-        />
-    );
-};
-</file>
-
 <file path="src/features/analytics/components/ProductsTab.tsx">
 import React, { useMemo } from "react";
 import {
@@ -17150,6 +16620,632 @@ supabase db reset
 These migrations represent the complete schema evolution of the CodFence MVP database. Each migration builds on the previous ones, so they must be applied in sequential order.
 
 For new environments, all migrations will be applied automatically by Supabase CLI when you run `supabase db push` or `supabase migration up`.
+</file>
+
+<file path="index.html">
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+    rel="stylesheet">
+  <title>CodFence - Smart COD Risk Protection</title>
+</head>
+
+<!-- Google Analytics -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag() { dataLayer.push(arguments); }
+  gtag('js', new Date());
+  gtag('config', 'G-L038KZ4RS7');
+</script>
+
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+
+</html>
+
+<!-- SEO -->
+<meta name="description"
+  content="CodFence helps e-commerce merchants reduce COD fraud, lower RTO rates, and increase delivery success with AI-powered verification." />
+
+<!-- Open Graph / Facebook / Zalo / LinkedIn -->
+<meta property="og:type" content="website" />
+<meta property="og:title" content="CodFence – Smart COD Risk Protection" />
+<meta property="og:description"
+  content="Protect your business from fraudulent COD orders with AI-powered verification. Reduce RTO and increase delivery success." />
+<meta property="og:url" content="https://codfence.com" />
+<meta property="og:image" content="https://codfence.com/og-cover.png" />
+
+<!-- Twitter -->
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="CodFence – Smart COD Risk Protection" />
+<meta name="twitter:description"
+  content="AI-powered COD fraud prevention for e-commerce merchants in Southeast Asia." />
+<meta name="twitter:image" content="https://codfence.com/og-cover.png" />
+</file>
+
+<file path="src/features/analytics/components/FunnelTab.tsx">
+import React, { useMemo } from "react";
+import {
+    LineChart,
+    Line,
+    BarChart,
+    Bar,
+    XAxis,
+    YAxis,
+    CartesianGrid,
+    Tooltip,
+    Legend,
+    ResponsiveContainer,
+} from "recharts";
+import { CheckCircle, XCircle, Clock, Timer, Activity } from "lucide-react";
+
+import { AnalyticsLayout } from "./AnalyticsLayout";
+import { StatCard } from "../../../components/analytics/StatCard";
+import { ChartCard } from "../../../components/analytics/ChartCard";
+import {
+    useDashboardStats,
+    type DashboardDateRange,
+    type FunnelStagePoint,
+} from "../../dashboard/useDashboardStats";
+
+interface FunnelTabProps {
+    dateRange: DashboardDateRange;
+    customFrom?: string;
+    customTo?: string;
+}
+
+const formatPercent = (v: number) => `${v.toFixed(1)}%`;
+
+export const FunnelTab: React.FC<FunnelTabProps> = ({
+    dateRange,
+    customFrom,
+    customTo,
+}) => {
+    const {
+        loading,
+        error,
+        funnelSummary,
+        funnelStageSeries,
+        cancelReasonBreakdown,
+        rejectReasonBreakdown,
+        timeToConfirmSeries,
+        verificationOutcomes,
+    } = useDashboardStats(dateRange, customFrom, customTo);
+
+    const {
+        totalCodOrders,
+        approvedCodOrders,
+        paidCodOrders,
+        completedCodOrders,
+        customerCancelledCodOrders,
+        rejectedCodOrders,
+        approvalRate,
+        paymentConversionRate,
+        deliverySuccessRate,
+        failedRate,
+    } = funnelSummary;
+
+    // Health series – tính local từ stage data
+    const codHealthSeries = useMemo(
+        () =>
+            funnelStageSeries.map((p: FunnelStagePoint) => {
+                const { codOrders, approved, paid, completed, failed } = p;
+
+                const safePct = (num: number, denom: number) =>
+                    denom > 0
+                        ? Math.round((num / denom) * 1000) / 10
+                        : 0;
+
+                return {
+                    date: p.date,
+                    approvalRate: safePct(approved, codOrders),
+                    paymentRate: safePct(paid, approved),
+                    deliveryRate: safePct(completed, approved),
+                    failedRate: safePct(failed, codOrders),
+                };
+            }),
+        [funnelStageSeries]
+    );
+
+    if (loading) {
+        return (
+            <div className="flex h-64 items-center justify-center">
+                <p className="text-white/60">Loading funnel analytics...</p>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="flex h-64 items-center justify-center">
+                <p className="text-red-400">Error loading analytics: {error}</p>
+            </div>
+        );
+    }
+
+    return (
+        <AnalyticsLayout
+            summaryCards={[
+                // 1) Approval Rate
+                <StatCard
+                    key="approval-rate"
+                    className="px-4 py-2 h-[88px]"
+                    title="APPROVAL RATE"
+                    titleClass="text-[11px]"
+                    valueClass="text-xl"
+                    value={formatPercent(approvalRate)}
+                    subtitle={`${approvedCodOrders} approved / ${totalCodOrders} COD`}
+                    icon={<CheckCircle className="h-4 w-4 text-[#22c55e]" />}
+                    valueColor="#22c55e"
+                />,
+
+                // 2) Payment Conversion Rate
+                <StatCard
+                    key="payment-conversion"
+                    className="px-4 py-2 h-[88px]"
+                    title="PAYMENT CONVERSION"
+                    titleClass="text-[11px]"
+                    valueClass="text-xl"
+                    value={formatPercent(paymentConversionRate)}
+                    subtitle={`${paidCodOrders} paid / ${approvedCodOrders} approved`}
+                    icon={<Activity className="h-4 w-4 text-[#60a5fa]" />}
+                    valueColor="#60a5fa"
+                />,
+
+                // 3) Delivery Success Rate
+                <StatCard
+                    key="delivery-success"
+                    className="px-4 py-2 h-[88px]"
+                    title="DELIVERY SUCCESS"
+                    titleClass="text-[11px]"
+                    valueClass="text-xl"
+                    value={formatPercent(deliverySuccessRate)}
+                    subtitle={`${completedCodOrders} completed / ${approvedCodOrders} approved`}
+                    icon={<Clock className="h-4 w-4 text-[#a855f7]" />}
+                    valueColor="#a855f7"
+                />,
+
+                // 4) Failed Rate (Customer Cancel + Rejected)
+                <StatCard
+                    key="failed-rate"
+                    className="px-4 py-2 h-[88px]"
+                    title="FAILED RATE"
+                    titleClass="text-[11px]"
+                    valueClass="text-xl"
+                    value={formatPercent(failedRate)}
+                    subtitle={`${customerCancelledCodOrders} cancelled + ${rejectedCodOrders} rejected / ${totalCodOrders} COD`}
+                    icon={<XCircle className="h-4 w-4 text-[#f97373]" />}
+                    valueColor="#f97373"
+                />,
+            ]}
+            charts={[
+                // 1) COD Funnel over time
+                <ChartCard
+                    key="funnel-over-time"
+                    title="COD Verification Funnel"
+                    subtitle="COD → Approved → Completed → Paid"
+                    compact
+                    className="h-full"
+                >
+                    {funnelStageSeries.length === 0 ? (
+                        <div className="flex h-full items-center justify-center text-xs text-white/40">
+                            No COD funnel data in this date range
+                        </div>
+                    ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                            <LineChart
+                                data={funnelStageSeries}
+                                margin={{ top: 0, right: 10, bottom: 0 }}
+                            >
+                                <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
+                                <XAxis
+                                    dataKey="date"
+                                    tick={{ fontSize: 10, fill: "#E5E7EB" }}
+                                />
+                                <YAxis
+                                    tick={{ fontSize: 10, fill: "#E5E7EB" }}
+                                    allowDecimals={false}
+                                />
+                                <Tooltip
+                                    contentStyle={{
+                                        backgroundColor: "#020617",
+                                        border: "1px solid rgba(255,255,255,0.1)",
+                                        borderRadius: 8,
+                                    }}
+                                />
+                                <Legend
+                                    verticalAlign="top"
+                                    height={20}
+                                    wrapperStyle={{
+                                        paddingTop: 0,
+                                        color: "#E5E7EB",
+                                        fontSize: 11,
+                                    }}
+                                />
+                                <Line
+                                    type="monotone"
+                                    dataKey="codOrders"
+                                    name="COD Orders"
+                                    stroke="#64748b"
+                                    strokeWidth={1.5}
+                                    dot={false}
+                                />
+                                <Line
+                                    type="monotone"
+                                    dataKey="approved"
+                                    name="Approved"
+                                    stroke="#22c55e"
+                                    strokeWidth={2}
+                                    dot={{ r: 2, fill: "#22c55e" }}
+                                />
+                                <Line
+                                    type="monotone"
+                                    dataKey="completed"
+                                    name="Completed"
+                                    stroke="#a855f7"
+                                    strokeWidth={2}
+                                    dot={{ r: 2, fill: "#a855f7" }}
+                                />
+                                <Line
+                                    type="monotone"
+                                    dataKey="paid"
+                                    name="Paid"
+                                    stroke="#60a5fa"
+                                    strokeWidth={2}
+                                    dot={{ r: 2, fill: "#60a5fa" }}
+                                />
+                            </LineChart>
+                        </ResponsiveContainer>
+                    )}
+                </ChartCard>,
+
+                // 2) Customer Cancel Reasons
+                <ChartCard
+                    key="customer-cancel-reasons"
+                    title="Customer Cancel Reasons"
+                    subtitle="Only Customer Cancelled COD orders"
+                    compact
+                    className="h-full"
+                >
+                    {cancelReasonBreakdown.length === 0 ? (
+                        <div className="flex h-full items-center justify-center text-xs text-white/40">
+                            No customer cancel reasons in this date range
+                        </div>
+                    ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart
+                                data={cancelReasonBreakdown}
+                                layout="vertical"
+                                margin={{ top: 10, right: 10, left: 10 }}
+                            >
+                                <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
+                                <XAxis
+                                    type="number"
+                                    tick={{ fontSize: 10, fill: "#E5E7EB" }}
+                                    allowDecimals={false}
+                                />
+                                <YAxis
+                                    type="category"
+                                    dataKey="reason"
+                                    width={180}
+                                    interval={0}
+                                    tick={(props: any) => {
+                                        const { y, payload } = props;
+                                        return (
+                                            <text
+                                                x={12}
+                                                y={y + 4}
+                                                textAnchor="start"
+                                                fill="#E5E7EB"
+                                                fontSize={11}
+                                            >
+                                                {payload.value}
+                                            </text>
+                                        );
+                                    }}
+                                />
+                                <Tooltip
+                                    contentStyle={{
+                                        backgroundColor: "#020617",
+                                        border: "1px solid rgba(255,255,255,0.1)",
+                                        borderRadius: 8,
+                                    }}
+                                    formatter={(v: any) => `${v} orders`}
+                                />
+                                <Bar
+                                    dataKey="count"
+                                    name="Cancelled orders"
+                                    radius={[4, 4, 4, 4]}
+                                    fill="#facc15"
+                                />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    )}
+                </ChartCard>,
+
+                // 3) Shop Reject Reasons
+                <ChartCard
+                    key="reject-reasons"
+                    title="Shop Reject Reasons"
+                    subtitle="Risk / fraud rejections from merchant"
+                    compact
+                    className="h-full"
+                >
+                    {rejectReasonBreakdown.length === 0 ? (
+                        <div className="flex h-full items-center justify-center text-xs text-white/40">
+                            No reject reasons in this date range
+                        </div>
+                    ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart
+                                data={rejectReasonBreakdown}
+                                layout="vertical"
+                                margin={{ top: 10, right: 10, left: 10 }}
+                            >
+                                <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
+                                <XAxis
+                                    type="number"
+                                    tick={{ fontSize: 10, fill: "#E5E7EB" }}
+                                    allowDecimals={false}
+                                />
+                                <YAxis
+                                    type="category"
+                                    dataKey="reason"
+                                    width={180}
+                                    interval={0}
+                                    tick={(props: any) => {
+                                        const { y, payload } = props;
+                                        return (
+                                            <text
+                                                x={12}
+                                                y={y + 4}
+                                                textAnchor="start"
+                                                fill="#E5E7EB"
+                                                fontSize={11}
+                                            >
+                                                {payload.value}
+                                            </text>
+                                        );
+                                    }}
+                                />
+                                <Tooltip
+                                    contentStyle={{
+                                        backgroundColor: "#020617",
+                                        border: "1px solid rgba(255,255,255,0.1)",
+                                        borderRadius: 8,
+                                    }}
+                                    formatter={(v: any) => `${v} orders`}
+                                />
+                                <Bar
+                                    dataKey="count"
+                                    name="Rejected orders"
+                                    radius={[4, 4, 4, 4]}
+                                    fill="#f97373"
+                                />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    )}
+                </ChartCard>,
+
+                // 4) Time to Customer Confirmation
+                <ChartCard
+                    key="time-to-confirm"
+                    title="Time to Customer Confirmation"
+                    subtitle="Average hours from order to customer confirm"
+                    compact
+                    className="h-full"
+                >
+                    {timeToConfirmSeries.length === 0 ? (
+                        <div className="flex h-full items-center justify-center text-xs text-white/40">
+                            No confirmation data in this date range
+                        </div>
+                    ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                            <LineChart
+                                data={timeToConfirmSeries}
+                                margin={{ top: 0, right: 10, bottom: 0 }}
+                            >
+                                <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
+                                <XAxis
+                                    dataKey="date"
+                                    tick={{ fontSize: 10, fill: "#E5E7EB" }}
+                                />
+                                <YAxis
+                                    tick={{ fontSize: 10, fill: "#E5E7EB" }}
+                                    allowDecimals={false}
+                                />
+                                <Tooltip
+                                    contentStyle={{
+                                        backgroundColor: "#020617",
+                                        border: "1px solid rgba(255,255,255,0.1)",
+                                        borderRadius: 8,
+                                    }}
+                                    formatter={(v: any, _name: any, entry: any) => {
+                                        const hours = Number(v) || 0;
+                                        const c = entry.payload?.confirmations ?? 0;
+                                        return [
+                                            `${hours} hours (n=${c})`,
+                                            "Avg time to confirm",
+                                        ];
+                                    }}
+                                />
+                                <Line
+                                    type="monotone"
+                                    dataKey="avgHours"
+                                    name="Avg hours"
+                                    stroke="#60a5fa"
+                                    strokeWidth={2}
+                                    dot={{ r: 3, fill: "#60a5fa" }}
+                                />
+                            </LineChart>
+                        </ResponsiveContainer>
+                    )}
+                </ChartCard>,
+
+                // 5) COD Health Index
+                <ChartCard
+                    key="cod-health"
+                    title="COD Health Over Time"
+                    subtitle="Approval, Payment, Failed rates"
+                    compact
+                    className="h-full"
+                >
+                    {codHealthSeries.length === 0 ? (
+                        <div className="flex h-full items-center justify-center text-xs text-white/40">
+                            No COD health data in this date range
+                        </div>
+                    ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                            <LineChart
+                                data={codHealthSeries}
+                                margin={{ top: 0, right: 10, bottom: 0 }}
+                            >
+                                <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" />
+                                <XAxis
+                                    dataKey="date"
+                                    tick={{ fontSize: 10, fill: "#E5E7EB" }}
+                                />
+                                <YAxis
+                                    tick={{ fontSize: 10, fill: "#E5E7EB" }}
+                                    tickFormatter={(v) => `${v}%`}
+                                />
+                                <Tooltip
+                                    contentStyle={{
+                                        backgroundColor: "#020617",
+                                        border: "1px solid rgba(255,255,255,0.1)",
+                                        borderRadius: 8,
+                                    }}
+                                    formatter={(v: any, name: any) => [
+                                        `${v}%`,
+                                        name,
+                                    ]}
+                                />
+                                <Legend
+                                    verticalAlign="top"
+                                    height={20}
+                                    wrapperStyle={{
+                                        paddingTop: 0,
+                                        color: "#E5E7EB",
+                                        fontSize: 11,
+                                    }}
+                                />
+                                <Line
+                                    type="monotone"
+                                    dataKey="approvalRate"
+                                    name="Approval %"
+                                    stroke="#22c55e"
+                                    strokeWidth={2}
+                                    dot={true}
+                                />
+                                <Line
+                                    type="monotone"
+                                    dataKey="paymentRate"
+                                    name="Payment %"
+                                    stroke="#60a5fa"
+                                    strokeWidth={2}
+                                    dot={false}
+                                />
+                                <Line
+                                    type="monotone"
+                                    dataKey="failedRate"
+                                    name="Failed %"
+                                    stroke="#f97373"
+                                    strokeWidth={2}
+                                    dot={false}
+                                />
+                            </LineChart>
+                        </ResponsiveContainer>
+                    )}
+                </ChartCard>,
+
+                // 6) Verification Required Breakdown
+                <ChartCard
+                    title="Verification Required Breakdown"
+                    subtitle="Medium/High risk COD – Approved vs Cancel vs Reject"
+                    compact
+                    className="h-full"
+                >
+                    {verificationOutcomes.length === 0 ? (
+                        <div className="flex h-full items-center justify-center text-xs text-white/40">
+                            No verification outcomes in this date range
+                        </div>
+                    ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart
+                                data={verificationOutcomes}
+                                margin={{ top: 6, right: 10, left: 0, bottom: 0 }}
+                                barCategoryGap="22%"
+                                barGap={2}
+                            >
+                                <CartesianGrid strokeDasharray="3 3" stroke="#1E223D" vertical={false} />
+
+                                <XAxis
+                                    dataKey="date"
+                                    tick={{ fontSize: 10, fill: "#E5E7EB" }}
+                                    axisLine={false}
+                                    tickLine={false}
+                                    interval="preserveStartEnd"
+                                />
+
+                                <YAxis
+                                    tick={{ fontSize: 10, fill: "#E5E7EB" }}
+                                    allowDecimals={false}
+                                    axisLine={false}
+                                    tickLine={false}
+                                />
+
+                                <Tooltip
+                                    contentStyle={{
+                                        backgroundColor: "#020617",
+                                        border: "1px solid rgba(255,255,255,0.1)",
+                                        borderRadius: 8,
+                                        fontSize: 12,
+                                    }}
+                                    formatter={(value: any, name: any) => {
+                                        const label =
+                                            name === "approved"
+                                                ? "Approved"
+                                                : name === "customerCancelled"
+                                                    ? "Customer cancelled"
+                                                    : "Rejected";
+                                        return [`${value} orders`, label];
+                                    }}
+                                />
+
+                                <Legend
+                                    verticalAlign="bottom"
+                                    align="left"
+                                    iconType="circle"
+                                    wrapperStyle={{
+                                        paddingTop: 6,
+                                        color: "#E5E7EB",
+                                        fontSize: 12,
+                                        lineHeight: "14px",
+                                    }}
+                                />
+
+                                <Bar dataKey="approved" name="Approved" stackId="a" fill="#22c55e" radius={[4, 4, 0, 0]} />
+                                <Bar dataKey="customerCancelled" name="Customer cancelled" stackId="a" fill="#facc15" radius={[0, 0, 0, 0]} />
+                                <Bar dataKey="rejected" name="Rejected" stackId="a" fill="#f97373" radius={[0, 0, 4, 4]} />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    )}
+                </ChartCard>
+            ]}
+            chartHeight={200}
+        />
+    );
+};
 </file>
 
 <file path="src/features/analytics/components/GeoTab.tsx">
@@ -26180,6 +26276,812 @@ export async function applyInvoiceRules(order: Order) {
 }
 </file>
 
+<file path="src/features/orders/components/OrderSidePanel.tsx">
+import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
+import {
+    X, Phone, MapPin, Save, AlertTriangle, ShieldAlert,
+    RefreshCw, RotateCcw, Truck, CheckCircle, Ban, Banknote, QrCode
+} from 'lucide-react';
+import { Button } from '../../../components/ui/Button';
+import { Input } from '../../../components/ui/Input';
+import { StatusBadge } from '../../../components/dashboard/StatusBadge';
+import { RiskBadge } from '../../../components/dashboard/RiskBadge';
+import { OrderTimeline } from './OrderTimeline';
+import { ORDER_STATUS } from '../../../constants/orderStatus';
+import type { Order, OrderEvent } from '../../../types/supabase';
+import { RefundModal } from './modals/RefundModal';
+import { ReturnModal } from './modals/ReturnModal';
+import { ExchangeModal } from './modals/ExchangeModal';
+
+interface OrderSidePanelProps {
+    isOpen: boolean;
+    onClose: () => void;
+    order: Order | null;
+    orderEvents: OrderEvent[];
+    addressForm: { address_detail: string; ward: string; district: string; province: string; };
+    isAddressModified: boolean;
+    onAddressChange: (field: string, value: string) => void;
+    onSaveAddress: () => void;
+    blacklistedPhones: Set<string>;
+    // Callback props (Handlers) – KHÔNG còn onSuccess
+    onApprove: (order: Order) => void;
+    onReject: (order: Order, reason: string) => void;
+    onMarkDelivered: (order: Order) => void;
+    onMarkCompleted: (order: Order) => void;
+    onSimulateConfirmed: (order: Order) => void;
+    onSimulateCancelled: (order: Order) => void;
+    onSimulatePaid: (order: Order) => void;
+    onSendQrPaymentLink: (order: Order) => void;
+    onOrderUpdated?: () => void;
+    onMarkMissed?: (order: Order) => void;
+}
+
+export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
+    isOpen, onClose, order, orderEvents, addressForm, isAddressModified,
+    onAddressChange, onSaveAddress, blacklistedPhones,
+    onApprove, onReject, onMarkDelivered, onMarkCompleted,
+    onSimulateConfirmed, onSimulateCancelled, onSimulatePaid, onSendQrPaymentLink,
+    onOrderUpdated,
+}) => {
+    const [showRefundModal, setShowRefundModal] = useState(false);
+    const [showReturnModal, setShowReturnModal] = useState(false);
+    const [showExchangeModal, setShowExchangeModal] = useState(false);
+    const [isProcessing, setIsProcessing] = useState(false);
+
+    if (!isOpen || !order || typeof document === 'undefined') return null;
+
+    const isBlacklisted = order.phone && blacklistedPhones.has(order.phone);
+    const isCOD = (!order.payment_method || order.payment_method === 'COD');
+    const isPrepaid = !isCOD;
+    const hasPaid = !!order.paid_at || order.status === ORDER_STATUS.ORDER_PAID;
+    const hasQrSent = !!order.qr_sent_at || orderEvents.some(e => e.event_type === 'QR_PAYMENT_LINK_SENT');
+    const isLowRiskCOD = isCOD && order.risk_score !== null && order.risk_score <= 30;
+
+    const wrapAction = async (action: () => Promise<void> | void) => {
+        if (isProcessing) return;
+        setIsProcessing(true);
+        try {
+            await action();
+        } finally {
+            setTimeout(() => setIsProcessing(false), 500);
+        }
+    };
+
+    const handleSuccess = () => {
+        if (onOrderUpdated) onOrderUpdated();
+    };
+
+    // --- BUTTON LOGIC ---
+    const renderActionButtons = () => {
+        // 1. PREPAID (Thanh toán trước) hoặc ORDER_PAID
+        if (isPrepaid || order.status === ORDER_STATUS.ORDER_PAID) {
+            if (order.status !== ORDER_STATUS.DELIVERING && order.status !== ORDER_STATUS.COMPLETED) {
+                return (
+                    <Button
+                        className="w-full bg-blue-600 hover:bg-blue-700"
+                        onClick={() => wrapAction(() => onMarkDelivered(order))}
+                        disabled={isProcessing}
+                    >
+                        <Truck size={20} className="mr-2" /> Start Delivery
+                    </Button>
+                );
+            }
+            if (order.status === ORDER_STATUS.DELIVERING) {
+                return (
+                    <Button
+                        className="w-full bg-green-600 hover:bg-green-700"
+                        onClick={() => wrapAction(() => onMarkCompleted(order))}
+                        disabled={isProcessing}
+                    >
+                        <CheckCircle size={16} className="mr-2" /> Mark Completed
+                    </Button>
+                );
+            }
+            return null;
+        }
+
+        // 2. COD - LOW RISK (Approved)
+        if (isLowRiskCOD && order.status === ORDER_STATUS.ORDER_APPROVED) {
+            return (
+                <div className="space-y-3">
+                    {/* Chỉ khi CHƯA paid mới hiện Send / Simulate QR */}
+                    {!hasPaid && (
+                        <>
+                            {!hasQrSent ? (
+                                <Button
+                                    variant="outline"
+                                    className="w-full h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#C4B5FD] hover:bg-[#8B5CF6]/20 transition-all active:scale-[0.98]"
+                                    onClick={() => wrapAction(() => onSendQrPaymentLink(order))}
+                                    disabled={isProcessing}
+                                >
+                                    <QrCode size={20} className="mr-2" /> Confirmation Sending Link
+                                </Button>
+                            ) : (
+                                <Button
+                                    variant="outline"
+                                    className="w-full h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#C4B5FD] hover:bg-[#8B5CF6]/20 transition-all active:scale-[0.98]"
+                                    onClick={() => wrapAction(() => onSimulatePaid(order))}
+                                    disabled={isProcessing}
+                                >
+                                    <Banknote size={20} className="mr-2" /> Simulate QR Paid
+                                </Button>
+                            )}
+                        </>
+                    )}
+
+                    <Button
+                        className="w-full bg-blue-600 hover:bg-blue-700"
+                        onClick={() => wrapAction(() => onMarkDelivered(order))}
+                        disabled={isProcessing}
+                    >
+                        <Truck size={20} className="mr-2" /> Start Delivery
+                    </Button>
+                </div>
+            );
+        }
+
+        // 2b. COD - MEDIUM/HIGH RISK (Approved – no Start Delivery)
+        if (!isLowRiskCOD && isCOD && order.status === ORDER_STATUS.ORDER_APPROVED) {
+            return (
+                <div className="space-y-3">
+                    {!hasPaid && (
+                        <>
+                            {!hasQrSent ? (
+                                <Button
+                                    variant="outline"
+                                    className="w-full h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#C4B5FD] hover:bg-[#8B5CF6]/20 transition-all active:scale-[0.98]"
+                                    onClick={() => wrapAction(() => onSendQrPaymentLink(order))}
+                                    disabled={isProcessing}
+                                >
+                                    <QrCode size={20} className="mr-2" /> Confirmation Sending Link
+                                </Button>
+                            ) : (
+                                <Button
+                                    variant="outline"
+                                    className="w-full h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#C4B5FD] hover:bg-[#8B5CF6]/20 transition-all active:scale-[0.98]"
+                                    onClick={() => wrapAction(() => onSimulatePaid(order))}
+                                    disabled={isProcessing}
+                                >
+                                    <Banknote size={20} className="mr-2" /> Simulate QR Paid
+                                </Button>
+                            )}
+                        </>
+                    )}
+                </div>
+            );
+        }
+
+        // 3. COD - PENDING / VERIFICATION
+        if (order.status === ORDER_STATUS.PENDING_REVIEW || order.status === ORDER_STATUS.VERIFICATION_REQUIRED) {
+            return (
+                <div className="flex gap-2">
+                    <Button
+                        variant="danger"
+                        className="flex-1 h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 transition-all active:scale-[0.98]"
+                        onClick={() => wrapAction(() => onReject(order, "Verification Failed"))}
+                        disabled={isProcessing}
+                    >
+                        <Ban size={20} /> Reject
+                    </Button>
+                    <Button
+                        className="flex-1 h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-gradient-to-r from-[#6366F1] to-[#8B5CF6] hover:from-[#5b5eed] hover:to-[#7c53e6] text-white shadow-lg shadow-[#6366F1]/20 transition-all active:scale-[0.98]"
+                        onClick={() => wrapAction(() => onApprove(order))}
+                        disabled={isProcessing}
+                    >
+                        <CheckCircle size={20} /> Approve
+                    </Button>
+                </div>
+            );
+        }
+
+        // 4. CONFIRMATION SENT
+        if (order.status === ORDER_STATUS.ORDER_CONFIRMATION_SENT) {
+            // 👉 LOW RISK COD: KHÔNG cần Customer Cancel/Confirm, chỉ cho Simulate Paid + Delivery
+            if (isLowRiskCOD) {
+                return (
+                    <div className="space-y-3">
+                        {!hasPaid && (
+                            <Button
+                                variant="outline"
+                                className="w-full h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#C4B5FD] hover:bg-[#8B5CF6]/20 transition-all active:scale-[0.98]"
+                                onClick={() => wrapAction(() => onSimulatePaid(order))}
+                                disabled={isProcessing}
+                            >
+                                <Banknote size={20} className="mr-2" /> Simulate QR Paid
+                            </Button>
+                        )}
+
+                        <Button
+                            className="w-full bg-blue-600 hover:bg-blue-700"
+                            onClick={() => wrapAction(() => onMarkDelivered(order))}
+                            disabled={isProcessing}
+                        >
+                            <Truck size={20} className="mr-2" /> Start Delivery
+                        </Button>
+                    </div>
+                );
+            }
+
+            // 👉 Medium / High risk: vẫn giữ flow Customer Cancel / Confirm như cũ
+            return (
+                <div className="bg-blue-500/10 p-3 rounded-lg border border-blue-500/30">
+                    <p className="text-xs text-blue-300 font-bold uppercase mb-2 text-center">
+                        Customer Response (Zalo)
+                    </p>
+                    <div className="flex gap-2">
+                        <Button
+                            size="sm"
+                            variant="danger"
+                            className="flex-1 h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 transition-all active:scale-[0.98]"
+                            onClick={() => wrapAction(() => onSimulateCancelled(order))}
+                            disabled={isProcessing}
+                        >
+                            Customer Cancel
+                        </Button>
+                        <Button
+                            size="sm"
+                            className="flex-1 h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-gradient-to-r from-[#6366F1] to-[#8B5CF6] hover:from-[#5b5eed] hover:to-[#7c53e6] text-white shadow-lg shadow-[#6366F1]/20 transition-all active:scale-[0.98]"
+                            onClick={() => wrapAction(() => onSimulateConfirmed(order))}
+                            disabled={isProcessing}
+                        >
+                            Customer Confirm
+                        </Button>
+                    </div>
+                </div>
+            );
+        }
+
+        // 5. CUSTOMER CONFIRMED
+        if (order.status === ORDER_STATUS.CUSTOMER_CONFIRMED) {
+            const allowSimulatePaid = !hasPaid && (!isLowRiskCOD || hasQrSent);
+
+            return (
+                <div className="space-y-3">
+                    {allowSimulatePaid && (
+                        <Button
+                            variant="outline"
+                            className="w-full h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#C4B5FD] hover:bg-[#8B5CF6]/20 transition-all active:scale-[0.98]"
+                            onClick={() => wrapAction(() => onSimulatePaid(order))}
+                            disabled={isProcessing}
+                        >
+                            <Banknote size={20} className="mr-2" /> Simulate QR Paid
+                        </Button>
+                    )}
+                    <Button
+                        className="w-full h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-gradient-to-r from-[#6366F1] to-[#8B5CF6] hover:from-[#5b5eed] hover:to-[#7c53e6] text-white shadow-lg shadow-[#6366F1]/20 transition-all active:scale-[0.98]"
+                        onClick={() => wrapAction(() => onMarkDelivered(order))}
+                        disabled={isProcessing}
+                    >
+                        <Truck size={20} className="mr-2" /> Start Delivery
+                    </Button>
+                </div>
+            );
+        }
+
+        // 6. DELIVERING / COMPLETED (COD)
+        if (order.status === ORDER_STATUS.DELIVERING || order.status === ORDER_STATUS.COMPLETED) {
+            const allowSimulatePaymentReceived = isCOD && !hasPaid;
+
+            return (
+                <div className="space-y-2">
+                    {allowSimulatePaymentReceived && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#C4B5FD] hover:bg-[#8B5CF6]/20 transition-all active:scale-[0.98]"
+                            onClick={() => wrapAction(() => onSimulatePaid(order))}
+                            disabled={isProcessing}
+                        >
+                            <Banknote size={20} className="mr-2" />
+                            Simulate Payment Received
+                        </Button>
+                    )}
+
+                    {order.status === ORDER_STATUS.DELIVERING && (
+                        <Button
+                            size="sm"
+                            className="w-full h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-gradient-to-r from-[#6366F1] to-[#8B5CF6] hover:from-[#5b5eed] hover:to-[#7c53e6] text-white shadow-lg shadow-[#6366F1]/20 transition-all active:scale-[0.98]"
+                            onClick={() => wrapAction(() => onMarkCompleted(order))}
+                            disabled={isProcessing}
+                        >
+                            <CheckCircle size={20} className="mr-2" /> Mark Completed
+                        </Button>
+                    )}
+                </div>
+            );
+        }
+
+        return null;
+    };
+
+    const riskAnalysis = (() => {
+        const riskEvents = orderEvents.filter((evt) => evt.event_type === 'RISK_EVALUATED');
+        if (riskEvents.length === 0)
+            return { score: order.risk_score ?? null, level: order.risk_level ?? null, reasons: [] };
+        const latest = riskEvents[riskEvents.length - 1];
+        const payload = (latest.payload_json || {}) as any;
+        return {
+            score: payload.score ?? order.risk_score ?? null,
+            level: payload.level ?? order.risk_level ?? null,
+            reasons: Array.isArray(payload.reasons) ? payload.reasons : [],
+        };
+    })();
+
+    return createPortal(
+        <>
+            <div className="fixed inset-0 z-[50] flex justify-end">
+                <div
+                    className="flex-1 bg-black/60 backdrop-blur-sm"
+                    onClick={onClose}
+                />
+                <div className="w-[500px] h-full bg-[#131625] border-l border-white/10 shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
+                    <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-[#1E223D]/50 flex-shrink-0">
+                        <div>
+                            <h2 className="text-lg font-semibold text-white">Order Details</h2>
+                            <p className="text-sm text-white/50">
+                                ID: {order.order_id || order.id}
+                            </p>
+                        </div>
+                        <button
+                            onClick={onClose}
+                            className="p-2 hover:bg-white/10 rounded-lg transition-colors text-white/70 hover:text-white"
+                        >
+                            <X size={20} />
+                        </button>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto px-6 py-6 space-y-8">
+                        <div className="space-y-4">
+                            <div className="flex items-center justify-between">
+                                <StatusBadge status={order.status} />
+                                <div className="text-xs text-white/50 uppercase tracking-wider font-bold">
+                                    {isCOD ? 'COD Order' : 'Prepaid Order'}
+                                </div>
+                            </div>
+                            <div className="p-4 bg-white/5 rounded-xl border border-white/10">
+                                {renderActionButtons()}
+                            </div>
+                        </div>
+
+                        {/* CUSTOMER INFO */}
+                        <div className="space-y-4">
+                            <h3 className="text-sm font-medium text-white/70 uppercase tracking-wider">
+                                Customer Information
+                            </h3>
+                            <div className="bg-white/5 rounded-xl p-4 space-y-4 border border-white/10">
+                                <div className="flex items-start gap-3">
+                                    <div className="w-8 h-8 rounded-full bg-[#8B5CF6]/20 flex items-center justify-center text-[#8B5CF6]">
+                                        <span className="font-bold">
+                                            {order.customer_name.charAt(0).toUpperCase()}
+                                        </span>
+                                    </div>
+                                    <div>
+                                        <p className="text-[#E5E7EB] font-medium">
+                                            {order.customer_name}
+                                        </p>
+                                        <div className="flex items-center gap-2 text-sm text-white/50 mt-1">
+                                            <Phone size={14} /> <span>{order.phone}</span>
+                                            {isBlacklisted && (
+                                                <span className="flex items-center gap-1 text-red-400 bg-red-400/10 px-1.5 py-0.5 rounded text-xs border border-red-400/20">
+                                                    <AlertTriangle size={10} /> Blacklisted
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2 text-sm text-white/50">
+                                            <MapPin size={14} />
+                                            <span>Delivery Address</span>
+                                        </div>
+                                        {isAddressModified && (
+                                            <Button
+                                                size="sm"
+                                                onClick={onSaveAddress}
+                                                className="h-7 px-2 text-xs bg-green-600 hover:bg-green-700 text-white border-0"
+                                            >
+                                                <Save size={12} className="mr-1" /> Save
+                                            </Button>
+                                        )}
+                                    </div>
+                                    <div className="grid grid-cols-1 gap-2">
+                                        <Input
+                                            placeholder="House number, street..."
+                                            value={addressForm.address_detail}
+                                            onChange={(e) =>
+                                                onAddressChange('address_detail', e.target.value)
+                                            }
+                                            className="bg-black/20 border-white/10 text-sm"
+                                        />
+                                        <div className="grid grid-cols-3 gap-2">
+                                            <Input
+                                                placeholder="Ward"
+                                                value={addressForm.ward}
+                                                onChange={(e) =>
+                                                    onAddressChange('ward', e.target.value)
+                                                }
+                                                className="bg-black/20 border-white/10 text-sm"
+                                            />
+                                            <Input
+                                                placeholder="District"
+                                                value={addressForm.district}
+                                                onChange={(e) =>
+                                                    onAddressChange('district', e.target.value)
+                                                }
+                                                className="bg-black/20 border-white/10 text-sm"
+                                            />
+                                            <Input
+                                                placeholder="Province"
+                                                value={addressForm.province}
+                                                onChange={(e) =>
+                                                    onAddressChange('province', e.target.value)
+                                                }
+                                                className="bg-black/20 border-white/10 text-sm"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* RISK ANALYSIS */}
+                        <div className="space-y-4">
+                            <h3 className="text-sm font-medium text-white/70 uppercase tracking-wider">
+                                Risk Analysis
+                            </h3>
+                            <div className="bg-white/5 rounded-xl p-4 space-y-4 border border-white/10">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-sm text-white/70">Risk Score</span>
+                                    <RiskBadge score={riskAnalysis.score} />
+                                </div>
+                                {riskAnalysis.reasons.length > 0 && (
+                                    <div className="space-y-2">
+                                        <span className="text-xs text-white/50">Risk Factors:</span>
+                                        <ul className="space-y-1">
+                                            {riskAnalysis.reasons.map((reason, idx) => (
+                                                <li
+                                                    key={idx}
+                                                    className="text-xs text-red-300 flex items-start gap-2"
+                                                >
+                                                    <ShieldAlert
+                                                        size={12}
+                                                        className="mt-0.5 flex-shrink-0"
+                                                    />
+                                                    {typeof reason === 'string' ? (
+                                                        <span>{reason}</span>
+                                                    ) : (
+                                                        <div className="flex justify-between w-full">
+                                                            <span>{reason.desc}</span>
+                                                            <span className="font-semibold text-rose-300">
+                                                                +{reason.score}
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* TIMELINE */}
+                        <div className="space-y-4">
+                            <h3 className="text-sm font-medium text-white/70 uppercase tracking-wider">
+                                Timeline
+                            </h3>
+                            <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+                                <OrderTimeline events={orderEvents} />
+                            </div>
+                        </div>
+
+                        {/* AFTER-SALE */}
+                        <div className="pt-4 border-t border-white/10">
+                            <div className="flex gap-2">
+                                <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    onClick={() => {
+                                        if (hasPaid) setShowRefundModal(true);
+                                        else setShowReturnModal(true);
+                                    }}
+                                    className="flex-1 gap-1 text-xs"
+                                >
+                                    <RotateCcw size={14} /> Return
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    onClick={() => setShowExchangeModal(true)}
+                                    className="flex-1 gap-1 text-xs"
+                                >
+                                    <RefreshCw size={14} /> Exchange
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <RefundModal
+                isOpen={showRefundModal}
+                onClose={() => setShowRefundModal(false)}
+                order={order}
+                onSuccess={handleSuccess}
+                title={hasPaid ? 'Return & Refund' : 'Refund Order'}
+            />
+            <ReturnModal
+                isOpen={showReturnModal}
+                onClose={() => setShowReturnModal(false)}
+                order={order}
+                onSuccess={handleSuccess}
+            />
+            <ExchangeModal
+                isOpen={showExchangeModal}
+                onClose={() => setShowExchangeModal(false)}
+                order={order}
+                onSuccess={handleSuccess}
+                isPaid={hasPaid}
+            />
+        </>,
+        document.body
+    );
+};
+</file>
+
+<file path="src/pages/dashboard/HistoryPage.tsx">
+import React, { useState } from 'react';
+import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
+import { Input } from '../../components/ui/Input';
+import { FilterBar } from '../../components/ui/FilterBar';
+import { MultiSelectFilter } from '../../components/filters/MultiSelectFilter';
+import { StatusBadge } from '../../components/dashboard/StatusBadge';
+import { useSupabaseTable } from '../../hooks/useSupabaseTable';
+import { useAuth } from '../../features/auth';
+import { formatToGMT7 } from '../../utils/formatTimezone';
+import type { History } from '../../types/supabase';
+import { mapStatusToLifecycle } from '../../utils/orderStatusHelpers';
+import { ORDER_STATUS } from '../../constants/orderStatus';
+
+interface HistoryWithFormatted extends History {
+  date?: string;
+  displayDate?: string;
+  time?: string;
+}
+
+const getStatusLabel = (status?: string) => {
+  if (!status) return '';
+
+  switch (status) {
+    case ORDER_STATUS.PENDING_REVIEW:
+      return 'Pending Review';
+    case ORDER_STATUS.VERIFICATION_REQUIRED:
+      return 'Verification Required';
+    case ORDER_STATUS.ORDER_REJECTED:
+      return 'Order Rejected';
+    case ORDER_STATUS.ORDER_APPROVED:
+      return 'Order Approved';
+    case ORDER_STATUS.ORDER_CONFIRMATION_SENT:
+      return 'Order Confirmation Sent';
+    case ORDER_STATUS.CUSTOMER_CONFIRMED:
+      return 'Customer Confirmed';
+    case ORDER_STATUS.CUSTOMER_CANCELLED:
+      return 'Customer Cancelled';
+    case ORDER_STATUS.ORDER_PAID:
+      return 'Order Paid';
+    case ORDER_STATUS.DELIVERING:
+      return 'Delivering';
+    case ORDER_STATUS.COMPLETED:
+      return 'Completed';
+    default:
+      // fallback: tự format "ORDER_WHATEVER" → "Order Whatever"
+      return status
+        .toLowerCase()
+        .split('_')
+        .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+        .join(' ');
+  }
+};
+
+export const HistoryPage: React.FC = () => {
+  const { user } = useAuth();
+  const {
+    data: logs,
+    loading,
+    error,
+  } = useSupabaseTable<History>({ tableName: 'history', enableRealtime: true });
+  const [dateFilter, setDateFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
+  const [eventTypeFilter, setEventTypeFilter] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const clearAllFilters = () => {
+    setDateFilter('');
+    setStatusFilter([]);
+    setEventTypeFilter([]);
+    setSearchQuery('');
+  };
+
+  // Format history logs with date/time and filter by current user
+  const formattedLogs: HistoryWithFormatted[] = logs
+    .filter(log => user && log.user_id === user.id) // Only show current user's actions
+    .map(log => {
+      const { date, displayDate, time } = formatToGMT7(log.created_at);
+      return {
+        ...log,
+        date, // YYYY-MM-DD for filter
+        displayDate, // DD/MM/YYYY for display
+        time,
+      };
+    });
+
+  // Get unique event types for filter
+  const eventTypeOptions = Array.from(new Set(formattedLogs.map(log => log.action))).map(action => ({
+    value: action,
+    label: action
+  }));
+
+  const filteredLogs = formattedLogs.filter(log => {
+    const matchesDate = !dateFilter || log.date === dateFilter;
+    const matchesStatus = statusFilter.length === 0 || statusFilter.includes(log.status);
+    const matchesEventType = eventTypeFilter.length === 0 || eventTypeFilter.includes(log.action);
+
+    const searchLower = searchQuery.toLowerCase();
+    const matchesSearch = !searchQuery ||
+      (log.order_id && log.order_id.toLowerCase().includes(searchLower)) ||
+      (log.action && log.action.toLowerCase().includes(searchLower)) ||
+      (log.details && JSON.stringify(log.details).toLowerCase().includes(searchLower));
+
+    return matchesDate && matchesStatus && matchesEventType && matchesSearch;
+  });
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'success':
+        return { variant: 'success' as const, label: 'Success' };
+      case 'failed':
+        return { variant: 'danger' as const, label: 'Failed' };
+      default:
+        return { variant: 'warning' as const, label: status };
+    }
+  };
+
+  return (
+    <div className="space-y-6 p-6 h-full flex flex-col min-h-0">
+      {/* Filters */}
+      {/* Filters */}
+      <FilterBar
+        searchValue={searchQuery}
+        onSearch={setSearchQuery}
+        searchPlaceholder="Search by Order ID / Product / Phone / Name..."
+      >
+        <MultiSelectFilter
+          label="Status"
+          options={[
+            { value: 'success', label: 'Success' },
+            { value: 'failed', label: 'Failed' },
+          ]}
+          selectedValues={statusFilter}
+          onChange={setStatusFilter}
+        />
+        <MultiSelectFilter
+          label="Event Type"
+          options={eventTypeOptions}
+          selectedValues={eventTypeFilter}
+          onChange={setEventTypeFilter}
+        />
+
+        {/* Date Filter */}
+        <input
+          type="date"
+          value={dateFilter}
+          onChange={(e) => setDateFilter(e.target.value)}
+          className="h-10 w-auto min-w-[180px] whitespace-nowrap px-3 bg-[var(--bg-input)] border border-[var(--border-subtle)] rounded-lg text-[var(--text-main)]"
+        />
+
+        {/* Clear filters */}
+        <button
+          type="button"
+          onClick={clearAllFilters}
+          className="text-sm text-[var(--text-muted)] whitespace-nowrap hover:text-white transition"
+        >
+          Clear filters
+        </button>
+      </FilterBar>
+
+      {/* History Logs */}
+      <Card className="flex-1 flex flex-col min-h-0 relative z-0">
+        <CardHeader className="!pt-4 !pb-3 !px-6 flex-shrink-0">
+          <CardTitle>History Logs</CardTitle>
+        </CardHeader>
+        <CardContent className="flex-1 min-h-0 overflow-y-auto p-0">
+          <div className="w-full max-w-full overflow-x-auto scrollbar-thin scrollbar-thumb-[#1E223D] scrollbar-track-transparent">
+            {error ? (
+              <div className="p-12 text-center">
+                <p className="text-red-400 mb-4">Error: {error}</p>
+              </div>
+            ) : loading && logs.length === 0 ? (
+              <div className="p-12 text-center text-[#E5E7EB]/70">
+                Loading history...
+              </div>
+            ) : (
+              <>
+                <table className="min-w-[1000px] w-full border-separate border-spacing-0">
+                  <thead>
+                    <tr className="border-b border-[#1E223D]">
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Date & Time</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Action</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Order/Product ID</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Changes</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredLogs.map((log) => {
+                      return (
+                        <tr key={log.id} className="border-b border-[#1E223D] hover:bg-white/5 transition">
+                          <td className="px-6 py-4 text-sm text-[#E5E7EB] whitespace-nowrap">
+                            <div>{log.displayDate}</div>
+                            <div className="text-xs text-[#E5E7EB]/70 mt-1">{log.time} (GMT+7)</div>
+                          </td>
+                          <td className="px-6 py-4 text-sm text-[#E5E7EB] whitespace-nowrap">{log.action}</td>
+                          <td className="px-6 py-4 text-sm text-[#E5E7EB] font-medium align-middle">
+                            <span className="block truncate whitespace-nowrap max-w-[200px]" title={log.order_id || 'N/A'}>
+                              {log.order_id || 'N/A'}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-sm text-[#E5E7EB] align-middle">
+                            {log.details && Object.keys(log.details).length > 0 ? (
+                              <div className="space-y-1">
+                                {/* Status lifecycle đẹp */}
+                                {log.details.status_from && log.details.status_to && (
+                                  <div className="text-sm font-medium text-purple-300 mb-1">
+                                    Status: {getStatusLabel(log.details.status_from as string)} →{' '}
+                                    {getStatusLabel(log.details.status_to as string)}
+                                  </div>
+                                )}
+
+                                {/* Các field khác, bỏ status_from / status_to để khỏi bị lặp */}
+                                {Object.entries(log.details)
+                                  .filter(([key]) => key !== 'status_from' && key !== 'status_to')
+                                  .map(([key, value]) => (
+                                    <div key={key} className="text-xs">
+                                      <span className="font-medium text-[#E5E7EB]/90">{key}:</span>{' '}
+                                      <span className="text-[#E5E7EB]/70">{String(value)}</span>
+                                    </div>
+                                  ))}
+                              </div>
+                            ) : (
+                              <span className="text-[#E5E7EB]/50 text-xs">—</span>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 align-middle">
+                            <StatusBadge status={log.status} />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                {filteredLogs.length === 0 && !loading && (
+                  <div className="p-12 text-center text-[var(--text-muted)]">
+                    {logs.length === 0
+                      ? 'No history records found.'
+                      : 'No records match your filters.'}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+};
+</file>
+
 <file path="src/features/dashboard/useDashboardStats.ts">
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
@@ -28437,812 +29339,6 @@ function buildTimeToConfirmSeries(
             confirmations: count,
         }));
 }
-</file>
-
-<file path="src/features/orders/components/OrderSidePanel.tsx">
-import React, { useState } from 'react';
-import { createPortal } from 'react-dom';
-import {
-    X, Phone, MapPin, Save, AlertTriangle, ShieldAlert,
-    RefreshCw, RotateCcw, Truck, CheckCircle, Ban, Banknote, QrCode
-} from 'lucide-react';
-import { Button } from '../../../components/ui/Button';
-import { Input } from '../../../components/ui/Input';
-import { StatusBadge } from '../../../components/dashboard/StatusBadge';
-import { RiskBadge } from '../../../components/dashboard/RiskBadge';
-import { OrderTimeline } from './OrderTimeline';
-import { ORDER_STATUS } from '../../../constants/orderStatus';
-import type { Order, OrderEvent } from '../../../types/supabase';
-import { RefundModal } from './modals/RefundModal';
-import { ReturnModal } from './modals/ReturnModal';
-import { ExchangeModal } from './modals/ExchangeModal';
-
-interface OrderSidePanelProps {
-    isOpen: boolean;
-    onClose: () => void;
-    order: Order | null;
-    orderEvents: OrderEvent[];
-    addressForm: { address_detail: string; ward: string; district: string; province: string; };
-    isAddressModified: boolean;
-    onAddressChange: (field: string, value: string) => void;
-    onSaveAddress: () => void;
-    blacklistedPhones: Set<string>;
-    // Callback props (Handlers) – KHÔNG còn onSuccess
-    onApprove: (order: Order) => void;
-    onReject: (order: Order, reason: string) => void;
-    onMarkDelivered: (order: Order) => void;
-    onMarkCompleted: (order: Order) => void;
-    onSimulateConfirmed: (order: Order) => void;
-    onSimulateCancelled: (order: Order) => void;
-    onSimulatePaid: (order: Order) => void;
-    onSendQrPaymentLink: (order: Order) => void;
-    onOrderUpdated?: () => void;
-    onMarkMissed?: (order: Order) => void;
-}
-
-export const OrderSidePanel: React.FC<OrderSidePanelProps> = ({
-    isOpen, onClose, order, orderEvents, addressForm, isAddressModified,
-    onAddressChange, onSaveAddress, blacklistedPhones,
-    onApprove, onReject, onMarkDelivered, onMarkCompleted,
-    onSimulateConfirmed, onSimulateCancelled, onSimulatePaid, onSendQrPaymentLink,
-    onOrderUpdated,
-}) => {
-    const [showRefundModal, setShowRefundModal] = useState(false);
-    const [showReturnModal, setShowReturnModal] = useState(false);
-    const [showExchangeModal, setShowExchangeModal] = useState(false);
-    const [isProcessing, setIsProcessing] = useState(false);
-
-    if (!isOpen || !order || typeof document === 'undefined') return null;
-
-    const isBlacklisted = order.phone && blacklistedPhones.has(order.phone);
-    const isCOD = (!order.payment_method || order.payment_method === 'COD');
-    const isPrepaid = !isCOD;
-    const hasPaid = !!order.paid_at || order.status === ORDER_STATUS.ORDER_PAID;
-    const hasQrSent = !!order.qr_sent_at || orderEvents.some(e => e.event_type === 'QR_PAYMENT_LINK_SENT');
-    const isLowRiskCOD = isCOD && order.risk_score !== null && order.risk_score <= 30;
-
-    const wrapAction = async (action: () => Promise<void> | void) => {
-        if (isProcessing) return;
-        setIsProcessing(true);
-        try {
-            await action();
-        } finally {
-            setTimeout(() => setIsProcessing(false), 500);
-        }
-    };
-
-    const handleSuccess = () => {
-        if (onOrderUpdated) onOrderUpdated();
-    };
-
-    // --- BUTTON LOGIC ---
-    const renderActionButtons = () => {
-        // 1. PREPAID (Thanh toán trước) hoặc ORDER_PAID
-        if (isPrepaid || order.status === ORDER_STATUS.ORDER_PAID) {
-            if (order.status !== ORDER_STATUS.DELIVERING && order.status !== ORDER_STATUS.COMPLETED) {
-                return (
-                    <Button
-                        className="w-full bg-blue-600 hover:bg-blue-700"
-                        onClick={() => wrapAction(() => onMarkDelivered(order))}
-                        disabled={isProcessing}
-                    >
-                        <Truck size={20} className="mr-2" /> Start Delivery
-                    </Button>
-                );
-            }
-            if (order.status === ORDER_STATUS.DELIVERING) {
-                return (
-                    <Button
-                        className="w-full bg-green-600 hover:bg-green-700"
-                        onClick={() => wrapAction(() => onMarkCompleted(order))}
-                        disabled={isProcessing}
-                    >
-                        <CheckCircle size={16} className="mr-2" /> Mark Completed
-                    </Button>
-                );
-            }
-            return null;
-        }
-
-        // 2. COD - LOW RISK (Approved)
-        if (isLowRiskCOD && order.status === ORDER_STATUS.ORDER_APPROVED) {
-            return (
-                <div className="space-y-3">
-                    {/* Chỉ khi CHƯA paid mới hiện Send / Simulate QR */}
-                    {!hasPaid && (
-                        <>
-                            {!hasQrSent ? (
-                                <Button
-                                    variant="outline"
-                                    className="w-full h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#C4B5FD] hover:bg-[#8B5CF6]/20 transition-all active:scale-[0.98]"
-                                    onClick={() => wrapAction(() => onSendQrPaymentLink(order))}
-                                    disabled={isProcessing}
-                                >
-                                    <QrCode size={20} className="mr-2" /> Confirmation Sending Link
-                                </Button>
-                            ) : (
-                                <Button
-                                    variant="outline"
-                                    className="w-full h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#C4B5FD] hover:bg-[#8B5CF6]/20 transition-all active:scale-[0.98]"
-                                    onClick={() => wrapAction(() => onSimulatePaid(order))}
-                                    disabled={isProcessing}
-                                >
-                                    <Banknote size={20} className="mr-2" /> Simulate QR Paid
-                                </Button>
-                            )}
-                        </>
-                    )}
-
-                    <Button
-                        className="w-full bg-blue-600 hover:bg-blue-700"
-                        onClick={() => wrapAction(() => onMarkDelivered(order))}
-                        disabled={isProcessing}
-                    >
-                        <Truck size={20} className="mr-2" /> Start Delivery
-                    </Button>
-                </div>
-            );
-        }
-
-        // 2b. COD - MEDIUM/HIGH RISK (Approved – no Start Delivery)
-        if (!isLowRiskCOD && isCOD && order.status === ORDER_STATUS.ORDER_APPROVED) {
-            return (
-                <div className="space-y-3">
-                    {!hasPaid && (
-                        <>
-                            {!hasQrSent ? (
-                                <Button
-                                    variant="outline"
-                                    className="w-full h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#C4B5FD] hover:bg-[#8B5CF6]/20 transition-all active:scale-[0.98]"
-                                    onClick={() => wrapAction(() => onSendQrPaymentLink(order))}
-                                    disabled={isProcessing}
-                                >
-                                    <QrCode size={20} className="mr-2" /> Confirmation Sending Link
-                                </Button>
-                            ) : (
-                                <Button
-                                    variant="outline"
-                                    className="w-full h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#C4B5FD] hover:bg-[#8B5CF6]/20 transition-all active:scale-[0.98]"
-                                    onClick={() => wrapAction(() => onSimulatePaid(order))}
-                                    disabled={isProcessing}
-                                >
-                                    <Banknote size={20} className="mr-2" /> Simulate QR Paid
-                                </Button>
-                            )}
-                        </>
-                    )}
-                </div>
-            );
-        }
-
-        // 3. COD - PENDING / VERIFICATION
-        if (order.status === ORDER_STATUS.PENDING_REVIEW || order.status === ORDER_STATUS.VERIFICATION_REQUIRED) {
-            return (
-                <div className="flex gap-2">
-                    <Button
-                        variant="danger"
-                        className="flex-1 h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 transition-all active:scale-[0.98]"
-                        onClick={() => wrapAction(() => onReject(order, "Verification Failed"))}
-                        disabled={isProcessing}
-                    >
-                        <Ban size={20} /> Reject
-                    </Button>
-                    <Button
-                        className="flex-1 h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-gradient-to-r from-[#6366F1] to-[#8B5CF6] hover:from-[#5b5eed] hover:to-[#7c53e6] text-white shadow-lg shadow-[#6366F1]/20 transition-all active:scale-[0.98]"
-                        onClick={() => wrapAction(() => onApprove(order))}
-                        disabled={isProcessing}
-                    >
-                        <CheckCircle size={20} /> Approve
-                    </Button>
-                </div>
-            );
-        }
-
-        // 4. CONFIRMATION SENT
-        if (order.status === ORDER_STATUS.ORDER_CONFIRMATION_SENT) {
-            // 👉 LOW RISK COD: KHÔNG cần Customer Cancel/Confirm, chỉ cho Simulate Paid + Delivery
-            if (isLowRiskCOD) {
-                return (
-                    <div className="space-y-3">
-                        {!hasPaid && (
-                            <Button
-                                variant="outline"
-                                className="w-full h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#C4B5FD] hover:bg-[#8B5CF6]/20 transition-all active:scale-[0.98]"
-                                onClick={() => wrapAction(() => onSimulatePaid(order))}
-                                disabled={isProcessing}
-                            >
-                                <Banknote size={20} className="mr-2" /> Simulate QR Paid
-                            </Button>
-                        )}
-
-                        <Button
-                            className="w-full bg-blue-600 hover:bg-blue-700"
-                            onClick={() => wrapAction(() => onMarkDelivered(order))}
-                            disabled={isProcessing}
-                        >
-                            <Truck size={20} className="mr-2" /> Start Delivery
-                        </Button>
-                    </div>
-                );
-            }
-
-            // 👉 Medium / High risk: vẫn giữ flow Customer Cancel / Confirm như cũ
-            return (
-                <div className="bg-blue-500/10 p-3 rounded-lg border border-blue-500/30">
-                    <p className="text-xs text-blue-300 font-bold uppercase mb-2 text-center">
-                        Customer Response (Zalo)
-                    </p>
-                    <div className="flex gap-2">
-                        <Button
-                            size="sm"
-                            variant="danger"
-                            className="flex-1 h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 transition-all active:scale-[0.98]"
-                            onClick={() => wrapAction(() => onSimulateCancelled(order))}
-                            disabled={isProcessing}
-                        >
-                            Customer Cancel
-                        </Button>
-                        <Button
-                            size="sm"
-                            className="flex-1 h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-gradient-to-r from-[#6366F1] to-[#8B5CF6] hover:from-[#5b5eed] hover:to-[#7c53e6] text-white shadow-lg shadow-[#6366F1]/20 transition-all active:scale-[0.98]"
-                            onClick={() => wrapAction(() => onSimulateConfirmed(order))}
-                            disabled={isProcessing}
-                        >
-                            Customer Confirm
-                        </Button>
-                    </div>
-                </div>
-            );
-        }
-
-        // 5. CUSTOMER CONFIRMED
-        if (order.status === ORDER_STATUS.CUSTOMER_CONFIRMED) {
-            const allowSimulatePaid = !hasPaid && (!isLowRiskCOD || hasQrSent);
-
-            return (
-                <div className="space-y-3">
-                    {allowSimulatePaid && (
-                        <Button
-                            variant="outline"
-                            className="w-full h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#C4B5FD] hover:bg-[#8B5CF6]/20 transition-all active:scale-[0.98]"
-                            onClick={() => wrapAction(() => onSimulatePaid(order))}
-                            disabled={isProcessing}
-                        >
-                            <Banknote size={20} className="mr-2" /> Simulate QR Paid
-                        </Button>
-                    )}
-                    <Button
-                        className="w-full h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-gradient-to-r from-[#6366F1] to-[#8B5CF6] hover:from-[#5b5eed] hover:to-[#7c53e6] text-white shadow-lg shadow-[#6366F1]/20 transition-all active:scale-[0.98]"
-                        onClick={() => wrapAction(() => onMarkDelivered(order))}
-                        disabled={isProcessing}
-                    >
-                        <Truck size={20} className="mr-2" /> Start Delivery
-                    </Button>
-                </div>
-            );
-        }
-
-        // 6. DELIVERING / COMPLETED (COD)
-        if (order.status === ORDER_STATUS.DELIVERING || order.status === ORDER_STATUS.COMPLETED) {
-            const allowSimulatePaymentReceived = isCOD && !hasPaid;
-
-            return (
-                <div className="space-y-2">
-                    {allowSimulatePaymentReceived && (
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            className="w-full h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#C4B5FD] hover:bg-[#8B5CF6]/20 transition-all active:scale-[0.98]"
-                            onClick={() => wrapAction(() => onSimulatePaid(order))}
-                            disabled={isProcessing}
-                        >
-                            <Banknote size={20} className="mr-2" />
-                            Simulate Payment Received
-                        </Button>
-                    )}
-
-                    {order.status === ORDER_STATUS.DELIVERING && (
-                        <Button
-                            size="sm"
-                            className="w-full h-12 flex items-center justify-center gap-2 rounded-xl font-semibold bg-gradient-to-r from-[#6366F1] to-[#8B5CF6] hover:from-[#5b5eed] hover:to-[#7c53e6] text-white shadow-lg shadow-[#6366F1]/20 transition-all active:scale-[0.98]"
-                            onClick={() => wrapAction(() => onMarkCompleted(order))}
-                            disabled={isProcessing}
-                        >
-                            <CheckCircle size={20} className="mr-2" /> Mark Completed
-                        </Button>
-                    )}
-                </div>
-            );
-        }
-
-        return null;
-    };
-
-    const riskAnalysis = (() => {
-        const riskEvents = orderEvents.filter((evt) => evt.event_type === 'RISK_EVALUATED');
-        if (riskEvents.length === 0)
-            return { score: order.risk_score ?? null, level: order.risk_level ?? null, reasons: [] };
-        const latest = riskEvents[riskEvents.length - 1];
-        const payload = (latest.payload_json || {}) as any;
-        return {
-            score: payload.score ?? order.risk_score ?? null,
-            level: payload.level ?? order.risk_level ?? null,
-            reasons: Array.isArray(payload.reasons) ? payload.reasons : [],
-        };
-    })();
-
-    return createPortal(
-        <>
-            <div className="fixed inset-0 z-[50] flex justify-end">
-                <div
-                    className="flex-1 bg-black/60 backdrop-blur-sm"
-                    onClick={onClose}
-                />
-                <div className="w-[500px] h-full bg-[#131625] border-l border-white/10 shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
-                    <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-[#1E223D]/50 flex-shrink-0">
-                        <div>
-                            <h2 className="text-lg font-semibold text-white">Order Details</h2>
-                            <p className="text-sm text-white/50">
-                                ID: {order.order_id || order.id}
-                            </p>
-                        </div>
-                        <button
-                            onClick={onClose}
-                            className="p-2 hover:bg-white/10 rounded-lg transition-colors text-white/70 hover:text-white"
-                        >
-                            <X size={20} />
-                        </button>
-                    </div>
-
-                    <div className="flex-1 overflow-y-auto px-6 py-6 space-y-8">
-                        <div className="space-y-4">
-                            <div className="flex items-center justify-between">
-                                <StatusBadge status={order.status} />
-                                <div className="text-xs text-white/50 uppercase tracking-wider font-bold">
-                                    {isCOD ? 'COD Order' : 'Prepaid Order'}
-                                </div>
-                            </div>
-                            <div className="p-4 bg-white/5 rounded-xl border border-white/10">
-                                {renderActionButtons()}
-                            </div>
-                        </div>
-
-                        {/* CUSTOMER INFO */}
-                        <div className="space-y-4">
-                            <h3 className="text-sm font-medium text-white/70 uppercase tracking-wider">
-                                Customer Information
-                            </h3>
-                            <div className="bg-white/5 rounded-xl p-4 space-y-4 border border-white/10">
-                                <div className="flex items-start gap-3">
-                                    <div className="w-8 h-8 rounded-full bg-[#8B5CF6]/20 flex items-center justify-center text-[#8B5CF6]">
-                                        <span className="font-bold">
-                                            {order.customer_name.charAt(0).toUpperCase()}
-                                        </span>
-                                    </div>
-                                    <div>
-                                        <p className="text-[#E5E7EB] font-medium">
-                                            {order.customer_name}
-                                        </p>
-                                        <div className="flex items-center gap-2 text-sm text-white/50 mt-1">
-                                            <Phone size={14} /> <span>{order.phone}</span>
-                                            {isBlacklisted && (
-                                                <span className="flex items-center gap-1 text-red-400 bg-red-400/10 px-1.5 py-0.5 rounded text-xs border border-red-400/20">
-                                                    <AlertTriangle size={10} /> Blacklisted
-                                                </span>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="space-y-2">
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-2 text-sm text-white/50">
-                                            <MapPin size={14} />
-                                            <span>Delivery Address</span>
-                                        </div>
-                                        {isAddressModified && (
-                                            <Button
-                                                size="sm"
-                                                onClick={onSaveAddress}
-                                                className="h-7 px-2 text-xs bg-green-600 hover:bg-green-700 text-white border-0"
-                                            >
-                                                <Save size={12} className="mr-1" /> Save
-                                            </Button>
-                                        )}
-                                    </div>
-                                    <div className="grid grid-cols-1 gap-2">
-                                        <Input
-                                            placeholder="House number, street..."
-                                            value={addressForm.address_detail}
-                                            onChange={(e) =>
-                                                onAddressChange('address_detail', e.target.value)
-                                            }
-                                            className="bg-black/20 border-white/10 text-sm"
-                                        />
-                                        <div className="grid grid-cols-3 gap-2">
-                                            <Input
-                                                placeholder="Ward"
-                                                value={addressForm.ward}
-                                                onChange={(e) =>
-                                                    onAddressChange('ward', e.target.value)
-                                                }
-                                                className="bg-black/20 border-white/10 text-sm"
-                                            />
-                                            <Input
-                                                placeholder="District"
-                                                value={addressForm.district}
-                                                onChange={(e) =>
-                                                    onAddressChange('district', e.target.value)
-                                                }
-                                                className="bg-black/20 border-white/10 text-sm"
-                                            />
-                                            <Input
-                                                placeholder="Province"
-                                                value={addressForm.province}
-                                                onChange={(e) =>
-                                                    onAddressChange('province', e.target.value)
-                                                }
-                                                className="bg-black/20 border-white/10 text-sm"
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* RISK ANALYSIS */}
-                        <div className="space-y-4">
-                            <h3 className="text-sm font-medium text-white/70 uppercase tracking-wider">
-                                Risk Analysis
-                            </h3>
-                            <div className="bg-white/5 rounded-xl p-4 space-y-4 border border-white/10">
-                                <div className="flex items-center justify-between">
-                                    <span className="text-sm text-white/70">Risk Score</span>
-                                    <RiskBadge score={riskAnalysis.score} />
-                                </div>
-                                {riskAnalysis.reasons.length > 0 && (
-                                    <div className="space-y-2">
-                                        <span className="text-xs text-white/50">Risk Factors:</span>
-                                        <ul className="space-y-1">
-                                            {riskAnalysis.reasons.map((reason, idx) => (
-                                                <li
-                                                    key={idx}
-                                                    className="text-xs text-red-300 flex items-start gap-2"
-                                                >
-                                                    <ShieldAlert
-                                                        size={12}
-                                                        className="mt-0.5 flex-shrink-0"
-                                                    />
-                                                    {typeof reason === 'string' ? (
-                                                        <span>{reason}</span>
-                                                    ) : (
-                                                        <div className="flex justify-between w-full">
-                                                            <span>{reason.desc}</span>
-                                                            <span className="font-semibold text-rose-300">
-                                                                +{reason.score}
-                                                            </span>
-                                                        </div>
-                                                    )}
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* TIMELINE */}
-                        <div className="space-y-4">
-                            <h3 className="text-sm font-medium text-white/70 uppercase tracking-wider">
-                                Timeline
-                            </h3>
-                            <div className="bg-white/5 rounded-xl p-4 border border-white/10">
-                                <OrderTimeline events={orderEvents} />
-                            </div>
-                        </div>
-
-                        {/* AFTER-SALE */}
-                        <div className="pt-4 border-t border-white/10">
-                            <div className="flex gap-2">
-                                <Button
-                                    size="sm"
-                                    variant="secondary"
-                                    onClick={() => {
-                                        if (hasPaid) setShowRefundModal(true);
-                                        else setShowReturnModal(true);
-                                    }}
-                                    className="flex-1 gap-1 text-xs"
-                                >
-                                    <RotateCcw size={14} /> Return
-                                </Button>
-                                <Button
-                                    size="sm"
-                                    variant="secondary"
-                                    onClick={() => setShowExchangeModal(true)}
-                                    className="flex-1 gap-1 text-xs"
-                                >
-                                    <RefreshCw size={14} /> Exchange
-                                </Button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <RefundModal
-                isOpen={showRefundModal}
-                onClose={() => setShowRefundModal(false)}
-                order={order}
-                onSuccess={handleSuccess}
-                title={hasPaid ? 'Return & Refund' : 'Refund Order'}
-            />
-            <ReturnModal
-                isOpen={showReturnModal}
-                onClose={() => setShowReturnModal(false)}
-                order={order}
-                onSuccess={handleSuccess}
-            />
-            <ExchangeModal
-                isOpen={showExchangeModal}
-                onClose={() => setShowExchangeModal(false)}
-                order={order}
-                onSuccess={handleSuccess}
-                isPaid={hasPaid}
-            />
-        </>,
-        document.body
-    );
-};
-</file>
-
-<file path="src/pages/dashboard/HistoryPage.tsx">
-import React, { useState } from 'react';
-import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
-import { Input } from '../../components/ui/Input';
-import { FilterBar } from '../../components/ui/FilterBar';
-import { MultiSelectFilter } from '../../components/filters/MultiSelectFilter';
-import { StatusBadge } from '../../components/dashboard/StatusBadge';
-import { useSupabaseTable } from '../../hooks/useSupabaseTable';
-import { useAuth } from '../../features/auth';
-import { formatToGMT7 } from '../../utils/formatTimezone';
-import type { History } from '../../types/supabase';
-import { mapStatusToLifecycle } from '../../utils/orderStatusHelpers';
-import { ORDER_STATUS } from '../../constants/orderStatus';
-
-interface HistoryWithFormatted extends History {
-  date?: string;
-  displayDate?: string;
-  time?: string;
-}
-
-const getStatusLabel = (status?: string) => {
-  if (!status) return '';
-
-  switch (status) {
-    case ORDER_STATUS.PENDING_REVIEW:
-      return 'Pending Review';
-    case ORDER_STATUS.VERIFICATION_REQUIRED:
-      return 'Verification Required';
-    case ORDER_STATUS.ORDER_REJECTED:
-      return 'Order Rejected';
-    case ORDER_STATUS.ORDER_APPROVED:
-      return 'Order Approved';
-    case ORDER_STATUS.ORDER_CONFIRMATION_SENT:
-      return 'Order Confirmation Sent';
-    case ORDER_STATUS.CUSTOMER_CONFIRMED:
-      return 'Customer Confirmed';
-    case ORDER_STATUS.CUSTOMER_CANCELLED:
-      return 'Customer Cancelled';
-    case ORDER_STATUS.ORDER_PAID:
-      return 'Order Paid';
-    case ORDER_STATUS.DELIVERING:
-      return 'Delivering';
-    case ORDER_STATUS.COMPLETED:
-      return 'Completed';
-    default:
-      // fallback: tự format "ORDER_WHATEVER" → "Order Whatever"
-      return status
-        .toLowerCase()
-        .split('_')
-        .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
-        .join(' ');
-  }
-};
-
-export const HistoryPage: React.FC = () => {
-  const { user } = useAuth();
-  const {
-    data: logs,
-    loading,
-    error,
-  } = useSupabaseTable<History>({ tableName: 'history', enableRealtime: true });
-  const [dateFilter, setDateFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string[]>([]);
-  const [eventTypeFilter, setEventTypeFilter] = useState<string[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
-
-  const clearAllFilters = () => {
-    setDateFilter('');
-    setStatusFilter([]);
-    setEventTypeFilter([]);
-    setSearchQuery('');
-  };
-
-  // Format history logs with date/time and filter by current user
-  const formattedLogs: HistoryWithFormatted[] = logs
-    .filter(log => user && log.user_id === user.id) // Only show current user's actions
-    .map(log => {
-      const { date, displayDate, time } = formatToGMT7(log.created_at);
-      return {
-        ...log,
-        date, // YYYY-MM-DD for filter
-        displayDate, // DD/MM/YYYY for display
-        time,
-      };
-    });
-
-  // Get unique event types for filter
-  const eventTypeOptions = Array.from(new Set(formattedLogs.map(log => log.action))).map(action => ({
-    value: action,
-    label: action
-  }));
-
-  const filteredLogs = formattedLogs.filter(log => {
-    const matchesDate = !dateFilter || log.date === dateFilter;
-    const matchesStatus = statusFilter.length === 0 || statusFilter.includes(log.status);
-    const matchesEventType = eventTypeFilter.length === 0 || eventTypeFilter.includes(log.action);
-
-    const searchLower = searchQuery.toLowerCase();
-    const matchesSearch = !searchQuery ||
-      (log.order_id && log.order_id.toLowerCase().includes(searchLower)) ||
-      (log.action && log.action.toLowerCase().includes(searchLower)) ||
-      (log.details && JSON.stringify(log.details).toLowerCase().includes(searchLower));
-
-    return matchesDate && matchesStatus && matchesEventType && matchesSearch;
-  });
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'success':
-        return { variant: 'success' as const, label: 'Success' };
-      case 'failed':
-        return { variant: 'danger' as const, label: 'Failed' };
-      default:
-        return { variant: 'warning' as const, label: status };
-    }
-  };
-
-  return (
-    <div className="space-y-6 p-6 h-full flex flex-col min-h-0">
-      {/* Filters */}
-      {/* Filters */}
-      <FilterBar
-        searchValue={searchQuery}
-        onSearch={setSearchQuery}
-        searchPlaceholder="Search by Order ID / Product / Phone / Name..."
-      >
-        <MultiSelectFilter
-          label="Status"
-          options={[
-            { value: 'success', label: 'Success' },
-            { value: 'failed', label: 'Failed' },
-          ]}
-          selectedValues={statusFilter}
-          onChange={setStatusFilter}
-        />
-        <MultiSelectFilter
-          label="Event Type"
-          options={eventTypeOptions}
-          selectedValues={eventTypeFilter}
-          onChange={setEventTypeFilter}
-        />
-
-        {/* Date Filter */}
-        <input
-          type="date"
-          value={dateFilter}
-          onChange={(e) => setDateFilter(e.target.value)}
-          className="h-10 w-auto min-w-[180px] whitespace-nowrap px-3 bg-[var(--bg-input)] border border-[var(--border-subtle)] rounded-lg text-[var(--text-main)]"
-        />
-
-        {/* Clear filters */}
-        <button
-          type="button"
-          onClick={clearAllFilters}
-          className="text-sm text-[var(--text-muted)] whitespace-nowrap hover:text-white transition"
-        >
-          Clear filters
-        </button>
-      </FilterBar>
-
-      {/* History Logs */}
-      <Card className="flex-1 flex flex-col min-h-0 relative z-0">
-        <CardHeader className="!pt-4 !pb-3 !px-6 flex-shrink-0">
-          <CardTitle>History Logs</CardTitle>
-        </CardHeader>
-        <CardContent className="flex-1 min-h-0 overflow-y-auto p-0">
-          <div className="w-full max-w-full overflow-x-auto scrollbar-thin scrollbar-thumb-[#1E223D] scrollbar-track-transparent">
-            {error ? (
-              <div className="p-12 text-center">
-                <p className="text-red-400 mb-4">Error: {error}</p>
-              </div>
-            ) : loading && logs.length === 0 ? (
-              <div className="p-12 text-center text-[#E5E7EB]/70">
-                Loading history...
-              </div>
-            ) : (
-              <>
-                <table className="min-w-[1000px] w-full border-separate border-spacing-0">
-                  <thead>
-                    <tr className="border-b border-[#1E223D]">
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Date & Time</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Action</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Order/Product ID</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Changes</th>
-                      <th className="px-6 py-4 text-left text-sm font-semibold text-[#E5E7EB] whitespace-nowrap">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredLogs.map((log) => {
-                      return (
-                        <tr key={log.id} className="border-b border-[#1E223D] hover:bg-white/5 transition">
-                          <td className="px-6 py-4 text-sm text-[#E5E7EB] whitespace-nowrap">
-                            <div>{log.displayDate}</div>
-                            <div className="text-xs text-[#E5E7EB]/70 mt-1">{log.time} (GMT+7)</div>
-                          </td>
-                          <td className="px-6 py-4 text-sm text-[#E5E7EB] whitespace-nowrap">{log.action}</td>
-                          <td className="px-6 py-4 text-sm text-[#E5E7EB] font-medium align-middle">
-                            <span className="block truncate whitespace-nowrap max-w-[200px]" title={log.order_id || 'N/A'}>
-                              {log.order_id || 'N/A'}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-sm text-[#E5E7EB] align-middle">
-                            {log.details && Object.keys(log.details).length > 0 ? (
-                              <div className="space-y-1">
-                                {/* Status lifecycle đẹp */}
-                                {log.details.status_from && log.details.status_to && (
-                                  <div className="text-sm font-medium text-purple-300 mb-1">
-                                    Status: {getStatusLabel(log.details.status_from as string)} →{' '}
-                                    {getStatusLabel(log.details.status_to as string)}
-                                  </div>
-                                )}
-
-                                {/* Các field khác, bỏ status_from / status_to để khỏi bị lặp */}
-                                {Object.entries(log.details)
-                                  .filter(([key]) => key !== 'status_from' && key !== 'status_to')
-                                  .map(([key, value]) => (
-                                    <div key={key} className="text-xs">
-                                      <span className="font-medium text-[#E5E7EB]/90">{key}:</span>{' '}
-                                      <span className="text-[#E5E7EB]/70">{String(value)}</span>
-                                    </div>
-                                  ))}
-                              </div>
-                            ) : (
-                              <span className="text-[#E5E7EB]/50 text-xs">—</span>
-                            )}
-                          </td>
-                          <td className="px-6 py-4 align-middle">
-                            <StatusBadge status={log.status} />
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-                {filteredLogs.length === 0 && !loading && (
-                  <div className="p-12 text-center text-[var(--text-muted)]">
-                    {logs.length === 0
-                      ? 'No history records found.'
-                      : 'No records match your filters.'}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-};
 </file>
 
 <file path="src/features/orders/services/ordersService.ts">
