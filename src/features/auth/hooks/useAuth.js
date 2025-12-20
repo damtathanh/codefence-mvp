@@ -1,0 +1,315 @@
+import { jsx as _jsx } from "react/jsx-runtime";
+// src/features/auth/hooks/useAuth.tsx
+import { supabase } from '../../../lib/supabaseClient';
+import { createContext, useContext, useState, useEffect } from 'react';
+import { authService } from '../services/authService';
+const STORAGE_KEY = 'codfence_auth_user';
+const STORAGE_TOKEN_KEY = 'codfence_auth_token';
+const AuthContext = createContext(undefined);
+// Helper functions for localStorage
+const saveUserToStorage = (user, token) => {
+    if (user) {
+        try {
+            // Save custom app-level auth info
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({
+                id: user.id,
+                email: user.email,
+                name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
+                avatar: user.user_metadata?.avatar_url || null,
+            }));
+            // Save CodFence token (legacy)
+            if (token) {
+                localStorage.setItem(STORAGE_TOKEN_KEY, token);
+            }
+        }
+        catch (error) {
+            console.error('Error saving user to localStorage:', error);
+        }
+    }
+};
+const clearStorage = () => {
+    try {
+        localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem(STORAGE_TOKEN_KEY);
+        localStorage.removeItem('codfence_last_path');
+        localStorage.removeItem('codfence_session_start');
+    }
+    catch (error) {
+        console.error('Error clearing localStorage:', error);
+    }
+};
+// Global state to track tab visibility changes (shared across all instances)
+let globalLastVisibilityChange = 0;
+let globalTabSwitchWindow = false;
+// Track visibility changes globally to detect tab switches
+if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', () => {
+        const now = Date.now();
+        if (document.visibilityState === 'hidden') {
+            globalLastVisibilityChange = now;
+        }
+        else if (document.visibilityState === 'visible') {
+            // Check if tab was hidden recently (within last 3 seconds)
+            const timeSinceHidden = now - globalLastVisibilityChange;
+            if (timeSinceHidden < 3000 && globalLastVisibilityChange > 0) {
+                // Tab switch detected
+                globalTabSwitchWindow = true;
+                // Clear the flag after the window passes
+                setTimeout(() => {
+                    globalTabSwitchWindow = false;
+                }, 3000);
+            }
+        }
+    });
+}
+export const AuthProvider = ({ children }) => {
+    const [user, setUser] = useState(null);
+    const [loading, setLoading] = useState(true);
+    // Initialize auth state
+    useEffect(() => {
+        let isMounted = true;
+        const initializeAuth = async () => {
+            try {
+                // With persistSession: true, Supabase automatically restores sessions
+                // Just get the current session
+                const { data: { session }, error } = await supabase.auth.getSession();
+                if (error) {
+                    console.error('Error getting session:', error);
+                    if (isMounted) {
+                        setUser(null);
+                        setLoading(false);
+                    }
+                    return;
+                }
+                if (session?.user) {
+                    // Check if email is verified
+                    if (!session.user.email_confirmed_at) {
+                        // Email not verified - sign out
+                        await supabase.auth.signOut();
+                        if (isMounted) {
+                            setUser(null);
+                            setLoading(false);
+                        }
+                        return;
+                    }
+                    // Valid session found
+                    if (isMounted) {
+                        setUser(session.user);
+                        saveUserToStorage(session.user, session.access_token);
+                        // Save last path for redirect after refresh
+                        if (typeof window !== 'undefined') {
+                            localStorage.setItem('codfence_last_path', window.location.pathname);
+                            localStorage.setItem('codfence_session_start', Date.now().toString());
+                        }
+                        setLoading(false);
+                    }
+                }
+                else {
+                    // No session found
+                    if (isMounted) {
+                        setUser(null);
+                        setLoading(false);
+                    }
+                }
+            }
+            catch (error) {
+                console.error('Error initializing auth:', error);
+                if (isMounted) {
+                    setUser(null);
+                    setLoading(false);
+                }
+            }
+        };
+        // Initialize auth on mount
+        initializeAuth();
+        // Listen to auth state changes
+        const { data: { subscription }, } = supabase.auth.onAuthStateChange(async (event, session) => {
+            if (!isMounted)
+                return;
+            // Check if we're in a tab switch window (within 3 seconds of visibility change)
+            const isTabSwitch = globalTabSwitchWindow;
+            const timeSinceVisibilityChange = Date.now() - globalLastVisibilityChange;
+            const isRecentTabSwitch = isTabSwitch && timeSinceVisibilityChange < 3000;
+            // For TOKEN_REFRESHED events during tab switches, handle silently without state updates
+            // This prevents modals from closing due to re-renders
+            if (event === 'TOKEN_REFRESHED' && isRecentTabSwitch) {
+                // Silently update session storage but don't trigger state updates that could close modals
+                if (session?.user) {
+                    saveUserToStorage(session.user, session.access_token);
+                }
+                // Don't call setUser or setLoading to avoid triggering re-renders that close modals
+                console.log('[Auth] Token refreshed during tab switch - handled silently to preserve modals');
+                return;
+            }
+            console.log('🔄 Auth state change:', event, session?.user?.email || 'no user', isRecentTabSwitch ? '(tab switch detected)' : '');
+            if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+                if (session?.user) {
+                    // Check if email is verified
+                    if (!session.user.email_confirmed_at) {
+                        // Email not verified - sign out
+                        console.log('Email not verified, signing out');
+                        await supabase.auth.signOut();
+                        setUser(null);
+                        clearStorage();
+                        setLoading(false);
+                        return;
+                    }
+                    // Valid session - only update state if not during tab switch
+                    // This prevents unnecessary re-renders that could close modals
+                    if (!isRecentTabSwitch) {
+                        setUser(session.user);
+                        saveUserToStorage(session.user, session.access_token);
+                        // Save last path for redirect after refresh
+                        if (typeof window !== 'undefined') {
+                            localStorage.setItem('codfence_last_path', window.location.pathname);
+                            localStorage.setItem('codfence_session_start', Date.now().toString());
+                        }
+                        setLoading(false);
+                    }
+                    else {
+                        // Tab switch detected - just update storage silently to preserve modal state
+                        saveUserToStorage(session.user, session.access_token);
+                        console.log('[Auth] Session updated silently during tab switch to preserve UI state');
+                    }
+                }
+            }
+            else if (event === 'SIGNED_OUT') {
+                // User signed out - always handle this (not related to tab switches)
+                setUser(null);
+                clearStorage();
+                setLoading(false);
+            }
+            else if (event === 'USER_UPDATED' && session?.user) {
+                // User data updated - only update if not during tab switch
+                if (!isRecentTabSwitch) {
+                    setUser(session.user);
+                    saveUserToStorage(session.user, session.access_token);
+                    setLoading(false);
+                }
+                else {
+                    // Tab switch - update storage silently
+                    saveUserToStorage(session.user, session.access_token);
+                }
+            }
+            else if (event === 'INITIAL_SESSION') {
+                // Initial session event - session may be null on first load
+                // This is handled by initializeAuth(), so we just set loading to false
+                // Don't update user state here to avoid race conditions
+                setLoading(false);
+            }
+        });
+        // Cleanup
+        return () => {
+            isMounted = false;
+            subscription.unsubscribe();
+        };
+    }, []);
+    // Restore last route after refresh (but not during tab switches)
+    useEffect(() => {
+        const lastPath = localStorage.getItem('codfence_last_path');
+        // Only redirect if we're on home page and have a valid last path (dashboard page)
+        // And only if it's not a recent tab switch
+        const timeSinceVisibilityChange = Date.now() - globalLastVisibilityChange;
+        const isRecentTabSwitch = globalTabSwitchWindow && timeSinceVisibilityChange < 3000;
+        if (lastPath && window.location.pathname === '/' && (lastPath.includes('/dashboard') || lastPath.includes('/admin') || lastPath.includes('/user')) && !isRecentTabSwitch) {
+            // Only redirect if we have a valid session
+            const checkSession = async () => {
+                const { data: { session } } = await supabase.auth.getSession();
+                if (session?.user && session.user.email_confirmed_at) {
+                    // Small delay to ensure auth state is ready
+                    setTimeout(() => {
+                        // Double-check we're not in a tab switch scenario before navigating
+                        const currentTimeSinceVisibilityChange = Date.now() - globalLastVisibilityChange;
+                        if (!globalTabSwitchWindow || currentTimeSinceVisibilityChange >= 3000) {
+                            window.location.replace(lastPath);
+                        }
+                    }, 100);
+                }
+            };
+            checkSession();
+        }
+    }, []);
+    const login = async (email, password) => {
+        try {
+            setLoading(true);
+            const result = await authService.login(email, password);
+            if (!result.error) {
+                // Wait a bit for session to be established
+                await new Promise(resolve => setTimeout(resolve, 100));
+                const { data: { session } } = await supabase.auth.getSession();
+                if (session?.user && session.user.email_confirmed_at) {
+                    setUser(session.user);
+                    saveUserToStorage(session.user, session.access_token);
+                    // Save last path for redirect after refresh
+                    if (typeof window !== 'undefined') {
+                        localStorage.setItem('codfence_last_path', window.location.pathname);
+                        localStorage.setItem('codfence_session_start', Date.now().toString());
+                    }
+                }
+            }
+            setLoading(false);
+            return result;
+        }
+        catch (error) {
+            setLoading(false);
+            return { error: error };
+        }
+    };
+    const signup = async (email, password, metadata) => {
+        try {
+            setLoading(true);
+            const result = await authService.signup(email, password, metadata);
+            // If signup creates a session (some require email verification first)
+            if (result.data?.user && !result.error) {
+                const { data: { session } } = await supabase.auth.getSession();
+                if (session?.user && session.user.email_confirmed_at) {
+                    setUser(session.user);
+                    saveUserToStorage(session.user, session.access_token);
+                    if (typeof window !== 'undefined') {
+                        localStorage.setItem('codfence_last_path', window.location.pathname);
+                        localStorage.setItem('codfence_session_start', Date.now().toString());
+                    }
+                }
+            }
+            setLoading(false);
+            return result;
+        }
+        catch (error) {
+            setLoading(false);
+            return { data: null, error: error };
+        }
+    };
+    const logout = async () => {
+        try {
+            setLoading(true);
+            await authService.logout();
+            setUser(null);
+            clearStorage();
+            setLoading(false);
+        }
+        catch (error) {
+            console.error('Error logging out:', error);
+            // Clear storage even if logout fails
+            setUser(null);
+            clearStorage();
+            setLoading(false);
+            throw error;
+        }
+    };
+    const value = {
+        user,
+        loading,
+        isAuthenticated: !!user,
+        login,
+        signup,
+        logout,
+    };
+    return _jsx(AuthContext.Provider, { value: value, children: children });
+};
+export const useAuth = () => {
+    const context = useContext(AuthContext);
+    if (context === undefined) {
+        throw new Error('useAuth must be used within an AuthProvider');
+    }
+    return context;
+};
