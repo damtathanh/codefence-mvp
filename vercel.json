@@ -1,12 +1,9 @@
 {
-    "routes": [
+    "redirects": [
         {
-            "handle": "filesystem"
-        },
-        {
-            "src": "/(.*)",
-            "dest": "/maintenance.html",
-            "status": 503
+            "source": "/((?!maintenance.html|.*\\.(?:js|css|png|jpg|svg|ico)$).*)",
+            "destination": "/maintenance.html",
+            "permanent": false
         }
     ]
 }
