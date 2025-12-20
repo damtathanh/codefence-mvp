@@ -26,6 +26,7 @@ const VALID_TRANSITIONS: TransitionMap = {
         ORDER_STATUS.CUSTOMER_UNREACHABLE,
         ORDER_STATUS.ORDER_PAID,
         ORDER_STATUS.ORDER_REJECTED, // Can still reject if something comes up
+        ORDER_STATUS.DELIVERING,
     ],
     [ORDER_STATUS.ORDER_APPROVED]: [
         ORDER_STATUS.ORDER_CONFIRMATION_SENT, // If manual flow

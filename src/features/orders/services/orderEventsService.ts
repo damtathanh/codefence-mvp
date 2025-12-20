@@ -24,16 +24,13 @@ export async function fetchOrderEvents(orderId: string) {
 export async function insertOrderEvent(payload: InsertOrderEventPayload) {
   const { data, error } = await supabase
     .from("order_events")
-    .insert(payload)
-    .select()
-    .single();
+    .insert(payload); // Chỉ insert, không select lại
 
   if (error) {
     console.error("[insertOrderEvent] error", error);
     throw error;
   }
-
-  return data as OrderEvent;
+  return data;
 }
 
 /**

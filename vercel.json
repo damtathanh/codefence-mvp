@@ -1,1 +1,8 @@
-{}
+{
+    "rewrites": [
+        {
+            "source": "/((?!maintenance.html|.*\\.(?:js|css|png|jpg|svg|ico)$).*)",
+            "destination": "/maintenance.html"
+        }
+    ]
+}

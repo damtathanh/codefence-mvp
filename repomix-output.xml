@@ -2610,6 +2610,7 @@ const VALID_TRANSITIONS: TransitionMap = {
         ORDER_STATUS.CUSTOMER_UNREACHABLE,
         ORDER_STATUS.ORDER_PAID,
         ORDER_STATUS.ORDER_REJECTED, // Can still reject if something comes up
+        ORDER_STATUS.DELIVERING,
     ],
     [ORDER_STATUS.ORDER_APPROVED]: [
         ORDER_STATUS.ORDER_CONFIRMATION_SENT, // If manual flow
@@ -16249,16 +16250,13 @@ export async function fetchOrderEvents(orderId: string) {
 export async function insertOrderEvent(payload: InsertOrderEventPayload) {
   const { data, error } = await supabase
     .from("order_events")
-    .insert(payload)
-    .select()
-    .single();
+    .insert(payload); // Chỉ insert, không select lại
 
   if (error) {
     console.error("[insertOrderEvent] error", error);
     throw error;
   }
-
-  return data as OrderEvent;
+  return data;
 }
 
 /**
@@ -21771,7 +21769,14 @@ export function getStatusBadge(status: string | null | undefined) {
 </file>
 
 <file path="vercel.json">
-{}
+{
+    "rewrites": [
+        {
+            "source": "/(.*)",
+            "destination": "/index.html"
+        }
+    ]
+}
 </file>
 
 <file path="src/components/Header.tsx">
@@ -31278,7 +31283,7 @@ export interface AreaRiskStats {
   "scripts": {
     "backup": "git add . && (git diff --staged --quiet || git commit -m 'Auto backup' && git push) || echo '✅ No changes to commit'",
     "dev": "vite --host",
-    "build": "tsc && vite build"
+    "build": "rimraf dist && tsc && vite build"
   },
   "dependencies": {
     "@pdf-lib/fontkit": "^1.1.1",
@@ -31306,6 +31311,7 @@ export interface AreaRiskStats {
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.4",
     "postcss": "^8.4.31",
+    "rimraf": "^6.1.2",
     "tailwindcss": "^3.3.5",
     "typescript": "^5.2.2",
     "vite": "^5.0.0"
