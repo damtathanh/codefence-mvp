@@ -2581,122 +2581,6 @@ export interface InsertTransactionPayload {
 }
 </file>
 
-<file path="src/features/orders/domain/orderStateMachine.ts">
-import { ORDER_STATUS, OrderStatus } from "../../../constants/orderStatus";
-
-type TransitionMap = Record<OrderStatus, OrderStatus[]>;
-
-/**
- * Defines allowed transitions for each order status.
- * This is a strict enforcement of the business logic flow.
- */
-const VALID_TRANSITIONS: TransitionMap = {
-    [ORDER_STATUS.PENDING_REVIEW]: [
-        ORDER_STATUS.VERIFICATION_REQUIRED,
-        ORDER_STATUS.ORDER_APPROVED,
-        ORDER_STATUS.ORDER_REJECTED,
-        ORDER_STATUS.CUSTOMER_CANCELLED,
-        ORDER_STATUS.ORDER_PAID, // If paid via other channel immediately
-    ],
-    [ORDER_STATUS.VERIFICATION_REQUIRED]: [
-        ORDER_STATUS.ORDER_APPROVED,
-        ORDER_STATUS.ORDER_REJECTED,
-        ORDER_STATUS.CUSTOMER_CANCELLED,
-        ORDER_STATUS.ORDER_PAID,
-    ],
-    [ORDER_STATUS.ORDER_CONFIRMATION_SENT]: [
-        ORDER_STATUS.CUSTOMER_CONFIRMED,
-        ORDER_STATUS.CUSTOMER_CANCELLED,
-        ORDER_STATUS.CUSTOMER_UNREACHABLE,
-        ORDER_STATUS.ORDER_PAID,
-        ORDER_STATUS.ORDER_REJECTED, // Can still reject if something comes up
-        ORDER_STATUS.DELIVERING,
-    ],
-    [ORDER_STATUS.ORDER_APPROVED]: [
-        ORDER_STATUS.ORDER_CONFIRMATION_SENT, // If manual flow
-        ORDER_STATUS.CUSTOMER_CONFIRMED, // If auto flow or direct confirm
-        ORDER_STATUS.CUSTOMER_CANCELLED,
-        ORDER_STATUS.ORDER_PAID,
-        ORDER_STATUS.DELIVERING, // Skip confirm step?
-        ORDER_STATUS.ORDER_REJECTED,
-    ],
-    [ORDER_STATUS.CUSTOMER_CONFIRMED]: [
-        ORDER_STATUS.DELIVERING,
-        ORDER_STATUS.ORDER_PAID,
-        ORDER_STATUS.CUSTOMER_CANCELLED,
-        ORDER_STATUS.ORDER_REJECTED, // Last minute reject
-    ],
-    [ORDER_STATUS.DELIVERING]: [
-        ORDER_STATUS.COMPLETED,
-        ORDER_STATUS.ORDER_PAID, // Can happen during delivery (COD)
-        ORDER_STATUS.CUSTOMER_CANCELLED, // Return?
-        ORDER_STATUS.CUSTOMER_UNREACHABLE,
-        ORDER_STATUS.ORDER_REJECTED, // Failed delivery -> Rejected/Returned?
-        ORDER_STATUS.RETURNED,
-        ORDER_STATUS.EXCHANGED,
-    ],
-    [ORDER_STATUS.ORDER_PAID]: [
-        ORDER_STATUS.DELIVERING,
-        ORDER_STATUS.COMPLETED,
-        ORDER_STATUS.CUSTOMER_CANCELLED, // Refund needed
-        ORDER_STATUS.ORDER_REJECTED, // Refund needed
-    ],
-    [ORDER_STATUS.COMPLETED]: [
-        // Terminal state, but maybe allow reopening or refund?
-        // For now, allow nothing or specific admin overrides?
-        // Let's allow moving to Refund/Return statuses if they existed, but they don't seem to be in ORDER_STATUS enum (Refunded was removed).
-        // So COMPLETED is mostly terminal.
-        ORDER_STATUS.ORDER_PAID, // Just in case
-        ORDER_STATUS.RETURNED,
-        ORDER_STATUS.EXCHANGED,
-    ],
-    [ORDER_STATUS.CUSTOMER_CANCELLED]: [
-        // Terminal usually, but maybe reopen?
-        ORDER_STATUS.PENDING_REVIEW, // Reopen
-    ],
-    [ORDER_STATUS.ORDER_REJECTED]: [
-        // Terminal usually, but maybe reopen?
-        ORDER_STATUS.PENDING_REVIEW, // Reopen
-    ],
-    [ORDER_STATUS.CUSTOMER_UNREACHABLE]: [
-        ORDER_STATUS.PENDING_REVIEW, // Retry
-        ORDER_STATUS.ORDER_REJECTED,
-        ORDER_STATUS.CUSTOMER_CANCELLED,
-    ],
-    [ORDER_STATUS.RETURNED]: [
-        ORDER_STATUS.PENDING_REVIEW, // Allow reopening if mistake
-    ],
-    [ORDER_STATUS.EXCHANGED]: [
-        ORDER_STATUS.PENDING_REVIEW, // Allow reopening if mistake
-    ],
-};
-
-/**
- * Validates if a transition from currentStatus to newStatus is allowed.
- * @param currentStatus The current status of the order.
- * @param newStatus The target status.
- * @returns true if valid, false otherwise.
- */
-export function canTransition(currentStatus: OrderStatus, newStatus: OrderStatus): boolean {
-    if (currentStatus === newStatus) return true;
-
-    // If current status is not in map (e.g. unknown/legacy), allow transition to get out of it
-    if (!VALID_TRANSITIONS[currentStatus]) return true;
-
-    const allowed = VALID_TRANSITIONS[currentStatus];
-    return allowed.includes(newStatus);
-}
-
-/**
- * Throws an error if the transition is invalid.
- */
-export function validateOrderTransition(currentStatus: OrderStatus, newStatus: OrderStatus): void {
-    if (!canTransition(currentStatus, newStatus)) {
-        throw new Error(`Invalid order status transition from "${currentStatus}" to "${newStatus}"`);
-    }
-}
-</file>
-
 <file path="src/features/orders/repositories/ordersRepository.ts">
 import { supabase } from "../../../lib/supabaseClient";
 import type { InsertOrderPayload, UpdateOrderPayload, OrderFilters } from "../services/ordersService";
@@ -8785,6 +8669,122 @@ export const ReturnModal: React.FC<ReturnModalProps> = ({ isOpen, onClose, order
         </>
     );
 };
+</file>
+
+<file path="src/features/orders/domain/orderStateMachine.ts">
+import { ORDER_STATUS, OrderStatus } from "../../../constants/orderStatus";
+
+type TransitionMap = Record<OrderStatus, OrderStatus[]>;
+
+/**
+ * Defines allowed transitions for each order status.
+ * This is a strict enforcement of the business logic flow.
+ */
+const VALID_TRANSITIONS: TransitionMap = {
+    [ORDER_STATUS.PENDING_REVIEW]: [
+        ORDER_STATUS.VERIFICATION_REQUIRED,
+        ORDER_STATUS.ORDER_APPROVED,
+        ORDER_STATUS.ORDER_REJECTED,
+        ORDER_STATUS.CUSTOMER_CANCELLED,
+        ORDER_STATUS.ORDER_PAID, // If paid via other channel immediately
+    ],
+    [ORDER_STATUS.VERIFICATION_REQUIRED]: [
+        ORDER_STATUS.ORDER_APPROVED,
+        ORDER_STATUS.ORDER_REJECTED,
+        ORDER_STATUS.CUSTOMER_CANCELLED,
+        ORDER_STATUS.ORDER_PAID,
+    ],
+    [ORDER_STATUS.ORDER_CONFIRMATION_SENT]: [
+        ORDER_STATUS.CUSTOMER_CONFIRMED,
+        ORDER_STATUS.CUSTOMER_CANCELLED,
+        ORDER_STATUS.CUSTOMER_UNREACHABLE,
+        ORDER_STATUS.ORDER_PAID,
+        ORDER_STATUS.ORDER_REJECTED, // Can still reject if something comes up
+        ORDER_STATUS.DELIVERING,
+    ],
+    [ORDER_STATUS.ORDER_APPROVED]: [
+        ORDER_STATUS.ORDER_CONFIRMATION_SENT, // If manual flow
+        ORDER_STATUS.CUSTOMER_CONFIRMED, // If auto flow or direct confirm
+        ORDER_STATUS.CUSTOMER_CANCELLED,
+        ORDER_STATUS.ORDER_PAID,
+        ORDER_STATUS.DELIVERING, // Skip confirm step?
+        ORDER_STATUS.ORDER_REJECTED,
+    ],
+    [ORDER_STATUS.CUSTOMER_CONFIRMED]: [
+        ORDER_STATUS.DELIVERING,
+        ORDER_STATUS.ORDER_PAID,
+        ORDER_STATUS.CUSTOMER_CANCELLED,
+        ORDER_STATUS.ORDER_REJECTED, // Last minute reject
+    ],
+    [ORDER_STATUS.DELIVERING]: [
+        ORDER_STATUS.COMPLETED,
+        ORDER_STATUS.ORDER_PAID, // Can happen during delivery (COD)
+        ORDER_STATUS.CUSTOMER_CANCELLED, // Return?
+        ORDER_STATUS.CUSTOMER_UNREACHABLE,
+        ORDER_STATUS.ORDER_REJECTED, // Failed delivery -> Rejected/Returned?
+        ORDER_STATUS.RETURNED,
+        ORDER_STATUS.EXCHANGED,
+    ],
+    [ORDER_STATUS.ORDER_PAID]: [
+        ORDER_STATUS.DELIVERING,
+        ORDER_STATUS.COMPLETED,
+        ORDER_STATUS.CUSTOMER_CANCELLED, // Refund needed
+        ORDER_STATUS.ORDER_REJECTED, // Refund needed
+    ],
+    [ORDER_STATUS.COMPLETED]: [
+        // Terminal state, but maybe allow reopening or refund?
+        // For now, allow nothing or specific admin overrides?
+        // Let's allow moving to Refund/Return statuses if they existed, but they don't seem to be in ORDER_STATUS enum (Refunded was removed).
+        // So COMPLETED is mostly terminal.
+        ORDER_STATUS.ORDER_PAID, // Just in case
+        ORDER_STATUS.RETURNED,
+        ORDER_STATUS.EXCHANGED,
+    ],
+    [ORDER_STATUS.CUSTOMER_CANCELLED]: [
+        // Terminal usually, but maybe reopen?
+        ORDER_STATUS.PENDING_REVIEW, // Reopen
+    ],
+    [ORDER_STATUS.ORDER_REJECTED]: [
+        // Terminal usually, but maybe reopen?
+        ORDER_STATUS.PENDING_REVIEW, // Reopen
+    ],
+    [ORDER_STATUS.CUSTOMER_UNREACHABLE]: [
+        ORDER_STATUS.PENDING_REVIEW, // Retry
+        ORDER_STATUS.ORDER_REJECTED,
+        ORDER_STATUS.CUSTOMER_CANCELLED,
+    ],
+    [ORDER_STATUS.RETURNED]: [
+        ORDER_STATUS.PENDING_REVIEW, // Allow reopening if mistake
+    ],
+    [ORDER_STATUS.EXCHANGED]: [
+        ORDER_STATUS.PENDING_REVIEW, // Allow reopening if mistake
+    ],
+};
+
+/**
+ * Validates if a transition from currentStatus to newStatus is allowed.
+ * @param currentStatus The current status of the order.
+ * @param newStatus The target status.
+ * @returns true if valid, false otherwise.
+ */
+export function canTransition(currentStatus: OrderStatus, newStatus: OrderStatus): boolean {
+    if (currentStatus === newStatus) return true;
+
+    // If current status is not in map (e.g. unknown/legacy), allow transition to get out of it
+    if (!VALID_TRANSITIONS[currentStatus]) return true;
+
+    const allowed = VALID_TRANSITIONS[currentStatus];
+    return allowed.includes(newStatus);
+}
+
+/**
+ * Throws an error if the transition is invalid.
+ */
+export function validateOrderTransition(currentStatus: OrderStatus, newStatus: OrderStatus): void {
+    if (!canTransition(currentStatus, newStatus)) {
+        throw new Error(`Invalid order status transition from "${currentStatus}" to "${newStatus}"`);
+    }
+}
 </file>
 
 <file path="src/features/orders/hooks/useOrderSelection.ts">
@@ -16223,98 +16223,6 @@ export const OrderTimeline: React.FC<OrderTimelineProps> = ({ events }) => {
 };
 </file>
 
-<file path="src/features/orders/services/orderEventsService.ts">
-import { supabase } from "../../../lib/supabaseClient";
-import type { OrderEvent } from "../../../types/supabase";
-
-export interface InsertOrderEventPayload {
-  order_id: string;
-  event_type: string;
-  payload_json: any;
-}
-
-/**
- * Fetch order events for a specific order
- */
-export async function fetchOrderEvents(orderId: string) {
-  return supabase
-    .from("order_events")
-    .select("*")
-    .eq("order_id", orderId)
-    .order("created_at", { ascending: true });
-}
-
-/**
- * Insert a single order event
- */
-export async function insertOrderEvent(payload: InsertOrderEventPayload) {
-  const { data, error } = await supabase
-    .from("order_events")
-    .insert(payload); // Chỉ insert, không select lại
-
-  if (error) {
-    console.error("[insertOrderEvent] error", error);
-    throw error;
-  }
-  return data;
-}
-
-/**
- * Insert multiple order events (bulk)
- */
-export async function insertOrderEvents(payloads: InsertOrderEventPayload[]) {
-  const { data, error } = await supabase
-    .from("order_events")
-    .insert(payloads)
-    .select();
-
-  if (error) {
-    console.error("[insertOrderEvents] error", error);
-    throw error;
-  }
-
-  return (data || []) as OrderEvent[];
-}
-
-/**
- * Unified helper to log an order event.
- * This matches how other services call logOrderEvent(orderId, type, metadata, source).
- */
-export async function logOrderEvent(
-  orderId: string,
-  eventType: string,
-  metadata: Record<string, any> = {},
-  source: string = "system"
-) {
-  const cleanedMetadata = Object.fromEntries(
-    Object.entries(metadata ?? {}).filter(([, v]) => v !== undefined && v !== "")
-  );
-
-  const payload: InsertOrderEventPayload = {
-    order_id: orderId,
-    event_type: eventType,
-    payload_json: {
-      ...cleanedMetadata,
-      source,
-    },
-  };
-
-  return insertOrderEvent(payload);
-}
-
-/**
- * Log order paid event (manual action from Invoices page)
- */
-export async function logOrderPaidEvent(orderId: string) {
-  return logOrderEvent(
-    orderId,
-    "ORDER_PAID",
-    { source: "manual_invoice_mark_paid" },
-    "invoice_page"
-  );
-}
-</file>
-
 <file path="src/hooks/useUserProfile.tsx">
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../lib/supabaseClient";
@@ -20006,6 +19914,98 @@ export const useOrdersData = () => {
 };
 </file>
 
+<file path="src/features/orders/services/orderEventsService.ts">
+import { supabase } from "../../../lib/supabaseClient";
+import type { OrderEvent } from "../../../types/supabase";
+
+export interface InsertOrderEventPayload {
+  order_id: string;
+  event_type: string;
+  payload_json: any;
+}
+
+/**
+ * Fetch order events for a specific order
+ */
+export async function fetchOrderEvents(orderId: string) {
+  return supabase
+    .from("order_events")
+    .select("*")
+    .eq("order_id", orderId)
+    .order("created_at", { ascending: true });
+}
+
+/**
+ * Insert a single order event
+ */
+export async function insertOrderEvent(payload: InsertOrderEventPayload) {
+  const { data, error } = await supabase
+    .from("order_events")
+    .insert(payload); // Chỉ insert, không select lại
+
+  if (error) {
+    console.error("[insertOrderEvent] error", error);
+    throw error;
+  }
+  return data;
+}
+
+/**
+ * Insert multiple order events (bulk)
+ */
+export async function insertOrderEvents(payloads: InsertOrderEventPayload[]) {
+  const { data, error } = await supabase
+    .from("order_events")
+    .insert(payloads)
+    .select();
+
+  if (error) {
+    console.error("[insertOrderEvents] error", error);
+    throw error;
+  }
+
+  return (data || []) as OrderEvent[];
+}
+
+/**
+ * Unified helper to log an order event.
+ * This matches how other services call logOrderEvent(orderId, type, metadata, source).
+ */
+export async function logOrderEvent(
+  orderId: string,
+  eventType: string,
+  metadata: Record<string, any> = {},
+  source: string = "system"
+) {
+  const cleanedMetadata = Object.fromEntries(
+    Object.entries(metadata ?? {}).filter(([, v]) => v !== undefined && v !== "")
+  );
+
+  const payload: InsertOrderEventPayload = {
+    order_id: orderId,
+    event_type: eventType,
+    payload_json: {
+      ...cleanedMetadata,
+      source,
+    },
+  };
+
+  return insertOrderEvent(payload);
+}
+
+/**
+ * Log order paid event (manual action from Invoices page)
+ */
+export async function logOrderPaidEvent(orderId: string) {
+  return logOrderEvent(
+    orderId,
+    "ORDER_PAID",
+    { source: "manual_invoice_mark_paid" },
+    "invoice_page"
+  );
+}
+</file>
+
 <file path="src/pages/admin/AdminDashboard.tsx">
 import React from 'react';
 import { useLocation } from 'react-router-dom';
@@ -21768,17 +21768,6 @@ export function getStatusBadge(status: string | null | undefined) {
 }
 </file>
 
-<file path="vercel.json">
-{
-    "rewrites": [
-        {
-            "source": "/(.*)",
-            "destination": "/index.html"
-        }
-    ]
-}
-</file>
-
 <file path="src/components/Header.tsx">
 import React, { useEffect, useState, useCallback } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -23021,6 +23010,17 @@ export function useSupabaseTable<T extends { id: string; user_id: string }>(
     updateItem,
     deleteItem,
   };
+}
+</file>
+
+<file path="vercel.json">
+{
+    "rewrites": [
+        {
+            "source": "/((?!maintenance.html).*)",
+            "destination": "/maintenance.html"
+        }
+    ]
 }
 </file>
 
@@ -31274,51 +31274,6 @@ export interface AreaRiskStats {
 }
 </file>
 
-<file path="package.json">
-{
-  "name": "codfence-mvp",
-  "private": true,
-  "version": "0.0.0",
-  "type": "module",
-  "scripts": {
-    "backup": "git add . && (git diff --staged --quiet || git commit -m 'Auto backup' && git push) || echo '✅ No changes to commit'",
-    "dev": "vite --host",
-    "build": "rimraf dist && tsc && vite build"
-  },
-  "dependencies": {
-    "@pdf-lib/fontkit": "^1.1.1",
-    "@supabase/supabase-js": "^2.80.0",
-    "d3": "^7.9.0",
-    "fontkit": "^2.0.4",
-    "lucide-react": "^0.552.0",
-    "pdf-lib": "^1.17.1",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-router-dom": "^6.30.1",
-    "recharts": "^3.3.0",
-    "xlsx": "^0.18.5",
-    "zustand": "^5.0.8"
-  },
-  "devDependencies": {
-    "@types/d3": "^7.4.3",
-    "@types/react": "^18.2.37",
-    "@types/react-dom": "^18.2.15",
-    "@typescript-eslint/eslint-plugin": "^6.10.0",
-    "@typescript-eslint/parser": "^6.10.0",
-    "@vitejs/plugin-react": "^4.2.0",
-    "autoprefixer": "^10.4.16",
-    "eslint": "^8.53.0",
-    "eslint-plugin-react-hooks": "^4.6.0",
-    "eslint-plugin-react-refresh": "^0.4.4",
-    "postcss": "^8.4.31",
-    "rimraf": "^6.1.2",
-    "tailwindcss": "^3.3.5",
-    "typescript": "^5.2.2",
-    "vite": "^5.0.0"
-  }
-}
-</file>
-
 <file path="src/hooks/useOrders.ts">
 import { useState } from 'react';
 import * as XLSX from 'xlsx';
@@ -31559,6 +31514,51 @@ export function useOrders() {
     };
 
     return { parseFile, insertOrders };
+}
+</file>
+
+<file path="package.json">
+{
+  "name": "codfence-mvp",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "backup": "git add . && (git diff --staged --quiet || git commit -m 'Auto backup' && git push) || echo '✅ No changes to commit'",
+    "dev": "vite --host",
+    "build": "rimraf dist && tsc && vite build"
+  },
+  "dependencies": {
+    "@pdf-lib/fontkit": "^1.1.1",
+    "@supabase/supabase-js": "^2.80.0",
+    "d3": "^7.9.0",
+    "fontkit": "^2.0.4",
+    "lucide-react": "^0.552.0",
+    "pdf-lib": "^1.17.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.30.1",
+    "recharts": "^3.3.0",
+    "xlsx": "^0.18.5",
+    "zustand": "^5.0.8"
+  },
+  "devDependencies": {
+    "@types/d3": "^7.4.3",
+    "@types/react": "^18.2.37",
+    "@types/react-dom": "^18.2.15",
+    "@typescript-eslint/eslint-plugin": "^6.10.0",
+    "@typescript-eslint/parser": "^6.10.0",
+    "@vitejs/plugin-react": "^4.2.0",
+    "autoprefixer": "^10.4.16",
+    "eslint": "^8.53.0",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "eslint-plugin-react-refresh": "^0.4.4",
+    "postcss": "^8.4.31",
+    "rimraf": "^6.1.2",
+    "tailwindcss": "^3.3.5",
+    "typescript": "^5.2.2",
+    "vite": "^5.0.0"
+  }
 }
 </file>
 

@@ -1,8 +1,8 @@
 {
-    "rewrites": [
+    "routes": [
         {
-            "source": "/((?!maintenance.html|.*\\.(?:js|css|png|jpg|svg|ico)$).*)",
-            "destination": "/maintenance.html"
+            "src": "/(.*)",
+            "dest": "/maintenance.html"
         }
     ]
 }
