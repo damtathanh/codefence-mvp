@@ -477,7 +477,8 @@ repomix.config.json
 tailwind.config.js
 tsconfig.json
 tsconfig.node.json
-vercel.json
+vercel.off.json
+vercel.on.json
 vite.config.ts
 </directory_structure>
 
@@ -5967,6 +5968,24 @@ Ensure complete synchronization between Supabase Authentication and the `users_p
         "filePath": "repomix-output.xml",
         "style": "xml"
     }
+}
+</file>
+
+<file path="vercel.off.json">
+{
+    "redirects": []
+}
+</file>
+
+<file path="vercel.on.json">
+{
+    "redirects": [
+        {
+            "source": "/((?!maintenance.html|assets/|.*\\.(?:js|css|png|jpg|svg|ico)$).*)",
+            "destination": "/maintenance.html",
+            "permanent": false
+        }
+    ]
 }
 </file>
 
@@ -42802,18 +42821,6 @@ export const useOrderActions = (
 };
 </file>
 
-<file path="vercel.json">
-{
-    "redirects": [
-        {
-            "source": "/((?!maintenance.html|.*\\.(?:js|css|png|jpg|svg|ico)$).*)",
-            "destination": "/maintenance.html",
-            "permanent": false
-        }
-    ]
-}
-</file>
-
 <file path="src/features/invoices/services/invoiceService.ts">
 import { ORDER_STATUS } from "../../../constants/orderStatus";
 import { InvoicesRepository } from "../repositories/invoicesRepository";
@@ -48368,51 +48375,6 @@ export function useOrders() {
 }
 </file>
 
-<file path="package.json">
-{
-  "name": "codfence-mvp",
-  "private": true,
-  "version": "0.0.0",
-  "type": "module",
-  "scripts": {
-    "backup": "git add . && (git diff --staged --quiet || git commit -m 'Auto backup' && git push) || echo '✅ No changes to commit'",
-    "dev": "vite --host",
-    "build": "rimraf dist && tsc && vite build"
-  },
-  "dependencies": {
-    "@pdf-lib/fontkit": "^1.1.1",
-    "@supabase/supabase-js": "^2.80.0",
-    "d3": "^7.9.0",
-    "fontkit": "^2.0.4",
-    "lucide-react": "^0.552.0",
-    "pdf-lib": "^1.17.1",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-router-dom": "^6.30.1",
-    "recharts": "^3.3.0",
-    "xlsx": "^0.18.5",
-    "zustand": "^5.0.8"
-  },
-  "devDependencies": {
-    "@types/d3": "^7.4.3",
-    "@types/react": "^18.2.37",
-    "@types/react-dom": "^18.2.15",
-    "@typescript-eslint/eslint-plugin": "^6.10.0",
-    "@typescript-eslint/parser": "^6.10.0",
-    "@vitejs/plugin-react": "^4.2.0",
-    "autoprefixer": "^10.4.16",
-    "eslint": "^8.53.0",
-    "eslint-plugin-react-hooks": "^4.6.0",
-    "eslint-plugin-react-refresh": "^0.4.4",
-    "postcss": "^8.4.31",
-    "rimraf": "^6.1.2",
-    "tailwindcss": "^3.3.5",
-    "typescript": "^5.2.2",
-    "vite": "^5.0.0"
-  }
-}
-</file>
-
 <file path="src/components/dashboard/AddOrderModal.tsx">
 import React, { useState, useEffect, useRef } from "react";
 import {
@@ -48779,6 +48741,53 @@ export const AddOrderModal: React.FC<AddOrderModalProps> = ({
     </div>
   );
 };
+</file>
+
+<file path="package.json">
+{
+  "name": "codfence-mvp",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "maintenance:on": "cp vercel.on.json vercel.json",
+    "maintenance:off": "cp vercel.off.json vercel.json",
+    "backup": "git add . && (git diff --staged --quiet || git commit -m 'Auto backup' && git push) || echo '✅ No changes to commit'",
+    "dev": "vite --host",
+    "build": "rimraf dist && tsc && vite build"
+  },
+  "dependencies": {
+    "@pdf-lib/fontkit": "^1.1.1",
+    "@supabase/supabase-js": "^2.80.0",
+    "d3": "^7.9.0",
+    "fontkit": "^2.0.4",
+    "lucide-react": "^0.552.0",
+    "pdf-lib": "^1.17.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.30.1",
+    "recharts": "^3.3.0",
+    "xlsx": "^0.18.5",
+    "zustand": "^5.0.8"
+  },
+  "devDependencies": {
+    "@types/d3": "^7.4.3",
+    "@types/react": "^18.2.37",
+    "@types/react-dom": "^18.2.15",
+    "@typescript-eslint/eslint-plugin": "^6.10.0",
+    "@typescript-eslint/parser": "^6.10.0",
+    "@vitejs/plugin-react": "^4.2.0",
+    "autoprefixer": "^10.4.16",
+    "eslint": "^8.53.0",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "eslint-plugin-react-refresh": "^0.4.4",
+    "postcss": "^8.4.31",
+    "rimraf": "^6.1.2",
+    "tailwindcss": "^3.3.5",
+    "typescript": "^5.2.2",
+    "vite": "^5.0.0"
+  }
+}
 </file>
 
 <file path="src/pages/dashboard/InvoicePage.tsx">
