@@ -4,8 +4,6 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "maintenance:on": "cp vercel.on.json vercel.json",
-    "maintenance:off": "cp vercel.off.json vercel.json",
     "backup": "git add . && (git diff --staged --quiet || git commit -m 'Auto backup' && git push) || echo '✅ No changes to commit'",
     "dev": "vite --host",
     "build": "rimraf dist && tsc && vite build"
