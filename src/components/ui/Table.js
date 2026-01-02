@@ -1,4 +1,0 @@
-import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
-export const Table = ({ headers, rows, className = '', }) => {
-    return (_jsx("div", { className: `overflow-x-auto ${className}`, children: _jsxs("table", { className: "w-full", children: [_jsx("thead", { children: _jsx("tr", { className: "border-b border-white/20", children: headers.map((header, index) => (_jsx("th", { className: "px-6 py-3 text-left text-xs font-semibold text-white/80 uppercase tracking-wider", children: header }, index))) }) }), _jsx("tbody", { className: "divide-y divide-white/10", children: rows.map((row, rowIndex) => (_jsx("tr", { className: "hover:bg-white/5 transition-colors", children: row.map((cell, cellIndex) => (_jsx("td", { className: "px-6 py-4 whitespace-nowrap text-sm text-white/90", children: cell }, cellIndex))) }, rowIndex))) })] }) }));
-};

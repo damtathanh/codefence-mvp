@@ -1,4 +1,0 @@
-import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
-export const OperationsTab = ({ dateRange, customFrom, customTo }) => {
-    return (_jsxs("div", { className: "space-y-6 min-h-0", children: [_jsx("h3", { className: "text-lg font-semibold text-white", children: "Operations Overview" }), _jsx("p", { className: "text-sm text-white/60", children: "Cost structure, expenses and operational efficiency analytics." }), _jsxs("div", { className: "bg-[#111827] border border-white/10 rounded-lg p-6 text-white/80", children: [_jsx("h4", { className: "text-md font-semibold mb-2", children: "Coming soon" }), _jsx("p", { className: "text-sm text-white/60", children: "Soon you will be able to track staff salary, marketing cost, shipping fees, return cost, COD fee and overall operational efficiency." })] })] }));
-};
